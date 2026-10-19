@@ -7,7 +7,6 @@ from typing import Dict, List, Tuple, Optional, Any
 import requests
 import pandas as pd
 import yfinance as yf
-import gspread
 from google import genai
 from google.genai import types
 import streamlit as st
@@ -16,12 +15,12 @@ import streamlit as st
 # CẤU HÌNH GIAO DIỆN STREAMLIT
 # ============================================================================
 st.set_page_config(
-    page_title="QUANTS PRO V16.7 - Quantitative & Smart Money Engine",
+    page_title="QUANTS PRO V16.8 - Quantitative & Smart Money Engine",
     page_icon="📈",
     layout="wide"
 )
 
-st.title("📈 QUANTS PRO V16.7 - HỆ THỐNG ĐỊNH LƯỢNG & DÒNG TIỀN CÁ MẬP")
+st.title("📈 QUANTS PRO V16.8 - HỆ THỐNG ĐỊNH LƯỢNG & DÒNG TIỀN CÁ MẬP")
 st.markdown("Hệ thống tích hợp dữ liệu Realtime, Vĩ mô chuẩn xác, Big Boy Tracking, Luân chuyển ngành & AI Gemini Đa Tầng.")
 
 # ============================================================================
@@ -46,15 +45,6 @@ def init_connections():
 
 ai_client = init_connections()
 DANH_SACH_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
-
-def safe_float(val: Any, default: float = 0.0) -> float:
-    try:
-        if val is None: return default
-        s = str(val).replace(",", "").replace("%", "").replace("+", "").strip()
-        if not s or s in ("---", "N/A", ""): return default
-        return float(s)
-    except Exception:
-        return default
 
 # ============================================================================
 # LẤY DỮ LIỆU REALTIME THỊ TRƯỜNG & VĨ MÔ CHUẨN XÁC TỪ API
@@ -111,14 +101,24 @@ if ai_client:
         st.sidebar.success(f"Đã nạp thành công các mã: {default_tickers} vào mô hình định lượng!")
 
     run_engine = st.sidebar.button("🚀 Chạy Quants Engine & Suy Luận AI", type="primary")
-    run_backtest = st.sidebar.button("📊 Thực thi Backtest & Hiệu Ch chỉnh AI")
+    run_backtest = st.sidebar.button("📊 Thực thi Backtest & Hiệu Chỉnh AI")
 
     # Tải dữ liệu các tab từ Google Sheets qua CSV Export
     try:
         csv_url_main = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=1090987711"
         df_main = pd.read_csv(csv_url_main)
+        
+        # Chuẩn hóa chính xác giá khớp: nhân 1,000 để hiển thị đúng giá VNĐ (ví dụ 9.5 -> 9,500)
         if 'Giá Khớp' in df_main.columns:
-            df_main['Giá Khớp'] = df_main['Giá Khớp'].apply(lambda x: f"{x*1000:,.0f}" if x < 1000 else f"{x:,.0f}")
+            df_main['Giá Khớp Chuẩn'] = df_main['Giá Khớp'].apply(lambda x: f"{x * 1000:,.0f}" if pd.notnull(x) else "")
+            # Đưa cột giá chuẩn lên thay thế cột cũ cho trực quan
+            cols = list(df_main.columns)
+            idx = cols.index('Giá Khớp')
+            cols[idx] = 'Giá Khớp (VNĐ)'
+            df_main.columns = cols
+            # Gán lại giá trị
+            df_main['Giá Khớp (VNĐ)'] = df_main['Giá Khớp Chuẩn'].copy()
+            df_main = df_main.drop(columns=['Giá Khớp Chuẩn'])
     except Exception as e:
         st.error(f"Không thể tải tab TheoDoi_DongTien: {e}")
         df_main = pd.DataFrame()
