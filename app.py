@@ -28,13 +28,18 @@ st.set_page_config(
 st.title("📈 QUANTS PRO V16.30 – Enterprise Quantitative Engine")
 st.markdown("Hệ thống định lượng 2 tầng • Order Flow thông minh • Quét Media 48h • Kiểm toán Backtest AI")
 
-gemini_api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", "AQ.Ab8RN6JChnsvwKO7ARktEzImPpLaU7wniK1-lqpLBf72D_OnAw")
+# Sử dụng API key mới bạn vừa cung cấp
+gemini_api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", "AQ.Ab8RN6JCTZo18_WbUR0VKgGXjaUjzcZwo8KVhHyVCoEJz4LPBA")
 
 @st.cache_resource
 def init_gemini():
     try:
+        if not gemini_api_key:
+            st.warning("Chưa tìm thấy Gemini API Key.")
+            return None
         return genai.Client(api_key=gemini_api_key)
-    except Exception:
+    except Exception as e:
+        st.error(f"Lỗi khởi tạo Gemini Client: {e}")
         return None
 
 ai_client = init_gemini()
@@ -316,7 +321,6 @@ def chay_engine(tickers: List[str]) -> pd.DataFrame:
         elif vol_ratio < 0.80 and abs(chg_pct) <= 0.008 and net_flow >= 0: wyckoff = "💎 Absorption Setup"
         elif chg_pct <= -0.02 and vol_ratio >= 1.4: wyckoff = "🟢 Quá Bán / Chờ Nảy KT"
 
-        # Tích hợp Two-Stage Quant Discipline & P_Win
         p_win = 50.0
         if "Trên VWAP" in vwap_tag: p_win += 13
         else: p_win -= 4 if "Quá Bán" in wyckoff or "Spring" in wyckoff else 12
@@ -343,7 +347,6 @@ def chay_engine(tickers: List[str]) -> pd.DataFrame:
         quality = max(20, min(88, int(50 + (ratio - 1) * 32)))
         signal = max(25, min(92, int(55 + chg_pct * 160 + (vol_ratio - 1) * 12)))
 
-        # Lưu vết cho backtest
         st.session_state.prediction_history.append({
             "time": now.strftime("%Y-%m-%d %H:%M"),
             "symbol": sym,
@@ -367,15 +370,16 @@ def chay_engine(tickers: List[str]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 # ============================================================================
-# MODULE 2: QUÉT MEDIA & TÂM LÝ NHỎ LẺ 48H (TƯƠNG TỰ HỆ THỐNG 1)
+# MODULE 2: QUÉT MEDIA & TÂM LÝ NHỎ LẺ 48H
 # ============================================================================
 def chay_quet_media_48h(tickers: List[str]):
     if not ai_client:
-        return [{"target": "Hệ thống", "pr_level": "Thấp", "retail_buzz": "Chưa có API", "sentiment": "Trung tính", "lai_intent": "---", "warning": "Chưa cấu hình Gemini API"}]
+        st.error("Chưa khởi tạo được Gemini Client. Vui lòng kiểm tra lại API Key.")
+        return []
     
     prompt = f"""Bạn là Chuyên gia Điều tra Dòng Tiền & Bóc Mẽ Tâm Lý Lái trên TTCK Việt Nam.
 DANH MỤC CẦN THEO DÕI: {", ".join(tickers)}
-YÊU CẦU: Giả lập tổng hợp thông tin thị trường và các mã trong 48h qua, trả về JSON ARRAY chuẩn:
+YÊU CẦU: Tổng hợp thông tin thị trường và các mã trong 48h qua, trả về JSON ARRAY chuẩn:
 [
   {{"target": "Mã CP hoặc Ngành", "pr_level": "Cao / Trung bình / Thấp", "retail_buzz": "F0 Hưng phấn / Hoảng loạn / Cân bằng", "sentiment": "Tích cực / Tiêu cực / Trung tính", "lai_intent": "Phân phối / Ép rũ cung / Fomo kéo giá", "warning": "Cảnh báo ngắn"}}
 ]"""
@@ -391,7 +395,8 @@ YÊU CẦU: Giả lập tổng hợp thông tin thị trường và các mã tro
                 s, e = txt.find("["), txt.rfind("]")
                 if s != -1 and e != -1:
                     return json.loads(txt[s:e+1])
-        except:
+        except Exception as e:
+            st.warning(f"Thử model {m} lỗi: {e}")
             continue
     return []
 
@@ -442,7 +447,6 @@ with tab2:
 
 with tab3:
     st.subheader("Hệ Thống Kiểm Toán & Theo Dõi Sai Số (AI Predictions Tracking)")
-    st.markdown("Tab này thay thế tab `AI_Predictions` giúp đo lường độ chính xác (MAE, Win Rate) của hệ thống.")
     if st.session_state.prediction_history:
         df_pred = pd.DataFrame(st.session_state.prediction_history[-30:])
         st.dataframe(df_pred, use_container_width=True)
@@ -451,28 +455,34 @@ with tab3:
 
 with tab4:
     st.subheader("Trợ Lý AI Định Lượng (Mini-Batch Inference)")
-    if run_ai_btn and ai_client:
-        with st.spinner("Đang tổng hợp batch và chạy suy luận AI..."):
-            records = df_quant.to_dict("records")
-            answers = []
-            for i in range(0, len(records), 6):
-                batch = records[i:i+6]
-                prompt = f"""Bạn là Quản lý Quỹ Định lượng TTCK Việt Nam.
+    if run_ai_btn:
+        if not ai_client:
+            st.error("Chưa kết nối được với Gemini API. Vui lòng kiểm tra lại API Key.")
+        else:
+            with st.spinner("Đang tổng hợp batch và chạy suy luận AI..."):
+                records = df_quant.to_dict("records")
+                answers = []
+                for i in range(0, len(records), 6):
+                    batch = records[i:i+6]
+                    prompt = f"""Bạn là Quản lý Quỹ Định lượng TTCK Việt Nam.
 VN-Index: {vni_p} ({vni_chg:+.2f}), Regime: {regime}.
 DỮ LIỆU BATCH: {json.dumps(batch, ensure_ascii=False)}
 YÊU CẦU: Đánh giá xu hướng cung cầu, định rõ hành động (Mua/Quan sát/Hạ tỷ trọng) dựa trên P_Win."""
-                for m in MODELS:
-                    try:
-                        resp = ai_client.models.generate_content(model=m, contents=[prompt])
-                        if resp and resp.text:
-                            answers.append(resp.text)
-                            break
-                    except:
-                        continue
-                time.sleep(0.4)
-            for idx, a in enumerate(answers):
-                st.markdown(f"### Batch Phân Tích #{idx+1}")
-                st.markdown(a)
+                    for m in MODELS:
+                        try:
+                            resp = ai_client.models.generate_content(model=m, contents=[prompt])
+                            if resp and resp.text:
+                                answers.append(resp.text)
+                                break
+                        except Exception as e:
+                            continue
+                    time.sleep(0.4)
+                if answers:
+                    for idx, a in enumerate(answers):
+                        st.markdown(f"### Batch Phân Tích #{idx+1}")
+                        st.markdown(a)
+                else:
+                    st.warning("Không nhận được phản hồi từ các model Gemini. Có thể hạn ngạch API key đã hết hoặc model đang bận.")
     else:
         st.info("Nhấn nút 'Chạy Phân Tích AI Đa Tầng' ở sidebar để bắt đầu.")
 
