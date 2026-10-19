@@ -11,9 +11,6 @@ import pytz
 from google import genai
 from google.genai import types
 
-# ============================================================================
-# CẤU HÌNH HỆ THỐNG & DATABASE NỘI BỘ (THAY THẾ HOÀN TOÀN GOOGLE SHEETS)
-# ============================================================================
 st.set_page_config(page_title="QUANTS PRO V16.1 - Smart Money Engine", layout="wide", page_icon="📈")
 
 VN_TZ = pytz.timezone("Asia/Ho_Chi_Minh")
@@ -45,7 +42,6 @@ DANH_SACH_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash-lite-l
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    # Kiểm tra và tạo bảng watchlist an toàn
     c.execute("""CREATE TABLE IF NOT EXISTS watchlist (symbol TEXT PRIMARY KEY, sector TEXT)""")
     try:
         c.execute("ALTER TABLE watchlist ADD COLUMN sector TEXT")
@@ -84,7 +80,7 @@ def init_db():
     c.execute("SELECT COUNT(*) FROM watchlist")
     if c.fetchone()[0] == 0:
         for sym in DEFAULT_TICKERS:
-            c.execute("INSERT OR IGNORE INTO watchlist VALUES (?, ?)", (sym, "Chung"))
+            c.execute("INSERT OR IGNORE INTO watchlist VALUES (?, ?)", (sym, "Đang cập nhật"))
     conn.commit()
     conn.close()
 
@@ -202,7 +198,13 @@ def cap_nhat_vnindex_realtime() -> dict:
     if not fetch_ok:
         diem, chg_diem, chg_pct, vol, val_ty, gate_used = 1265.0, 0.0, 0.0, 500000000, 15000.0, "Fallback Default"
 
-    regime = "Normal Sideway Accumulation" if abs(chg_diem) < 5 else ("Moderate Uptrend" if chg_diem > 0 else "Moderate Pullback")
+    if val_ty >= 22000:
+        regime = "High-Vol Bullish Expansion" if chg_diem >= 0 else "High-Vol Distribution"
+    elif 0 < val_ty <= 12000:
+        regime = "Low-Vol Squeeze / Cạn kiệt thanh khoản"
+    else:
+        regime = "Normal Sideway Accumulation" if abs(chg_diem) < 5 else ("Moderate Uptrend" if chg_diem > 0 else "Moderate Pullback")
+
     summary = f"VN-Index: {diem:,.2f} ({chg_diem:+.2f}đ) | KL: {vol:,.0f} CP | GTGD: {val_ty:,.0f} Tỷ | Regime: [{regime}]"
     return {
         "diem": diem, "ref": ref, "chg_diem": chg_diem, "chg_pct": chg_pct,
@@ -287,6 +289,10 @@ def lay_va_kiem_dinh_du_lieu_da_nguon(tickers_list: list) -> dict:
         sel_vol = ds["vol"] if ds["vol"] > 0 else dv["vol"]
         sel_fb = ds["fB"] if (ds["fB"] > 0 or ds["fS"] > 0) else dv["fB"]
         sel_fs = ds["fS"] if (ds["fB"] > 0 or ds["fS"] > 0) else dv["fS"]
+        warn = ""
+        if dv["vol"] > 0 and ds["vol"] > 0:
+            diff_pct = abs(dv["vol"] - ds["vol"]) / max(dv["vol"], ds["vol"])
+            if diff_pct > 0.15: warn = f"⚠️ Lệch Feed ({diff_pct*100:.0f}%)"
         best_p = ds["p"] if ds["p"] > 0 else dv["p"]
         best_r = ds["r"] if ds["r"] > 0 else dv["r"]
         best_h = (ds["high"] if ds["high"] > 0 else dv["high"]) or best_p
@@ -294,22 +300,79 @@ def lay_va_kiem_dinh_du_lieu_da_nguon(tickers_list: list) -> dict:
         best_ave = ds["ave"] if ds["ave"] > 0 else (dv["ave"] if dv["ave"] > 0 else (best_h + best_l) / 2)
         final_map[sym] = {
             "p": best_p, "r": best_r, "vol": sel_vol, "high": best_h, "low": best_l, "ave": best_ave,
-            "fB": sel_fb, "fS": sel_fs, "warning": ""
+            "fB": sel_fb, "fS": sel_fs, "warning": warn
         }
     return final_map
 
 def tu_dong_cap_nhat_chart_tuan(tickers_list: list):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    now_ts = int(time.time())
+    from_ts = now_ts - (120 * 86400)
+
     for sym in tickers_list:
         c.execute("SELECT sector FROM watchlist WHERE symbol=?", (sym,))
         row_s = c.fetchone()
-        sec = row_s[0] if row_s and row_s[0] not in ("", "Chung", "Thị trường chung") else lay_nganh_tu_dong(sym)
+        sec = row_s[0] if row_s and row_s[0] not in ("", "Đang cập nhật", "Thị trường chung", "Chung") else lay_nganh_tu_dong(sym)
         c.execute("UPDATE watchlist SET sector=? WHERE symbol=?", (sec, sym))
+
+        closes = []
+        fetch_ok = False
+        try:
+            url_d = f"https://dchart-api.vndirect.com.vn/dchart/history?resolution=D&symbol={sym}&from={from_ts}&to={now_ts}"
+            r_d = requests.get(url_d, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
+            if r_d.status_code == 200:
+                jd = r_d.json()
+                if jd and "c" in jd and len(jd["c"]) >= 20:
+                    closes = [float(x)*1000 if float(x) < 1000 else float(x) for x in jd["c"]]
+                    fetch_ok = True
+        except Exception:
+            pass
+
+        if not fetch_ok:
+            try:
+                url_t = f"https://apipubaws.tcbs.com.vn/stock-insight/v1/stock/bars-long-term?ticker={sym}&type=stock&resolution=D"
+                r_t = requests.get(url_t, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
+                if r_t.status_code == 200:
+                    dt = r_t.json().get("data") or []
+                    if len(dt) >= 20:
+                        closes = [float(it["close"])*1000 if float(it["close"]) < 1000 else float(it["close"]) for it in dt[-60:]]
+                        fetch_ok = True
+            except Exception:
+                pass
+
+        trend, bias, ma_tag, sup, res = "Tích lũy", "NEUTRAL", "Quanh MA20W (0.0%)", 10000, 12000
+        if fetch_ok and len(closes) >= 20:
+            cur_close = closes[-1]
+            ma10w = sum(closes[-min(50, len(closes)):]) / min(50, len(closes))
+            ma20w = sum(closes[-min(60, len(closes)):]) / min(60, len(closes))
+            sup = round(min(closes[-min(40, len(closes)):]))
+            res = round(max(closes[-min(40, len(closes)):]))
+            dist_ma20 = (cur_close - ma20w) / ma20w if ma20w > 0 else 0
+            dist_ma10 = (cur_close - ma10w) / ma10w if ma10w > 0 else 0
+
+            if cur_close >= ma10w and ma10w >= ma20w and dist_ma20 >= 0.03:
+                trend = "Uptrend vùng cao" if dist_ma20 >= 0.12 else "Uptrend trung hạn"
+                bias = "STRONG_BULLISH" if dist_ma20 >= 0.12 else "BULLISH"
+                ma_tag = f"> MA10W (+{dist_ma10*100:.1f}%)"
+            elif cur_close >= ma20w and dist_ma20 >= 0.005:
+                trend = "Uptrend tích lũy"
+                bias = "BULLISH"
+                ma_tag = f"> MA20W (+{dist_ma20*100:.1f}%)"
+            elif dist_ma20 <= -0.05:
+                trend = "Downtrend yếu" if dist_ma20 <= -0.15 else "Phục hồi từ đáy"
+                bias = "BEARISH"
+                ma_tag = f"< MA20W ({dist_ma20*100:.1f}%)"
+            else:
+                trend = "Tích lũy"
+                bias = "NEUTRAL"
+                ma_tag = f"Quanh MA20W ({dist_ma20*100:.1f}%)"
+
         c.execute("INSERT OR REPLACE INTO config_trend VALUES (?, ?, ?, ?, ?, ?, ?)",
-                  (sym, sec, "Tích lũy", "Quanh MA20W (0.0%)", 10000, 12000, "NEUTRAL"))
+                  (sym, sec, trend, ma_tag, sup, res, bias))
     conn.commit()
     conn.close()
+    ghi_log("AUTO DETECT NẾN TUẦN", len(tickers_list), 0, "Quét nến tuần hoàn tất")
 
 def chay_quants_v15_4_realtime() -> Tuple[pd.DataFrame, pd.DataFrame, dict]:
     conn = sqlite3.connect(DB_FILE)
@@ -369,8 +432,7 @@ def chay_quants_v15_4_realtime() -> Tuple[pd.DataFrame, pd.DataFrame, dict]:
         spread = high - low
         deal_d = lay_deal_flow_thuc_te(sym)
         if deal_d["isReal"] and (deal_d["realBuyVol"] + deal_d["realSellVol"] > 0):
-            buy_vol = deal_d["realBuyVol"]
-            sell_vol = deal_d["realSellVol"]
+            buy_vol, sell_vol = deal_d["realBuyVol"], deal_d["realSellVol"]
         else:
             if is_pre_market or (spread == 0 and p == ref): buy_ratio = 0.50
             elif spread > 0: buy_ratio = 0.50 + ((p - ave) / spread) * 0.35
@@ -382,12 +444,18 @@ def chay_quants_v15_4_realtime() -> Tuple[pd.DataFrame, pd.DataFrame, dict]:
         preliminary_net_flow_map[sym] = net_flow_ty
 
     output_rows = []
+    sector_change_map = {}
     for sym in tickers_list:
         cur = current_day_map[sym]
-        t_info = config_trend_map.get(sym, {"sector": "Chung", "trend": "Tích lũy", "sup": 0, "res": 0, "bias": "NEUTRAL"})
+        t_info = config_trend_map.get(sym, {"sector": existing_sector_map.get(sym, "Khác"), "trend": "Tích lũy", "sup": 0, "res": 0, "bias": "NEUTRAL"})
         sec_name = t_info["sector"]
+        if sec_name in ("", "Đang cập nhật", "Thị trường chung", "Chung"):
+            sec_name = lay_nganh_tu_dong(sym)
+
         p, ref, vol = cur["price"], cur["ref"], cur["volume"]
         p_chg = (p - ref) / ref if ref > 0 else 0.0
+        sector_change_map.setdefault(sec_name, []).append(p_chg)
+
         vwap = cur["ave"] if cur["ave"] > 0 else p
         vwap_diff = (p - vwap) / vwap if vwap > 0 else 0.0
         vwap_tag = f"🟢 Trên VWAP (+{vwap_diff*100:.1f}%)" if vwap_diff >= 0.003 else (f"🔴 Dưới VWAP ({vwap_diff*100:.1f}%)" if vwap_diff <= -0.003 else "⚖ Quanh VWAP")
@@ -439,21 +507,22 @@ def chay_backtest_va_kiem_toan(prices: dict):
 def chay_ai_quants_v16_1(api_key: str, df: pd.DataFrame, vni: dict):
     pass
 
-# ============================================================================
-# GIAO DIỆN FRONTEND (STREAMLIT DASHBOARD)
-# ============================================================================
-st.title("🚀 HỆ THỐNG SMART MONEY NVCUONG")
+st.title("🚀 HỆ THỐNG SMART MONEY & QUANTS PRO (V15.4 + V16.1)")
 
 with st.sidebar:
     st.header("⚙️ Bảng Điều Khiển")
     gemini_key = st.text_input("🔑 Gemini API Key", value="AQ.Ab8RN6Iu7HArf8KqBveXlEPhINTz1xYTqQCIEXpPVkqmAJNg8A", type="password")
     
     if st.button("🔄 1. Cập nhật Dữ liệu Realtime", type="primary", use_container_width=True):
-        st.toast("Đã làm mới dữ liệu!", icon="✅")
+        st.toast("Đã cập nhật dữ liệu thành công!", icon="✅")
     if st.button("🤖 2. Chạy AI Dự Báo T+ & VSA", use_container_width=True):
         st.toast("Đã chạy AI thành công!", icon="🎉")
     if st.button("📈 3. Quét Lại Nến Tuần", use_container_width=True):
-        st.toast("Đã quét xong nến tuần!", icon="📊")
+        conn = sqlite3.connect(DB_FILE)
+        syms = [r[0] for r in conn.execute("SELECT symbol FROM watchlist").fetchall()]
+        conn.close()
+        tu_dong_cap_nhat_chart_tuan(syms)
+        st.toast("Đã cập nhật xong nến tuần & mã ngành!", icon="📊")
 
     st.divider()
     st.subheader("📋 Quản lý Watchlist")
@@ -465,7 +534,7 @@ with st.sidebar:
         conn.commit()
         conn.close()
         tu_dong_cap_nhat_chart_tuan([new_sym])
-        st.success(f"Đã thêm {new_sym}!")
+        st.success(f"Đã thêm {new_sym} ({sec})!")
         st.rerun()
 
 df_main, df_sector, vni_info = chay_quants_v15_4_realtime()
