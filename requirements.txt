@@ -1,7 +1,7 @@
 streamlit
-pandas
-requests
-yfinance
 google-genai
-apscheduler
-pytz
+gspread
+yfinance
+requests
+pandas
+numpy
