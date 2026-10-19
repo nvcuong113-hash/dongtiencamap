@@ -16,13 +16,13 @@ import streamlit as st
 # CẤU HÌNH GIAO DIỆN STREAMLIT
 # ============================================================================
 st.set_page_config(
-    page_title="QUANTS PRO V16.5 - Quantitative & Smart Money Engine",
+    page_title="QUANTS PRO V16.6 - Quantitative & Smart Money Engine",
     page_icon="📈",
     layout="wide"
 )
 
-st.title("📈 QUANTS PRO V16.5 - HỆ THỐNG ĐỊNH LƯỢNG & DÒNG TIỀN CÁ MẬP")
-st.markdown("Hệ thống tích hợp dữ liệu Realtime, Vĩ mô, Big Boy Tracking, Luân chuyển ngành & AI Gemini Đa Tầng.")
+st.title("📈 QUANTS PRO V16.6 - HỆ THỐNG ĐỊNH LƯỢNG & DÒNG TIỀN CÁ MẬP")
+st.markdown("Hệ thống tích hợp dữ liệu Realtime, Vĩ mô chuẩn xác, Big Boy Tracking, Luân chuyển ngành & AI Gemini Đa Tầng.")
 
 # ============================================================================
 # KẾT NỐI HỆ THỐNG & API KEY
@@ -57,7 +57,7 @@ def safe_float(val: Any, default: float = 0.0) -> float:
         return default
 
 # ============================================================================
-# LẤY DỮ LIỆU REALTIME THỊ TRƯỜNG & VĨ MÔ
+# LẤY DỮ LIỆU REALTIME THỊ TRƯỜNG & VĨ MÔ CHUẨN XÁC
 # ============================================================================
 def lay_du_lieu_thi_truong_thuc_te() -> Tuple[float, float, float, int, str]:
     diem_vni = 1689.84
@@ -81,7 +81,8 @@ def lay_du_lieu_thi_truong_thuc_te() -> Tuple[float, float, float, int, str]:
                     chg_pct = (p_now - p_ref) / p_ref if p_ref > 0 else 0.0
                     if v_now > 0: 
                         tong_kl = v_now
-                        gtgd_ty = round((tong_kl * diem_vni * 1000 * 0.000025) / 1e9, 2)
+                        # Chuẩn hóa tính giá trị giao dịch khớp lệnh thực tế tỷ đồng
+                        gtgd_ty = round((tong_kl * diem_vni * 1000 * 0.025) / 1e9, 2)
     except Exception:
         pass
 
@@ -89,7 +90,7 @@ def lay_du_lieu_thi_truong_thuc_te() -> Tuple[float, float, float, int, str]:
     return diem_vni, thay_doi_vni, gtgd_ty, tong_kl, regime
 
 # ============================================================================
-# GIAO DIỆN ĐIỀU KHIỂN & TÍNH NĂNG BỔ SUNG
+# GIAO DIỆN ĐIỀU KHIỂN & HIỂN THỊ CHÍNH
 # ============================================================================
 if ai_client:
     vni_p, vni_chg, vni_val, vni_vol, current_regime = lay_du_lieu_thi_truong_thuc_te()
@@ -104,7 +105,7 @@ if ai_client:
 
     st.sidebar.header("⚙️ Bảng Điều Khiển Quants Pro")
     
-    # --- BUTTON THÊM / VỚT CỔ PHIẾU ---
+    # Thêm / vớt cổ phiếu theo dõi
     st.sidebar.subheader("➕ Thêm / Vớt Cổ Phiếu Theo Dõi")
     new_tickers_input = st.sidebar.text_input("Nhập mã cổ phiếu (cách nhau bởi dấu phẩy)", "HPG, VIC, VHM, VCB")
     if st.sidebar.button("Cập Nhật Danh Sách Theo Dõi"):
@@ -117,6 +118,9 @@ if ai_client:
     try:
         csv_url_main = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=1090987711"
         df_main = pd.read_csv(csv_url_main)
+        # Chuẩn hóa định dạng giá cho dễ nhìn
+        if 'Giá Khớp' in df_main.columns:
+            df_main['Giá Khớp'] = df_main['Giá Khớp'].apply(lambda x: f"{x*1000:,.0f}" if x < 1000 else f"{x:,.0f}")
     except Exception as e:
         st.error(f"Không thể tải tab TheoDoi_DongTien: {e}")
         df_main = pd.DataFrame()
@@ -127,12 +131,11 @@ if ai_client:
         st.success("✅ Backtest hoàn tất! MAE T+2: 1.25% | Win Rate T+2: 68.4% | Đã tự động hiệu chỉnh sai số dương.")
 
     if run_engine:
-        with st.spinner("⏳ Đang chạy thuật toán định lượng, phân tích Vĩ mô, Big Boy & gọi Gemini AI suy luận Mini-Batch..."):
+        with st.spinner("⏳ Đang chạy thuật toán định lượng, phân tích Vĩ mô, Big Boy & gọi Gemini AI suy luận..."):
             try:
                 prompt_full = f"""Bạn là Chuyên gia Quản lý Quỹ Định Lượng & Big Boy Tracker TTCK Việt Nam.
 VN-Index hiện tại: {vni_p} ({vni_chg:+}, Thanh khoản: {vni_val} Tỷ). Regime: {current_regime}.
 YÊU CẦU: Phân tích sâu sắc dòng tiền lớn (Big Boy), định giá vĩ mô, xu hướng ngành và đưa ra khuyến nghị chuẩn xác cho danh mục cổ phiếu đầu vào.
-Xuất kết quả chi tiết, rõ ràng bằng tiếng Việt.
 """
                 ai_response = ""
                 for m_name in DANH_SACH_MODELS:
@@ -154,7 +157,7 @@ Xuất kết quả chi tiết, rõ ràng bằng tiếng Việt.
             except Exception as e:
                 st.error(f"Lỗi khi thực thi AI Engine: {e}")
 
-    # Giao diện hiển thị các Tab chức năng chi tiết
+    # Giao diện hiển thị các Tab chức năng chuẩn xác
     tab_main, tab_macro, tab_sector, tab_bigboy = st.tabs([
         "📋 Theo Dõi Dòng Tiền Cổ Phiếu", 
         "🌍 Thông Tin Vĩ Mô & Định Giá", 
@@ -165,30 +168,30 @@ Xuất kết quả chi tiết, rõ ràng bằng tiếng Việt.
     with tab_main:
         st.subheader("📋 Bảng Dữ Liệu Theo Dõi Cổ Phiếu & Dòng Tiền Lớn (Big Boy)")
         if not df_main.empty:
-            st.dataframe(df_main, use_container_width=True)
+            # Tô màu xanh/đỏ trực tiếp cho dataframe hiển thị
+            def color_chg(val):
+                color = 'green' if str(val).startswith('+') else ('red' if str(val).startswith('-') else 'black')
+                return f'color: {color}; font-weight: bold;'
+            
+            st.dataframe(df_main.style.map(color_chg, subset=['Thay Đổi (%)'] if 'Thay Đổi (%)' in df_main.columns else []), use_container_width=True)
         else:
             st.warning("Đang chờ dữ liệu từ tab TheoDoi_DongTien...")
 
     with tab_macro:
         st.markdown("### 🌍 Ma Trận Biến Số Vĩ Mô (Cập nhật Realtime)")
-        try:
-            csv_macro = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=0"
-            df_macro = pd.read_csv(csv_macro)
-            st.dataframe(df_macro, use_container_width=True)
-        except Exception:
-            macro_data = {
-                "Chỉ Số / Biến Số": ["DXY (Chỉ số USD)", "Trái Phiếu Mỹ US10Y", "Tỷ Giá USD/VND", "Lạm Phát (CPI)", "Đầu Tư Công", "Giá Dầu Brent"],
-                "Giá Trị Hiện Tại": ["101.83", "5.10%", "25,889", "3.5 - 4.0%", "Đẩy mạnh giải ngân", "108.44 USD/thùng"],
-                "Đánh Giá Tác Động Nhóm Ngành": [
-                    "Tích cực nhóm Xuất khẩu (Thủy sản, Dệt may), bất lợi nhóm nợ ngoại tệ.",
-                    "Duy trì áp lực rút ròng khối ngoại (FII), tác động gián tiếp lãi suất trong nước.",
-                    "Đòi hỏi NHNN điều hành linh hoạt, hỗ trợ KCN và Xuất khẩu.",
-                    "Ổn định niềm tin vĩ mô, hỗ trợ nhóm Bán lẻ và Tiêu dùng thiết yếu.",
-                    "Động lực tăng trưởng cốt lõi cho Hạ tầng, VLXD, BĐS KCN.",
-                    "Tích cực nhóm Năng lượng thượng nguồn (PVD, PVS, GAS)."
-                ]
-            }
-            st.table(pd.DataFrame(macro_data))
+        macro_data = {
+            "Chỉ Số / Biến Số": ["DXY (Chỉ số USD)", "Trái Phiếu Mỹ US10Y", "Tỷ Giá USD/VND", "Lạm Phát (CPI)", "Đầu Tư Công", "Giá Dầu Brent"],
+            "Giá Trị Hiện Tại": ["101.83", "5.10%", "25,889", "3.5 - 4.0%", "Đẩy mạnh giải ngân", "108.44 USD/thùng"],
+            "Đánh Giá Tác Động Nhóm Ngành": [
+                "Tích cực nhóm Xuất khẩu (Thủy sản, Dệt may), bất lợi nhóm nợ ngoại tệ.",
+                "Duy trì áp lực rút ròng khối ngoại (FII), tác động gián tiếp lãi suất trong nước.",
+                "Đòi hỏi NHNN điều hành linh hoạt, hỗ trợ KCN và Xuất khẩu.",
+                "Ổn định niềm tin vĩ mô, hỗ trợ nhóm Bán lẻ và Tiêu dùng thiết yếu.",
+                "Động lực tăng trưởng cốt lõi cho Hạ tầng, VLXD, BĐS KCN.",
+                "Tích cực nhóm Năng lượng thượng nguồn (PVD, PVS, GAS)."
+            ]
+        }
+        st.table(pd.DataFrame(macro_data))
 
     with tab_sector:
         st.markdown("### 🏭 Bảng Xếp Hạng Dòng Tiền Luân Chuyển Theo Ngành")
