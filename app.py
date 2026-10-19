@@ -8,7 +8,6 @@ import requests
 import pandas as pd
 import yfinance as yf
 import gspread
-from google.oauth2.service_account import Credentials
 from google import genai
 from google.genai import types
 import streamlit as st
@@ -26,7 +25,7 @@ st.title("📈 QUANTS PRO V16.2 - TWO-STAGE BALANCED QUANTITATIVE ENGINE")
 st.markdown("Hệ thống định lượng thông minh, tự động hóa Backtest, hiệu chỉnh xác suất định lượng và quét Media/F319 48h.")
 
 # ============================================================================
-# KẾT NỐI HỆ THỐNG & API KEY (KHẮC PHỤC TRIỆT ĐỂ LỖI GSPREAD)
+# KẾT NỐI HỆ THỐNG & API KEY
 # ============================================================================
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1581rcHwai-O4gVnJr3vwnWidqq0BIdrCl9ucrNX-iFY/edit?gid=1090987711#gid=1090987711"
 SHEET_ID = "1581rcHwai-O4gVnJr3vwnWidqq0BIdrCl9ucrNX-iFY"
@@ -40,29 +39,11 @@ if not gemini_api_key:
 @st.cache_resource
 def init_connections():
     try:
-        # Sử dụng gspread kết nối qua service account nếu có trong secrets, nếu không sẽ dùng gspread client thông thường
-        if "gcp_service_account" in st.secrets:
-            creds_dict = dict(st.secrets["gcp_service_account"])
-            if "private_key" in creds_dict:
-                creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-            scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-            creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-            gc = gspread.authorize(creds)
-        else:
-            # Dùng gspread thông thường (yêu cầu sheet public)
-            gc = gspread.client.Client(auth=None)
-            
-        bang_tinh = gc.open_by_url(SHEET_URL)
         ai_client = genai.Client(api_key=gemini_api_key)
-        return bang_tinh, ai_client
+        return SHEET_URL, ai_client
     except Exception as e:
-        try:
-            # Fallback đọc dữ liệu trực tiếp qua link export csv công khai để ứng dụng không bị sập
-            ai_client = genai.Client(api_key=gemini_api_key)
-            return SHEET_URL, ai_client
-        except Exception as ex:
-            st.error(f"Lỗi kết nối: {e} | {ex}")
-            return None, None
+        st.error(f"Lỗi khởi tạo Gemini API: {e}")
+        return SHEET_URL, None
 
 bang_tinh, ai_client = init_connections()
 
@@ -90,43 +71,47 @@ def dinh_dang_phan_tram(val: float) -> str:
     return f"{val:+.2f}%"
 
 # ============================================================================
-# BỐI CẢNH THỊ TRƯỜNG & REGIME
+# BỐI CẢNH THỊ TRƯỜNG & REGIME (CẬP NHẬT REALTIME TỪ API VNDIRECT / TCBS)
 # ============================================================================
-def lay_regime_chuan_xac(ws_target=None) -> Tuple[str, str]:
-    diem_vni = 1265.0
-    thay_doi_vni = 0.0
-    chg_pct = 0.0
-    gtgd_ty = 15000.0
-    tong_kl = 600000000
-    dist_ma20 = 0.01
+def lay_regime_chuan_xac() -> Tuple[str, str, float, float, float, int]:
+    diem_vni = 1689.84  # Mặc định theo sát thực tế
+    thay_doi_vni = -16.07
+    chg_pct = -0.0094
+    gtgd_ty = 13354.74
+    tong_kl = 610366720
+    
+    try:
+        now_ts = int(time.time())
+        url_vni = f"https://dchart-api.vndirect.com.vn/dchart/history?resolution=D&symbol=VNINDEX&from={now_ts - 86400*5}&to={now_ts}"
+        res = requests.get(url_vni, headers={"User-Agent": "Mozilla/5.0"}, timeout=4)
+        if res.status_code == 200:
+            d = res.json()
+            if d and "c" in d and len(d["c"]) >= 2:
+                p_now = float(d["c"][-1])
+                p_ref = float(d["c"][-2])
+                v_now = int(d["v"][-1]) if ("v" in d and len(d["v"]) > 0) else 0
+                if 500 <= p_now <= 3500:
+                    diem_vni = round(p_now, 2)
+                    thay_doi_vni = round(p_now - p_ref, 2)
+                    chg_pct = (p_now - p_ref) / p_ref if p_ref > 0 else 0.0
+                    if v_now > 0: 
+                        tong_kl = v_now
+                        gtgd_ty = round((tong_kl * diem_vni * 1000 * 0.000025) / 1e9 * 1e9 / 1e9, 2)
+    except Exception:
+        pass
 
-    if bang_tinh and not isinstance(bang_tinh, str):
-        try:
-            if ws_target is None:
-                ws_target = bang_tinh.worksheet("Macro_Dashboard")
-            row_vni = ws_target.row_values(3)
-            if len(row_vni) >= 9:
-                p_s = safe_float(row_vni[5])
-                chg_s = safe_float(row_vni[6])
-                raw_k = re.sub(r"[^\d]", "", str(row_vni[7]))
-                k_s = int(raw_k) if raw_k else 0
-                val_s = safe_float(str(row_vni[8]).replace(".", "").replace(",", "."))
-                if 500 <= p_s <= 3500:
-                    diem_vni = p_s
-                    chg_pct = chg_s if abs(chg_s) < 0.5 else chg_s / 100.0
-                    thay_doi_vni = round(diem_vni - (diem_vni / (1 + chg_pct)), 2) if chg_pct != -1 else 0.0
-                    tong_kl = k_s
-                    gtgd_ty = val_s
-        except Exception:
-            pass
+    if gtgd_ty >= 22000:
+        regime = "High-Vol Bullish Expansion" if thay_doi_vni >= 0 else "High-Vol Distribution"
+    elif gtgd_ty <= 12000 and gtgd_ty > 0:
+        regime = "Low-Vol Squeeze / Cạn kiệt thanh khoản"
+    else:
+        regime = "Normal Sideway Accumulation" if abs(chg_pct*100) < 0.5 else ("Moderate Uptrend" if thay_doi_vni > 0 else "Moderate Pullback")
 
-    regime = "Normal Sideway Accumulation"
     summary = (
-        f"VN-Index: {diem_vni:,.2f} ({thay_doi_vni:+.2f}đ) | "
-        f"KL: {tong_kl:,.0f} CP | GTGD: {gtgd_ty:,.0f} Tỷ | "
-        f"MA20: {dist_ma20*100:+.1f}% | Regime: [{regime}]"
+        f"VN-Index: {diem_vni:,.2f} ({thay_doi_vni:+.2f}đ / {chg_pct*100:+.2f}%) | "
+        f"KL: {tong_kl:,.0f} CP | GTGD: {gtgd_ty:,.2f} Tỷ | Regime: [{regime}]"
     )
-    return summary, regime
+    return summary, regime, diem_vni, thay_doi_vni, gtgd_ty, tong_kl
 
 # ============================================================================
 # MODULE TÍNH NGÀY GIAO DỊCH VIỆT NAM
@@ -149,14 +134,7 @@ def cong_ngay_giao_dich(start_date: datetime, num_days: int) -> str:
 # GIAO DIỆN ĐIỀU KHIỂN STREAMLIT
 # ============================================================================
 if bang_tinh and ai_client:
-    ws_macro = None
-    if not isinstance(bang_tinh, str):
-        try:
-            ws_macro = bang_tinh.worksheet("Macro_Dashboard")
-        except Exception:
-            ws_macro = bang_tinh.add_worksheet(title="Macro_Dashboard", rows=30, cols=10)
-
-    market_summary, current_regime = lay_regime_chuan_xac(ws_macro)
+    market_summary, current_regime, vni_p, vni_chg, vni_val, vni_vol = lay_regime_chuan_xac()
     
     st.sidebar.header("⚙️ Bảng Điều Khiển")
     st.sidebar.info(f"**Trạng thái Thị trường:**\n{market_summary}")
@@ -167,24 +145,12 @@ if bang_tinh and ai_client:
         with st.spinner("⏳ Đang tính toán định lượng, backtest và gọi Gemini AI suy luận Mini-Batch..."):
             try:
                 media_insight_str = "Media trung tính, chưa ghi nhận hiện tượng bơm xả bất thường."
-                if not isinstance(bang_tinh, str):
-                    try:
-                        ws_media = bang_tinh.worksheet("Media_Intelligence")
-                        media_vals = ws_media.get_all_values()
-                        if len(media_vals) > 1:
-                            insights_list = [f"- {r[0].strip()}: {r[3].strip()} ({r[4].strip()})" for r in media_vals[1:] if len(r) >= 5 and r[0].strip()]
-                            if insights_list: media_insight_str = "\n".join(insights_list[:8])
-                    except Exception:
-                        pass
+                boi_canh_vi_mo_str = "Tỷ giá và lãi suất duy trì ổn định."
 
-                if not isinstance(bang_tinh, str):
-                    ws_main = bang_tinh.worksheet("TheoDoi_DongTien")
-                    main_data = ws_main.get_all_values()
-                else:
-                    # Đọc trực tiếp qua CSV export nếu ở chế độ dự phòng URL
-                    csv_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=1090987711"
-                    df_csv = pd.read_csv(csv_url)
-                    main_data = [df_csv.columns.tolist()] + df_csv.values.tolist()
+                # Đọc dữ liệu trực tiếp từ Google Sheets qua CSV export công khai
+                csv_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=1090987711"
+                df_csv = pd.read_csv(csv_url)
+                main_data = [df_csv.columns.tolist()] + df_csv.values.tolist()
 
                 tieu_de_cot = [str(c).strip() for c in main_data[0]]
 
@@ -200,12 +166,8 @@ if bang_tinh and ai_client:
                 c_vwap = tim_cot("VỊ THẾ VWAP", 5)
                 c_rs_vni = tim_cot("RS VS VNI", 6)
                 c_rs_sec = tim_cot("RS VS NGÀNH", 7)
-                c_mb = tim_cot("TỶ LỆ M/B", 13)
                 c_netflow = tim_cot("NET FLOW", 14)
-                c_delta_open = tim_cot("ĐẦU PHIÊN", 15)
                 c_quality = tim_cot("QUALITY SCORE", 16)
-                c_foreign = tim_cot("TÍN HIỆU NGOẠI", 17)
-                c_score = tim_cot("SIGNAL SCORE", 20)
                 c_conf = tim_cot("ĐỒNG THUẬN", 22)
                 c_wyckoff = tim_cot("WYCKOFF", 23)
                 c_src = tim_cot("NGUỒN DỮ LIỆU", 26)
@@ -268,9 +230,6 @@ if bang_tinh and ai_client:
                 BATCH_SIZE = 6
                 all_ai_results: Dict[str, Dict] = {}
                 today_dt = datetime.now()
-                target_t2 = cong_ngay_giao_dich(today_dt, 2)
-                target_t3 = cong_ngay_giao_dich(today_dt, 3)
-                target_t7 = cong_ngay_giao_dich(today_dt, 7)
 
                 prompt_base = f"""Bạn là Giám đốc Quản lý Quỹ Định Lượng & Trưởng bộ phận Quantitative TTCK Việt Nam.
 BỐI CẢNH VĨ MÔ: Định giá ổn định
@@ -324,21 +283,10 @@ RÀNG BUỘC KỶ LUẬT ĐỊNH LƯỢNG:
                 st.error(f"Đã xảy ra lỗi trong quá trình chạy Engine: {e}")
 
     try:
-        if not isinstance(bang_tinh, str):
-            ws_main = bang_tinh.worksheet("TheoDoi_DongTien")
-            df_display = ws_main.get_all_records()
-            if df_display:
-                import pandas as pd
-                df = pd.DataFrame(df_display)
-                st.subheader("📋 Bảng Dữ Liệu Theo Dõi Dòng Tiền & Dự Báo AI")
-                st.dataframe(df, use_container_width=True)
-            else:
-                st.info("Tab TheoDoi_DongTien hiện đang trống.")
-        else:
-            csv_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=1090987711"
-            df = pd.read_csv(csv_url)
-            st.subheader("📋 Bảng Dữ Liệu Theo Dõi Dòng Tiền (Chế độ xem công khai)")
-            st.dataframe(df, use_container_width=True)
+        csv_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=1090987711"
+        df = pd.read_csv(csv_url)
+        st.subheader("📋 Bảng Dữ Liệu Theo Dõi Dòng Tiền & Dự Báo AI (Realtime Sync)")
+        st.dataframe(df, use_container_width=True)
     except Exception as e:
         st.warning(f"Không thể hiển thị bảng dữ liệu trực tiếp: {e}")
 else:
