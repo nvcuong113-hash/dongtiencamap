@@ -24,11 +24,10 @@ st.title("📈 QUANTS PRO V16.2 - TWO-STAGE BALANCED QUANTITATIVE ENGINE")
 st.markdown("Hệ thống định lượng thông minh, tự động hóa Backtest, hiệu chỉnh xác suất định lượng và quét Media/F319 48h.")
 
 # ============================================================================
-# KẾT NỐI HỆ THỐNG & API KEY (KHẮC PHỤC LỖI PEM / JSON SECRET)
+# KẾT NỐI HỆ THỐNG & API KEY (KHẮC PHỤC TRIỆT ĐỂ LỖI PEM / JSON SECRET)
 # ============================================================================
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1581rcHwai-O4gVnJr3vwnWidqq0BIdrCl9ucrNX-iFY/edit?gid=1090987711#gid=1090987711"
 
-# Lấy Gemini API Key (ưu tiên Key mới bạn vừa cung cấp)
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 if not gemini_api_key and "GEMINI_API_KEY" in st.secrets:
     gemini_api_key = st.secrets["GEMINI_API_KEY"]
@@ -38,40 +37,34 @@ if not gemini_api_key:
 @st.cache_resource
 def init_connections():
     try:
-        # Sử dụng gspread mở Google Sheets trực tiếp an toàn qua OAuth / API công khai hoặc credentials chuẩn
+        # Kiểm tra xem người dùng có truyền đúng định dạng JSON chuẩn không
         if "gcp_service_account" in st.secrets:
-            from google.oauth2.service_account import Credentials
-            creds_dict = dict(st.secrets["gcp_service_account"])
-            scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-            creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-            gc = gspread.authorize(creds)
-        else:
-            # Fallback kết nối an toàn qua gspread client mặc định
-            gc = gspread.oauth(
-                credentials_filename='credentials.json',
-                authorized_user_filename='authorized_user.json'
-            ) if os.path.exists('credentials.json') else gspread.service_account(filename='credentials.json') if os.path.exists('credentials.json') else None
-            
-            if not gc:
-                # Nếu không có file local, sử dụng chế độ truy cập link công khai (nếu sheet cho phép edit) hoặc gspread anonymous
-                import google.auth
-                creds, _ = google.auth.default()
+            try:
+                from google.oauth2.service_account import Credentials
+                creds_dict = dict(st.secrets["gcp_service_account"])
+                
+                # Xử lý an toàn chuỗi private_key nếu bị lỗi định dạng \n
+                if "private_key" in creds_dict:
+                    creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+                
+                scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+                creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
                 gc = gspread.authorize(creds)
+            except Exception as pem_err:
+                st.warning(f"Phát hiện lỗi định dạng Key PEM: {pem_err}. Đang chuyển sang chế độ dự phòng công khai/OAuth...")
+                gc = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"]))
+        else:
+            # Fallback nếu không có service account
+            import google.auth
+            creds, _ = google.auth.default()
+            gc = gspread.authorize(creds)
 
         bang_tinh = gc.open_by_url(SHEET_URL)
         ai_client = genai.Client(api_key=gemini_api_key)
         return bang_tinh, ai_client
     except Exception as e:
-        st.warning(f"Cảnh báo xác thực nâng cao: {e}. Đang chuyển sang kết nối trực tiếp dự phòng...")
-        try:
-            # Dự phòng tối ưu cho Streamlit Cloud không cần file PEM phức tạp
-            gc = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"])) if "gcp_service_account" in st.secrets else None
-            if gc:
-                bang_tinh = gc.open_by_url(SHEET_URL)
-                ai_client = genai.Client(api_key=gemini_api_key)
-                return bang_tinh, ai_client
-        except Exception as ex:
-            st.error(f"Lỗi kết nối tuyệt đối: {ex}")
+        st.error(f"Lỗi kết nối Google Sheets / Gemini API: {e}")
+        st.info("💡 **Mẹo khắc phục:** Hãy đảm bảo Google Sheet đã được chia sẻ ở chế độ 'Anyone with the link can edit' hoặc kiểm tra lại cú pháp JSON trong Streamlit Secrets.")
         return None, None
 
 bang_tinh, ai_client = init_connections()
