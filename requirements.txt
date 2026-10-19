@@ -1,7 +1,5 @@
-streamlit
-google-genai
-gspread
-yfinance
-requests
-pandas
-numpy
+streamlit>=1.36
+pandas>=2.1
+requests>=2.31
+yfinance>=0.2.40
+google-genai>=1.0
