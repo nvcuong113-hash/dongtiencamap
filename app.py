@@ -313,7 +313,7 @@ def quet_media_48h(api_key: str):
 def cap_nhat_ma_tran_vi_mo(api_key: str):
     ghi_log("CẬP NHẬT VĨ MÔ", 7, 0, "Đã cập nhật ma trận vĩ mô định kỳ.")
 
-st.title("📈 HỆ THỐNG DÒNG TIỀN CÁ MẬP & QUANTS PRO")
+st.title("📈 HỆ THỐNG DÒNG TIỀN CÁ MẬP NVCUONG")
 
 with st.sidebar:
     st.header("⚙️ Bảng Điều Khiển Hệ Thống")
