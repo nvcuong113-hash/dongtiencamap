@@ -16,18 +16,17 @@ import streamlit as st
 # CẤU HÌNH GIAO DIỆN STREAMLIT
 # ============================================================================
 st.set_page_config(
-    page_title="QUANTS PRO V16.3 - Quantitative & Smart Money Engine",
+    page_title="QUANTS PRO V16.4 - Quantitative & Smart Money Engine",
     page_icon="📈",
     layout="wide"
 )
 
-st.title("📈 QUANTS PRO V16.3 - HỆ THỐNG ĐỊNH LƯỢNG & DÒNG TIỀN CÁ MẬP")
+st.title("📈 QUANTS PRO V16.4 - HỆ THỐNG ĐỊNH LƯỢNG & DÒNG TIỀN CÁ MẬP")
 st.markdown("Hệ thống tích hợp dữ liệu Realtime, Vĩ mô, Big Boy Tracking, Luân chuyển ngành & AI Gemini Đa Tầng.")
 
 # ============================================================================
 # KẾT NỐI HỆ THỐNG & API KEY
 # ============================================================================
-SHEET_URL = "https://docs.google.com/spreadsheets/d/1581rcHwai-O4gVnJr3vwnWidqq0BIdrCl9ucrNX-iFY/edit?gid=1090987711#gid=1090987711"
 SHEET_ID = "1581rcHwai-O4gVnJr3vwnWidqq0BIdrCl9ucrNX-iFY"
 
 gemini_api_key = os.getenv("GEMINI_API_KEY")
@@ -40,12 +39,12 @@ if not gemini_api_key:
 def init_connections():
     try:
         ai_client = genai.Client(api_key=gemini_api_key)
-        return SHEET_URL, ai_client
+        return ai_client
     except Exception as e:
         st.error(f"Lỗi khởi tạo Gemini API: {e}")
-        return SHEET_URL, None
+        return None
 
-bang_tinh, ai_client = init_connections()
+ai_client = init_connections()
 DANH_SACH_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
 
 def safe_float(val: Any, default: float = 0.0) -> float:
@@ -58,7 +57,7 @@ def safe_float(val: Any, default: float = 0.0) -> float:
         return default
 
 # ============================================================================
-# LẤY DỮ LIỆU REALTIME THỊ TRƯỜNG & VĨ MÔ
+# LẤY DỮ LIỆU REALTIME THỊ TRƯỜNG & VĨ MÔ (ĐỒNG BỘ VỚI SCRIPTS)
 # ============================================================================
 def lay_du_lieu_thi_truong_thuc_te() -> Tuple[float, float, float, int, str]:
     diem_vni = 1689.84
@@ -95,7 +94,7 @@ def lay_du_lieu_thi_truong_thuc_te() -> Tuple[float, float, float, int, str]:
 if ai_client:
     vni_p, vni_chg, vni_val, vni_vol, current_regime = lay_du_lieu_thi_truong_thuc_te()
 
-    # Thanh metric tổng quan thị trường
+    # Metric tổng quan thị trường
     col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("VN-INDEX", f"{vni_p:,.2f}", f"{vni_chg:+.2f} ({vni_chg/vni_p*100:+.2f}%)")
     col2.metric("Thanh Khoản", f"{vni_val:,.2f} Tỷ", "Khớp lệnh trực tiếp")
@@ -106,18 +105,17 @@ if ai_client:
     st.sidebar.header("⚙️ Bảng Điều Khiển Quants Pro")
     run_engine = st.sidebar.button("🚀 Chạy Quants Engine & Suy Luận AI Đa Tầng", type="primary")
 
-    # Đọc dữ liệu từ file CSV export hoặc Google Sheets trực tiếp
+    # Tải dữ liệu các tab từ Google Sheets qua CSV Export
     try:
-        csv_url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=1090987711"
-        df = pd.read_csv(csv_url)
+        csv_url_main = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=1090987711"
+        df_main = pd.read_csv(csv_url_main)
     except Exception as e:
-        st.error(f"Không thể tải dữ liệu từ Google Sheets: {e}")
-        df = pd.DataFrame()
+        st.error(f"Không thể tải tab TheoDoi_DongTien: {e}")
+        df_main = pd.DataFrame()
 
     if run_engine:
         with st.spinner("⏳ Đang chạy thuật toán định lượng, phân tích Vĩ mô, Big Boy & gọi Gemini AI suy luận..."):
             try:
-                # Gọi Gemini AI suy luận đa tầng dựa trên dữ liệu thực tế
                 prompt_full = f"""Bạn là Chuyên gia Quản lý Quỹ Định Lượng & Big Boy Tracker TTCK Việt Nam.
 VN-Index hiện tại: {vni_p} ({vni_chg:+}, Thanh khoản: {vni_val} Tỷ). Regime: {current_regime}.
 YÊU CẦU: Phân tích sâu sắc dòng tiền lớn (Big Boy), định giá vĩ mô, xu hướng ngành và đưa ra khuyến nghị chuẩn xác cho danh mục cổ phiếu đầu vào.
@@ -143,16 +141,28 @@ Xuất kết quả chi tiết, rõ ràng bằng tiếng Việt.
             except Exception as e:
                 st.error(f"Lỗi khi thực thi AI Engine: {e}")
 
-    # Hiển thị thông tin bảng dữ liệu cổ phiếu chi tiết
-    if not df.empty:
-        st.subheader("📋 Bảng Dữ Liệu Theo Dõi Cổ Phiếu & Dòng Tiền Lớn (Big Boy)")
-        st.dataframe(df, use_container_width=True)
+    # Hiển thị phân loại theo các Tab chức năng chuẩn
+    tab_main, tab_macro, tab_sector, tab_bigboy = st.tabs([
+        "📋 Theo Dõi Dòng Tiền Cổ Phiếu", 
+        "🌍 Thông Tin Vĩ Mô & Định Giá", 
+        "🏭 Luân Chuyển Dòng Tiền Ngành", 
+        "🐋 Phân Tích Dòng Tiền Big Boy (48h)"
+    ])
 
-        # Tab bổ sung thông tin Vĩ mô và Ngành
-        tab1, tab2, tab3 = st.tabs(["🌍 Thông Tin Vĩ Mô & Định Giá", "🏭 Luân Chuyển Dòng Tiền Ngành", "🐋 Phân Tích Dòng Tiền Big Boy"])
-        
-        with tab1:
-            st.markdown("### 📊 Ma Trận Biến Số Vĩ Mô (Cập nhật Realtime)")
+    with tab_main:
+        st.subheader("📋 Bảng Dữ Liệu Theo Dõi Cổ Phiếu & Dòng Tiền Lớn (Big Boy)")
+        if not df_main.empty:
+            st.dataframe(df_main, use_container_width=True)
+        else:
+            st.warning("Đang chờ dữ liệu từ tab TheoDoi_DongTien...")
+
+    with tab_macro:
+        st.markdown("### 🌍 Ma Trận Biến Số Vĩ Mô (Cập nhật Realtime)")
+        try:
+            csv_macro = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=0"
+            df_macro = pd.read_csv(csv_macro)
+            st.dataframe(df_macro, use_container_width=True)
+        except Exception:
             macro_data = {
                 "Chỉ Số / Biến Số": ["DXY (Chỉ số USD)", "Trái Phiếu Mỹ US10Y", "Tỷ Giá USD/VND", "Lạm Phát (CPI)", "Đầu Tư Công", "Giá Dầu Brent"],
                 "Giá Trị Hiện Tại": ["101.83", "5.10%", "25,889", "3.5 - 4.0%", "Đẩy mạnh giải ngân", "108.44 USD/thùng"],
@@ -167,18 +177,23 @@ Xuất kết quả chi tiết, rõ ràng bằng tiếng Việt.
             }
             st.table(pd.DataFrame(macro_data))
 
-        with tab2:
-            st.markdown("### 🏭 Bảng Xếp Hạng Dòng Tiền Luân Chuyển Theo Ngành")
-            sector_data = {
-                "Hạng": ["#1", "#2", "#3", "#4", "#5", "#6"],
-                "Nhóm Ngành": ["Ngân hàng", "BĐS KCN", "Dầu khí", "Thép", "Chứng khoán", "Công nghệ"],
-                "Net Flow (Tỷ)": ["+171.31 Tỷ", "+12.70 Tỷ", "+1.25 Tỷ", "-82.11 Tỷ", "-106.32 Tỷ", "-60.30 Tỷ"],
-                "Trạng Thái Dòng Tiền": ["🔥 Tiền tăng tốc gom (Chất lượng cao)", "🔥 Tiền tăng tốc gom", "⚪ Cân bằng", "🚨 Bán tháo", "⚠ Kéo xả", "🚨 Bán tháo"]
-            }
-            st.table(pd.DataFrame(sector_data))
+    with tab_sector:
+        st.markdown("### 🏭 Bảng Xếp Hạng Dòng Tiền Luân Chuyển Theo Ngành")
+        sector_data = {
+            "Hạng": ["#1", "#2", "#3", "#4", "#5", "#6"],
+            "Nhóm Ngành": ["Ngân hàng", "BĐS KCN", "Dầu khí", "Thép", "Chứng khoán", "Công nghệ"],
+            "Net Flow (Tỷ)": ["+171.31 Tỷ", "+12.70 Tỷ", "+1.25 Tỷ", "-82.11 Tỷ", "-106.32 Tỷ", "-60.30 Tỷ"],
+            "Trạng Thái Dòng Tiền": ["🔥 Tiền tăng tốc gom (Chất lượng cao)", "🔥 Tiền tăng tốc gom", "⚪ Cân bằng", "🚨 Bán tháo", "⚠ Kéo xả", "🚨 Bán tháo"]
+        }
+        st.table(pd.DataFrame(sector_data))
 
-        with tab3:
-            st.markdown("### 🐋 Theo Dõi Hành Vi Cá Mập / Khối Ngoại (Big Boy Tracking)")
+    with tab_bigboy:
+        st.markdown("### 🐋 Theo Dõi Hành Vi Cá Mập / Khối Ngoại & Media 48h (Big Boy Tracking)")
+        try:
+            csv_media = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=757823901"
+            df_media = pd.read_csv(csv_media)
+            st.dataframe(df_media, use_container_width=True)
+        except Exception:
             bigboy_data = {
                 "Mã CP": ["FPT", "MSB", "SSI", "NVL", "PNJ", "KBC"],
                 "Tâm Lý Nhỏ Lẻ": ["Hoảng loạn bán tháo", "F0 hưng phấn mua đuổi", "Thờ ơ, nghi ngờ", "Hoảng loạn bán tháo", "Thờ ơ, nghi ngờ", "Thờ ơ, nghi ngờ"],
@@ -188,4 +203,4 @@ Xuất kết quả chi tiết, rõ ràng bằng tiếng Việt.
             st.table(pd.DataFrame(bigboy_data))
 
 else:
-    st.error("Không thể kết nối đến Gemini AI hoặc Google Sheets. Vui lòng kiểm tra lại cấu hình API Key.")
+    st.error("Không thể kết nối đến Gemini AI. Vui lòng kiểm tra lại cấu hình API Key.")
