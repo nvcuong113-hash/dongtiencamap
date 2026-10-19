@@ -25,32 +25,28 @@ st.title("📈 QUANTS PRO V16.2 - TWO-STAGE BALANCED QUANTITATIVE ENGINE")
 st.markdown("Hệ thống định lượng thông minh, tự động hóa Backtest, hiệu chỉnh xác suất định lượng và quét Media/F319 48h.")
 
 # ============================================================================
-# KẾT NỐI HỆ THỐNG & API KEY
+# KẾT NỐI HỆ THỐNG & API KEY (KHẮC PHỤC LỖI GOOGLE METADATA SERVER)
 # ============================================================================
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1581rcHwai-O4gVnJr3vwnWidqq0BIdrCl9ucrNX-iFY/edit?gid=1090987711#gid=1090987711"
 
-# Lấy API Key từ Streamlit Secrets hoặc biến môi trường
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 if not gemini_api_key and "GEMINI_API_KEY" in st.secrets:
     gemini_api_key = st.secrets["GEMINI_API_KEY"]
 if not gemini_api_key:
-    gemini_api_key = "AQ.Ab8RN6Iu7HArf8KqBveXlEPhINTz1xYTqQCIEXpPVkqmAJNg8A" # Fallback key mặc định
+    gemini_api_key = "AQ.Ab8RN6Iu7HArf8KqBveXlEPhINTz1xYTqQCIEXpPVkqmAJNg8A"
 
 @st.cache_resource
 def init_connections():
     try:
-        # Khởi tạo gspread bằng OAuth từ Streamlit Secrets hoặc Local JSON service account nếu có
-        # Hoặc dùng mặc định nếu deploy qua Colab / Local config
+        # Sử dụng Google Service Account thông qua st.secrets để kết nối an toàn trên Streamlit Cloud
         if "gcp_service_account" in st.secrets:
             creds_dict = dict(st.secrets["gcp_service_account"])
             scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
             creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
             gc = gspread.authorize(creds)
         else:
-            # Fallback nếu dùng kết nối ẩn danh / local credentials
-            import google.auth
-            creds, _ = google.auth.default()
-            gc = gspread.authorize(creds)
+            st.error("Chưa cấu hình [gcp_service_account] trong Streamlit Secrets!")
+            return None, None
             
         bang_tinh = gc.open_by_url(SHEET_URL)
         ai_client = genai.Client(api_key=gemini_api_key)
@@ -192,7 +188,6 @@ if bang_tinh and ai_client:
     if run_engine:
         with st.spinner("⏳ Đang tính toán định lượng, backtest và gọi Gemini AI suy luận Mini-Batch..."):
             try:
-                # 1. ĐỌC INSIGHT TRUYỀN THÔNG TỪ TAB MEDIA_INTELLIGENCE
                 media_insight_str = "Media trung tính, chưa ghi nhận hiện tượng bơm xả bất thường."
                 try:
                     ws_media = bang_tinh.worksheet("Media_Intelligence")
@@ -212,7 +207,6 @@ if bang_tinh and ai_client:
                     [f"- {r[0]} ({r[1]}): {r[2]}" for r in macro_vals[1:8] if len(r) >= 3 and r[0]]
                 ) if len(macro_vals) > 1 else "Tỷ giá và lãi suất duy trì ổn định."
 
-                # 2. FEATURE STORE & PROBABILITY CALIBRATION
                 ws_main = bang_tinh.worksheet("TheoDoi_DongTien")
                 main_data = ws_main.get_all_values()
                 tieu_de_cot = [str(c).strip() for c in main_data[0]]
@@ -258,7 +252,6 @@ if bang_tinh and ai_client:
                     rs_sec_txt = str(r[c_rs_sec] if len(r) > c_rs_sec else "")
                     conf_val = safe_float(r[c_conf] if len(r) > c_conf else 50)
                     qual_val = safe_float(r[c_quality] if len(r) > c_quality else 50)
-                    sig_score_val = safe_float(r[c_score] if len(r) > c_score else 50)
                     wyckoff_txt = str(r[c_wyckoff] if len(r) > c_wyckoff else "")
                     vol_ratio = safe_float(r[tim_cot("VOL DỰ PHÓNG", 10)])
                     chg_pct_val = safe_float(r[c_chg] if len(r) > c_chg else 0)
@@ -295,7 +288,6 @@ if bang_tinh and ai_client:
                     }
                     cac_dong_map_theo_row.append((row_idx, sym, item_data))
 
-                # 3. MINI-BATCH AI INFERENCE
                 BATCH_SIZE = 6
                 all_ai_results: Dict[str, Dict] = {}
                 today_dt = datetime.now()
@@ -357,7 +349,6 @@ RÀNG BUỘC KỶ LUẬT ĐỊNH LƯỢNG HAI TẦNG (TWO-STAGE QUANT DISCIPLINE
                             time.sleep(0.5)
                     time.sleep(0.8)
 
-                # 4. POST-PROCESS & SYNC TO GOOGLE SHEETS
                 latest_symbols = [str(r[c_ma]).strip().upper() for r in ws_main.get_all_values()]
                 batch_cells = []
                 prediction_records = []
@@ -419,7 +410,6 @@ RÀNG BUỘC KỶ LUẬT ĐỊNH LƯỢNG HAI TẦNG (TWO-STAGE QUANT DISCIPLINE
             except Exception as e:
                 st.error(f"Đã xảy ra lỗi trong quá trình chạy Engine: {e}")
 
-    # Hiển thị thông tin tổng quan từ TheoDoi_DongTien
     try:
         df_display = ws_main.get_all_records()
         if df_display:
