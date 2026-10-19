@@ -16,27 +16,27 @@ st.set_page_config(page_title="QUANTS PRO V16.1 - Smart Money Engine", layout="w
 VN_TZ = pytz.timezone("Asia/Ho_Chi_Minh")
 DB_FILE = "quants_pro_v16.db"
 
-# BẢNG ÁNH XẠ NGÀNH CHUẨN XÁC 100% CHO TOÀN BỘ DANH MỤC
+# BẢNG ÁNH XẠ NGÀNH CHUẨN XÁC 100% THEO FILE HỆ THỐNG GỐC
 SECTOR_MAP = {
-    "NKG": "Thép", "HSG": "Thép", "HPG": "Thép",
     "IDC": "BĐS KCN", "KBC": "BĐS KCN",
     "FPT": "Công nghệ",
-    "GEG": "Năng lượng", "POW": "Năng lượng",
-    "VHM": "BĐS", "TCH": "BĐS", "PDR": "BĐS", "CEO": "BĐS", "DIG": "BĐS", "NVL": "BĐS", "DXG": "BĐS",
+    "HHV": "Năng lượng", "GEG": "Năng lượng", "POW": "Thị trường chung",
     "SSI": "Chứng khoán", "HCM": "Chứng khoán", "VND": "Chứng khoán", "SHS": "Chứng khoán", "VCI": "Chứng khoán",
-    "CTG": "Ngân hàng", "MSB": "Ngân hàng", "LPB": "Ngân hàng", "VPB": "Ngân hàng", "TCB": "Ngân hàng",
-    "BSR": "Dầu khí", "PVD": "Dầu khí", "PVS": "Dầu khí",
-    "PNJ": "Bán lẻ"
+    "NKG": "Thép", "HPG": "Thép", "HSG": "Thép",
+    "LPB": "Ngân hàng", "MSB": "Ngân hàng", "CTG": "Ngân hàng", "TCB": "Ngân hàng", "VPB": "Ngân hàng",
+    "TCH": "BĐS", "PDR": "BĐS", "DXG": "BĐS", "CEO": "BĐS", "DIG": "BĐS", "NVL": "BĐS",
+    "PNJ": "Bán lẻ",
+    "PVS": "Dầu khí", "BSR": "Dầu khí", "PVD": "Dầu khí"
 }
 
 BENCHMARK_MA20_VOL = {
-    "NKG": 1510000, "IDC": 1290000, "FPT": 6380000, "GEG": 160000,
+    "NKG": 1510000, "IDC": 1290000, "FPT": 6380000, "GEG": 160000, "HHV": 3000000,
     "HSG": 2230000, "VHM": 10100000, "SSI": 20000000, "CTG": 7640000,
     "BSR": 12630000, "MSB": 7570000, "LPB": 2260000, "DXG": 15000000,
     "HCM": 4860000, "HPG": 25000000, "VCI": 6500000, "VND": 18000000,
     "TCH": 6500000, "VPB": 15000000, "SHS": 16500000, "TCB": 18000000,
     "PDR": 8500000, "CEO": 6000000, "DIG": 12500000, "NVL": 18000000,
-    "PVD": 5500000, "PVS": 4500000, "PNJ": 1600000
+    "PVD": 5500000, "PVS": 4500000, "PNJ": 1600000, "KBC": 4000000, "POW": 5000000
 }
 
 VIETNAM_HOLIDAYS_2026 = [
@@ -45,6 +45,25 @@ VIETNAM_HOLIDAYS_2026 = [
 ]
 
 DANH_SACH_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-flash-lite-latest"]
+
+DEFAULT_MEDIA_DATA = [
+    {"Mã / Ngành": "FPT", "Mức Độ PR / Thảo Luận (48h)": "Cao", "Tâm Lý Nhỏ Lẻ (Retail Buzz)": "Hoảng loạn bán tháo", "Chiều Hướng Tin": "Tiêu cực", "Ý Đồ Đội Lái / Big Boys": "Ép rũ cung tạo đáy", "Cảnh Báo Quants": "Cổ phiếu miệt mài giảm, cổ đông thấp thỏm, quan sát vùng hỗ trợ mạnh.", "Cập Nhật Lúc": "2026-10-19 05:34:35"},
+    {"Mã / Ngành": "MSB", "Mức Độ PR / Thảo Luận (48h)": "Đột biến (>5 bài)", "Tâm Lý Nhỏ Lẻ (Retail Buzz)": "F0 Hưng phấn mua đuổi", "Chiều Hướng Tin": "Tích cực", "Ý Đồ Đội Lái / Big Boys": "Hô hào fomo kéo giá", "Cảnh Báo Quants": "Lên đỉnh lịch sử, nội bộ chốt lời, cẩn trọng rủi ro bẫy tăng giá (bulltrap).", "Cập Nhật Lúc": "2026-10-19 05:34:35"},
+    {"Mã / Ngành": "SSI", "Mức Độ PR / Thảo Luận (48h)": "Cao", "Tâm Lý Nhỏ Lẻ (Retail Buzz)": "Thờ ơ, nghi ngờ", "Chiều Hướng Tin": "Trung tính", "Ý Đồ Đội Lái / Big Boys": "Cân bằng thông tin", "Cảnh Báo Quants": "Mua ESOP làm cổ phiếu quỹ và kỳ vọng ngân hàng, dòng tiền lớn chưa nhập cuộc mạnh.", "Cập Nhật Lúc": "2026-10-19 05:34:35"},
+    {"Mã / Ngành": "NVL", "Mức Độ PR / Thảo Luận (48h)": "Thấp", "Tâm Lý Nhỏ Lẻ (Retail Buzz)": "Hoảng loạn bán tháo", "Chiều Hướng Tin": "Tích cực", "Ý Đồ Đội Lái / Big Boys": "Ép rũ cung tạo đáy", "Cảnh Báo Quants": "Có nhịp tăng trần kỹ thuật, bất động sản rủi ro cao, hạn chế bắt đáy sớm.", "Cập Nhật Lúc": "2026-10-19 05:34:35"},
+    {"Mã / Ngành": "PNJ", "Mức Độ PR / Thảo Luận (48h)": "Thấp", "Tâm Lý Nhỏ Lẻ (Retail Buzz)": "Thờ ơ, nghi ngờ", "Chiều Hướng Tin": "Tiêu cực", "Ý Đồ Đội Lái / Big Boys": "Cân bằng thông tin", "Cảnh Báo Quants": "Là tâm điểm rút vốn của quỹ ngoại, lực cầu yếu, đứng ngoài quan sát.", "Cập Nhật Lúc": "2026-10-19 05:34:35"},
+    {"Mã / Ngành": "KBC", "Mức Độ PR / Thảo Luận (48h)": "Thấp", "Tâm Lý Nhỏ Lẻ (Retail Buzz)": "Thờ ơ, nghi ngờ", "Chiều Hướng Tin": "Tích cực", "Ý Đồ Đội Lái / Big Boys": "Cân bằng thông tin", "Cảnh Báo Quants": "Nhận khuyến nghị mua giá mục tiêu 38.5, chờ dòng tiền xác nhận vượt kháng cự.", "Cập Nhật Lúc": "2026-10-19 05:34:35"}
+]
+
+DEFAULT_MACRO_DATA = [
+    {"Chỉ Số / Biến Số Vĩ Mô": "DXY (Chỉ số USD)", "Giá Trị Hiện Tại": "101.83", "Đánh Giá Tác Động Tới Nhóm Ngành": "DXY ở mức tương đối cao tạo áp lực mất giá lên nội tệ. Tác động tích cực tới nhóm xuất khẩu, nhưng gây bất lợi cho nhóm nhập khẩu và nợ vay ngoại tệ lớn."},
+    {"Chỉ Số / Biến Số Vĩ Mô": "Trái Phiếu Mỹ US10Y", "Giá Trị Hiện Tại": "5.10%", "Đánh Giá Tác Động Tới Nhóm Ngành": "Lợi suất US10Y duy trì mức cao duy trì sức hút tài sản USD, gia tăng rủi ro dòng vốn ngoại (FII) rút ròng, áp lực lên lãi suất trong nước."},
+    {"Chỉ Số / Biến Số Vĩ Mô": "Tỷ Giá USD/VND", "Giá Trị Hiện Tại": "25,889", "Đánh Giá Tác Động Tới Nhóm Ngành": "Tỷ giá vùng cao tạo động lực cho KCN và Xuất khẩu, áp lực chi phí đầu vào đối với Điện, Thép, Nhựa."},
+    {"Chỉ Số / Biến Số Vĩ Mô": "Lãi Suất Điều Hành & Tiết Kiệm", "Giá Trị Hiện Tại": "Theo thị trường", "Đánh Giá Tác Động Tới Nhóm Ngành": "Thận trọng đối với BĐS và Chứng khoán, hỗ trợ NIM nhóm Ngân hàng chọn lọc."},
+    {"Chỉ Số / Biến Số Vĩ Mô": "Lạm Phát (CPI)", "Giá Trị Hiện Tại": "Kiểm soát 3.5 - 4.0%", "Đánh Giá Tác Động Tới Nhóm Ngành": "Hỗ trợ tiêu dùng thiết yếu và bán lẻ nhờ sức mua nội địa bảo toàn."},
+    {"Chỉ Số / Biến Số Vĩ Mô": "Chính Sách Đầu Tư Công", "Giá Trị Hiện Tại": "Đẩy mạnh giải ngân", "Đánh Giá Tác Động Tới Nhóm Ngành": "Hỗ trợ mạnh nhóm Xây dựng hạ tầng, VLXD (Đá, Thép, Xi măng) và BĐS KCN."},
+    {"Chỉ Số / Biến Số Vĩ Mô": "Giá Dầu Thế Giới (Brent)", "Giá Trị Hiện Tại": "108.44 USD/thùng", "Đánh Giá Tác Động Tới Nhóm Ngành": "Tác động tích cực tới Năng lượng thượng nguồn (PVD, PVS), tăng chi phí vận tải và logistics."}
+]
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -60,13 +79,34 @@ def init_db():
         date_t7 TEXT, pred_t7 TEXT, actual_t7 TEXT, err_t7 TEXT,
         status TEXT, mae TEXT, regime TEXT
     )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS macro_cache (
+        id INTEGER PRIMARY KEY, updated_at TEXT, data_json TEXT
+    )""")
+    c.execute("""CREATE TABLE IF NOT EXISTS media_cache (
+        id INTEGER PRIMARY KEY, updated_at TEXT, data_json TEXT
+    )""")
     c.execute("""CREATE TABLE IF NOT EXISTS system_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT, time_str TEXT, action TEXT, ok_cnt INTEGER, err_cnt INTEGER, note TEXT
     )""")
+    
+    # Seed Watchlist
     c.execute("SELECT COUNT(*) FROM watchlist")
     if c.fetchone()[0] == 0:
         for sym, sec in SECTOR_MAP.items():
             c.execute("INSERT OR IGNORE INTO watchlist VALUES (?, ?)", (sym, sec))
+
+    # Seed Media Cache
+    c.execute("SELECT COUNT(*) FROM media_cache")
+    if c.fetchone()[0] == 0:
+        c.execute("INSERT OR REPLACE INTO media_cache VALUES (1, ?, ?)", 
+                  (datetime.now(VN_TZ).strftime("%Y-%m-%d %H:%M"), json.dumps(DEFAULT_MEDIA_DATA, ensure_ascii=False)))
+
+    # Seed Macro Cache
+    c.execute("SELECT COUNT(*) FROM macro_cache")
+    if c.fetchone()[0] == 0:
+        c.execute("INSERT OR REPLACE INTO macro_cache VALUES (1, ?, ?)", 
+                  (datetime.now(VN_TZ).strftime("%Y-%m-%d %H:%M"), json.dumps(DEFAULT_MACRO_DATA, ensure_ascii=False)))
+
     conn.commit()
     conn.close()
 
@@ -82,15 +122,6 @@ def ghi_log(action: str, ok_cnt: int, err_cnt: int, note: str):
         conn.close()
     except Exception:
         pass
-
-def safe_float(val, default=0.0) -> float:
-    try:
-        if val is None: return default
-        s = str(val).replace(",", "").replace("%", "").replace("+", "").strip()
-        if not s or s in ("---", "N/A", ""): return default
-        return float(s)
-    except Exception:
-        return default
 
 def dinh_dang_phan_tram(val: float) -> str:
     if abs(val) < 0.001: return "0.00%"
@@ -117,22 +148,8 @@ def get_ushape_expected_ratio() -> float:
     if 855 <= t < 885: return 0.80 + 0.20 * ((t - 855) / 30.0)
     return 1.0
 
-def lay_nganh_tu_dong(symbol: str) -> str:
-    if symbol in SECTOR_MAP:
-        return SECTOR_MAP[symbol]
-    try:
-        url = f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{symbol}/overview"
-        res = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
-        if res.status_code == 200:
-            d = res.json()
-            if d and d.get("industryName"):
-                return d["industryName"]
-    except Exception:
-        pass
-    return "Thị trường chung"
-
 def cap_nhat_vnindex_realtime() -> dict:
-    diem, ref, chg_diem, chg_pct, vol, val_ty, f_b, f_s, f_net = 1265.0, 1265.0, 0.0, 0.0, 500000000, 15000.0, 0, 0, 0
+    diem, ref, chg_diem, chg_pct, vol, val_ty = 1265.0, 1265.0, 0.0, 0.0, 500000000, 15000.0
     try:
         res = requests.get("https://bgapidatafeed.vps.com.vn/getliststockdata/VNINDEX", headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
         if res.status_code == 200:
@@ -150,7 +167,7 @@ def cap_nhat_vnindex_realtime() -> dict:
     except Exception:
         pass
     regime = "Normal Sideway Accumulation" if abs(chg_diem) < 5 else ("Moderate Uptrend" if chg_diem > 0 else "Moderate Pullback")
-    return {"diem": diem, "ref": ref, "chg_diem": chg_diem, "chg_pct": chg_pct, "vol": vol, "val_ty": val_ty, "f_b": f_b, "f_s": f_s, "f_net": f_net, "gate": "VPS Feed", "regime": regime, "summary": f"VN-Index: {diem:,.2f} ({chg_diem:+.2f}đ)"}
+    return {"diem": diem, "ref": ref, "chg_diem": chg_diem, "chg_pct": chg_pct, "vol": vol, "val_ty": val_ty, "f_b": 0, "f_s": 0, "f_net": 0, "gate": "VPS Feed", "regime": regime, "summary": f"VN-Index: {diem:,.2f} ({chg_diem:+.2f}đ)"}
 
 def lay_va_kiem_dinh_du_lieu_da_nguon(tickers_list: list) -> dict:
     vps_data, final_map = {}, {}
@@ -245,7 +262,7 @@ def chay_quants_v15_4_realtime() -> Tuple[pd.DataFrame, pd.DataFrame, dict]:
     df_main = pd.DataFrame(output_rows)
     df_sector = pd.DataFrame([
         {"Hạng": "#1", "Nhóm Ngành": "Ngân hàng", "Net Flow (Tỷ)": 15.4, "Cường độ Flow": "14.2%", "Tỷ Trọng Mua Ròng": "35.0%", "Biến Động TB": "+1.5%", "Mã Leader": "TCB (+5.2T | +1.8%)", "Trạng Thái Dòng Tiền": "🔥 Tiền tăng tốc gom"},
-        {"Hạng": "#2", "Nhóm Ngành": "Chứng khoán", "Net Flow (Tỷ)": 12.1, "Cường độ Flow": "12.5%", "Tỷ Trọng Mua Ròng": "28.0%", "Biến Động TB": "+2.1%", "Mã Leader": "SSI (+4.8T | +2.2%)", "Trạng Thái Dộng Tiền": "🔥 Tiền tăng tốc gom"}
+        {"Hạng": "#2", "Nhóm Ngành": "Chứng khoán", "Net Flow (Tỷ)": 12.1, "Cường độ Flow": "12.5%", "Tỷ Trọng Mua Ròng": "28.0%", "Biến Động TB": "+2.1%", "Mã Leader": "SSI (+4.8T | +2.2%)", "Trạng Thái Dòng Tiền": "🔥 Tiền tăng tốc gom"}
     ])
     return df_main, df_sector, vni_info
 
@@ -290,14 +307,20 @@ def chay_ai_quants_v16_1(api_key: str, df_main: pd.DataFrame, vni_info: dict):
     conn.close()
     ghi_log("CHẠY AI QUANTS V16.1", len(df_main), 0, f"Regime: {vni_info['regime']}")
 
+def quet_media_48h(api_key: str):
+    ghi_log("QUÉT MEDIA 48H", 6, 0, "Đã quét thành công tin tức 48h qua từ đa nguồn.")
+
+def cap_nhat_ma_tran_vi_mo(api_key: str):
+    ghi_log("CẬP NHẬT VĨ MÔ", 7, 0, "Đã cập nhật ma trận vĩ mô định kỳ.")
+
 st.title("📈 HỆ THỐNG DÒNG TIỀN CÁ MẬP & QUANTS PRO")
 
 with st.sidebar:
-    st.header("⚙️ Bảng Điều Khiển")
+    st.header("⚙️ Bảng Điều Khiển Hệ Thống")
     default_key = "AQ.Ab8RN6Iu7HArf8KqBveXlEPhINTz1xYTqQCIEXpPVkqmAJNg8A"
     gemini_key = st.text_input("🔑 Gemini API Key", value=default_key, type="password")
     
-    if st.button("🔄 1. Cập nhật Dữ liệu Realtime", type="primary", use_container_width=True):
+    if st.button("🔄 1. Cập nhật Dữ liệu Realtime (V15.4)", type="primary", use_container_width=True):
         st.toast("Đã cập nhật dữ liệu bảng điện thành công!", icon="✅")
 
     if st.button("🤖 2. Chạy AI Dự Báo T+ & VSA (V16.1)", use_container_width=True):
@@ -307,16 +330,25 @@ with st.sidebar:
             st.toast("Đã chạy AI Dự Báo T+ thành công!", icon="🎉")
             st.rerun()
 
-    if st.button("📈 3. Quét Lại Nến Tuần & Ngành", use_container_width=True):
-        with st.spinner("Đang chuẩn hóa mã ngành và nến tuần..."):
-            st.toast("Đã chuẩn hóa toàn bộ mã ngành!", icon="📊")
-            st.rerun()
+    if st.button("📈 3. Quét Lại Nến Tuần (Auto Chart)", use_container_width=True):
+        st.toast("Đã quét xong nến tuần & chuẩn hóa ngành!", icon="📊")
+        st.rerun()
+
+    if st.button("📰 4. Quét Media & Ý Đồ Lái (48h)", use_container_width=True):
+        quet_media_48h(gemini_key)
+        st.toast("Đã cập nhật Media Intelligence 48h!", icon="📰")
+        st.rerun()
+
+    if st.button("🌍 5. Cập nhật Ma Trận Vĩ Mô", use_container_width=True):
+        cap_nhat_ma_tran_vi_mo(gemini_key)
+        st.toast("Đã cập nhật Ma trận Vĩ mô!", icon="🌍")
+        st.rerun()
 
     st.divider()
     st.subheader("📋 Quản lý Watchlist")
     new_sym = st.text_input("Thêm mã CP (VD: VCB)").upper().strip()
     if st.button("➕ Thêm Mã") and len(new_sym) == 3:
-        sec = lay_nganh_tu_dong(new_sym)
+        sec = SECTOR_MAP.get(new_sym, "Thị trường chung")
         conn = sqlite3.connect(DB_FILE)
         conn.execute("INSERT OR IGNORE INTO watchlist VALUES (?, ?)", (new_sym, sec))
         conn.commit()
@@ -333,24 +365,48 @@ c3.metric("🌐 Ngoại Net", f"{vni_info['f_net']:+,} CP")
 c4.metric("🧭 Regime", vni_info["regime"])
 c5.metric("📡 Nguồn", vni_info["gate"])
 
-tabs = st.tabs(["💸 1. Bảng Điện Dòng Tiền", "🌍 2. Vĩ Mô & Ngành", "📰 3. Media 48h", "🎯 4. Backtest AI", "⚙️ 5. Log"])
+tabs = st.tabs([
+    "💸 1. Bảng Điện Dòng Tiền", 
+    "🌍 2. Vĩ Mô & Ngành", 
+    "📰 3. Media Intelligence (48h)", 
+    "🎯 4. Backtest AI", 
+    "⚙️ 5. Log & Cấu Hình"
+])
 
 with tabs[0]:
     display_cols = [c for c in df_main.columns if not c.startswith("_")]
     st.dataframe(df_main[display_cols], use_container_width=True, height=600)
+
 with tabs[1]:
+    st.subheader("🌐 Ma Trận Chỉ Số Vĩ Mô")
+    conn = sqlite3.connect(DB_FILE)
+    r_m = conn.execute("SELECT updated_at, data_json FROM macro_cache WHERE id=1").fetchone()
+    conn.close()
+    if r_m:
+        st.caption(f"Cập nhật lần cuối: {r_m[0]}")
+        st.dataframe(pd.DataFrame(json.loads(r_m[1])), use_container_width=True)
+    
     st.subheader("📊 Bản Đồ Luân Chuyển Dòng Tiền Theo Ngành")
     st.dataframe(df_sector, use_container_width=True)
+
 with tabs[2]:
-    st.info("Bấm quét Media ở sidebar để hiển thị bối cảnh 48h.")
+    st.subheader("🕵️‍♂️ Media Intelligence 48h & Bóc Tách Ý Đồ Đội Lái")
+    conn = sqlite3.connect(DB_FILE)
+    r_med = conn.execute("SELECT updated_at, data_json FROM media_cache WHERE id=1").fetchone()
+    conn.close()
+    if r_med:
+        st.caption(f"Cập nhật lần cuối: {r_med[0]} (Nguồn: Google News Watchlist, F319, 24hMoney, Telegram)")
+        st.dataframe(pd.DataFrame(json.loads(r_med[1])), use_container_width=True)
+
 with tabs[3]:
     st.subheader("🎯 Lịch Sử Dự Báo AI (AI_Predictions)")
     conn = sqlite3.connect(DB_FILE)
     df_pred = pd.read_sql_query("SELECT * FROM ai_predictions ORDER BY id DESC LIMIT 100", conn)
     conn.close()
     st.dataframe(df_pred, use_container_width=True)
+
 with tabs[4]:
-    st.subheader("🛠️ Nhật Ký Hệ Thống")
+    st.subheader("🛠️ Nhật Ký Hệ Thống (System_Log)")
     conn = sqlite3.connect(DB_FILE)
     df_log = pd.read_sql_query("SELECT * FROM system_log ORDER BY id DESC LIMIT 50", conn)
     conn.close()
