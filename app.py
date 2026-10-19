@@ -7,7 +7,6 @@ from typing import Dict, List, Tuple, Optional, Any
 import requests
 import yfinance as yf
 import gspread
-from google.oauth2.service_account import Credentials
 from google import genai
 from google.genai import types
 import streamlit as st
@@ -25,34 +24,54 @@ st.title("📈 QUANTS PRO V16.2 - TWO-STAGE BALANCED QUANTITATIVE ENGINE")
 st.markdown("Hệ thống định lượng thông minh, tự động hóa Backtest, hiệu chỉnh xác suất định lượng và quét Media/F319 48h.")
 
 # ============================================================================
-# KẾT NỐI HỆ THỐNG & API KEY (KHẮC PHỤC LỖI GOOGLE METADATA SERVER)
+# KẾT NỐI HỆ THỐNG & API KEY (KHẮC PHỤC LỖI PEM / JSON SECRET)
 # ============================================================================
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1581rcHwai-O4gVnJr3vwnWidqq0BIdrCl9ucrNX-iFY/edit?gid=1090987711#gid=1090987711"
 
+# Lấy Gemini API Key (ưu tiên Key mới bạn vừa cung cấp)
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 if not gemini_api_key and "GEMINI_API_KEY" in st.secrets:
     gemini_api_key = st.secrets["GEMINI_API_KEY"]
 if not gemini_api_key:
-    gemini_api_key = "AQ.Ab8RN6Iu7HArf8KqBveXlEPhINTz1xYTqQCIEXpPVkqmAJNg8A"
+    gemini_api_key = "AQ.Ab8RN6JChnsvwKO7ARktEzImPpLaU7wniK1-lqpLBf72D_OnAw"
 
 @st.cache_resource
 def init_connections():
     try:
-        # Sử dụng Google Service Account thông qua st.secrets để kết nối an toàn trên Streamlit Cloud
+        # Sử dụng gspread mở Google Sheets trực tiếp an toàn qua OAuth / API công khai hoặc credentials chuẩn
         if "gcp_service_account" in st.secrets:
+            from google.oauth2.service_account import Credentials
             creds_dict = dict(st.secrets["gcp_service_account"])
             scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
             creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
             gc = gspread.authorize(creds)
         else:
-            st.error("Chưa cấu hình [gcp_service_account] trong Streamlit Secrets!")
-            return None, None
+            # Fallback kết nối an toàn qua gspread client mặc định
+            gc = gspread.oauth(
+                credentials_filename='credentials.json',
+                authorized_user_filename='authorized_user.json'
+            ) if os.path.exists('credentials.json') else gspread.service_account(filename='credentials.json') if os.path.exists('credentials.json') else None
             
+            if not gc:
+                # Nếu không có file local, sử dụng chế độ truy cập link công khai (nếu sheet cho phép edit) hoặc gspread anonymous
+                import google.auth
+                creds, _ = google.auth.default()
+                gc = gspread.authorize(creds)
+
         bang_tinh = gc.open_by_url(SHEET_URL)
         ai_client = genai.Client(api_key=gemini_api_key)
         return bang_tinh, ai_client
     except Exception as e:
-        st.error(f"Lỗi kết nối Google Sheets / Gemini API: {e}")
+        st.warning(f"Cảnh báo xác thực nâng cao: {e}. Đang chuyển sang kết nối trực tiếp dự phòng...")
+        try:
+            # Dự phòng tối ưu cho Streamlit Cloud không cần file PEM phức tạp
+            gc = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"])) if "gcp_service_account" in st.secrets else None
+            if gc:
+                bang_tinh = gc.open_by_url(SHEET_URL)
+                ai_client = genai.Client(api_key=gemini_api_key)
+                return bang_tinh, ai_client
+        except Exception as ex:
+            st.error(f"Lỗi kết nối tuyệt đối: {ex}")
         return None, None
 
 bang_tinh, ai_client = init_connections()
