@@ -24,7 +24,7 @@ st.title("📈 QUANTS PRO V16.2 - TWO-STAGE BALANCED QUANTITATIVE ENGINE")
 st.markdown("Hệ thống định lượng thông minh, tự động hóa Backtest, hiệu chỉnh xác suất định lượng và quét Media/F319 48h.")
 
 # ============================================================================
-# KẾT NỐI HỆ THỐNG & API KEY (KHẮC PHỤC TRIỆT ĐỂ LỖI PEM / JSON SECRET)
+# KẾT NỐI HỆ THỐNG & API KEY (KHẮC PHỤC TRIỆT ĐỂ LỖI PEM)
 # ============================================================================
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1581rcHwai-O4gVnJr3vwnWidqq0BIdrCl9ucrNX-iFY/edit?gid=1090987711#gid=1090987711"
 
@@ -37,34 +37,15 @@ if not gemini_api_key:
 @st.cache_resource
 def init_connections():
     try:
-        # Kiểm tra xem người dùng có truyền đúng định dạng JSON chuẩn không
-        if "gcp_service_account" in st.secrets:
-            try:
-                from google.oauth2.service_account import Credentials
-                creds_dict = dict(st.secrets["gcp_service_account"])
-                
-                # Xử lý an toàn chuỗi private_key nếu bị lỗi định dạng \n
-                if "private_key" in creds_dict:
-                    creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-                
-                scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-                creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
-                gc = gspread.authorize(creds)
-            except Exception as pem_err:
-                st.warning(f"Phát hiện lỗi định dạng Key PEM: {pem_err}. Đang chuyển sang chế độ dự phòng công khai/OAuth...")
-                gc = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"]))
-        else:
-            # Fallback nếu không có service account
-            import google.auth
-            creds, _ = google.auth.default()
-            gc = gspread.authorize(creds)
-
+        # Sử dụng gspread kết nối trực tiếp qua chế độ công khai (Public Google Sheets)
+        # Đảm bảo Google Sheet đã được chia sẻ quyền "Anyone with the link can edit"
+        gc = gspread.no_authorization()
         bang_tinh = gc.open_by_url(SHEET_URL)
         ai_client = genai.Client(api_key=gemini_api_key)
         return bang_tinh, ai_client
     except Exception as e:
         st.error(f"Lỗi kết nối Google Sheets / Gemini API: {e}")
-        st.info("💡 **Mẹo khắc phục:** Hãy đảm bảo Google Sheet đã được chia sẻ ở chế độ 'Anyone with the link can edit' hoặc kiểm tra lại cú pháp JSON trong Streamlit Secrets.")
+        st.info("💡 **Lưu ý quan trọng:** Hãy chắc chắn rằng Google Sheet của bạn đã được chia sẻ ở chế độ quyền **'Anyone with the link can edit'** (Bất kỳ ai có đường dẫn đều có quyền chỉnh sửa) để ứng dụng Streamlit Cloud có thể đọc và ghi dữ liệu mà không cần file mã hóa PEM phức tạp.")
         return None, None
 
 bang_tinh, ai_client = init_connections()
