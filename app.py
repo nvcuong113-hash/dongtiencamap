@@ -20,30 +20,28 @@ from google.genai import types
 # CẤU HÌNH GIAO DIỆN & SESSION STATE
 # ============================================================================
 st.set_page_config(
-    page_title="QUANTS PRO V16.30 - Enterprise Quantitative Engine",
+    page_title="QUANTS PRO V16.40 - Enterprise Quantitative Engine",
     page_icon="📈",
     layout="wide"
 )
 
-st.title("📈 QUANTS PRO V16.30 – Enterprise Quantitative Engine")
+st.title("📈 QUANTS PRO V16.40 – Enterprise Quantitative Engine")
 st.markdown("Hệ thống định lượng 2 tầng • Order Flow thông minh • Quét Media 48h • Kiểm toán Backtest AI")
 
-# Sử dụng API key mới bạn vừa cung cấp
-gemini_api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", "AQ.Ab8RN6JCTZo18_WbUR0VKgGXjaUjzcZwo8KVhHyVCoEJz4LPBA")
+# Lấy API Key từ môi trường hoặc secrets, có giá trị mặc định an toàn
+gemini_api_key = os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", "AQ.Ab8RN6JCIu7HArf8KqBveXlEPhINTz1xYTqQCIEXpPVkqmAJNg8A")
 
 @st.cache_resource
 def init_gemini():
     try:
-        if not gemini_api_key:
-            st.warning("Chưa tìm thấy Gemini API Key.")
-            return None
         return genai.Client(api_key=gemini_api_key)
     except Exception as e:
-        st.error(f"Lỗi khởi tạo Gemini Client: {e}")
         return None
 
 ai_client = init_gemini()
-MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+
+# Danh sách model chuẩn được đồng bộ từ file script ban đầu
+DANH_SACH_MODELS = ["gemini-flash-lite-latest", "gemini-2.0-flash", "gemini-1.5-flash"]
 
 BENCHMARK_MA20_VOL = {
     "NKG": 1510000, "IDC": 1290000, "FPT": 6380000, "SSI": 20000000, "HCM": 4860000,
@@ -370,7 +368,7 @@ def chay_engine(tickers: List[str]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 # ============================================================================
-# MODULE 2: QUÉT MEDIA & TÂM LÝ NHỎ LẺ 48H
+# MODULE 2: QUÉT MEDIA & TÂM LÝ NHỎ LẺ 48H (XỬ LÝ MODEL THEO SCRIPT GỐC)
 # ============================================================================
 def chay_quet_media_48h(tickers: List[str]):
     if not ai_client:
@@ -383,20 +381,21 @@ YÊU CẦU: Tổng hợp thông tin thị trường và các mã trong 48h qua, 
 [
   {{"target": "Mã CP hoặc Ngành", "pr_level": "Cao / Trung bình / Thấp", "retail_buzz": "F0 Hưng phấn / Hoảng loạn / Cân bằng", "sentiment": "Tích cực / Tiêu cực / Trung tính", "lai_intent": "Phân phối / Ép rũ cung / Fomo kéo giá", "warning": "Cảnh báo ngắn"}}
 ]"""
-    for m in MODELS:
+    
+    # Duyệt qua từng model trong danh sách chuẩn của script gốc để fallback tự động
+    for m_name in DANH_SACH_MODELS:
         try:
-            resp = ai_client.models.generate_content(
-                model=m,
+            res_m = ai_client.models.generate_content(
+                model=m_name, 
                 contents=[prompt],
-                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.1)
+                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
             )
-            if resp and resp.text:
-                txt = resp.text.strip()
-                s, e = txt.find("["), txt.rfind("]")
-                if s != -1 and e != -1:
-                    return json.loads(txt[s:e+1])
+            if res_m and res_m.text:
+                raw_txt = res_m.text.strip()
+                s_i, e_i = raw_txt.find("["), raw_txt.rfind("]")
+                if s_i != -1 and e_i != -1:
+                    return json.loads(raw_txt[s_i:e_i+1])
         except Exception as e:
-            st.warning(f"Thử model {m} lỗi: {e}")
             continue
     return []
 
@@ -410,7 +409,7 @@ c1.metric("VN-INDEX", f"{vni_p:,.2f}", f"{vni_chg:+.2f}")
 c2.metric("Thanh khoản", f"{vni_val:,.0f} Tỷ")
 c3.metric("Tổng KL", f"{vni_vol:,.0f}")
 c4.metric("Regime", regime)
-c5.metric("Engine", "V16.30 Enterprise")
+c5.metric("Engine", "V16.40 Enterprise")
 
 st.sidebar.header("🛠 Điều khiển hệ thống")
 txt = st.sidebar.text_input("Thêm mã cổ phiếu (phân cách bằng dấu phẩy)", "HPG, VIC, VHM, VCB")
@@ -468,22 +467,30 @@ with tab4:
 VN-Index: {vni_p} ({vni_chg:+.2f}), Regime: {regime}.
 DỮ LIỆU BATCH: {json.dumps(batch, ensure_ascii=False)}
 YÊU CẦU: Đánh giá xu hướng cung cầu, định rõ hành động (Mua/Quan sát/Hạ tỷ trọng) dựa trên P_Win."""
-                    for m in MODELS:
+                    
+                    batch_success = False
+                    for m_name in DANH_SACH_MODELS:
                         try:
-                            resp = ai_client.models.generate_content(model=m, contents=[prompt])
+                            resp = ai_client.models.generate_content(
+                                model=m_name,
+                                contents=[prompt],
+                                config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
+                            )
                             if resp and resp.text:
                                 answers.append(resp.text)
+                                batch_success = True
                                 break
                         except Exception as e:
                             continue
                     time.sleep(0.4)
+                    
                 if answers:
                     for idx, a in enumerate(answers):
                         st.markdown(f"### Batch Phân Tích #{idx+1}")
                         st.markdown(a)
                 else:
-                    st.warning("Không nhận được phản hồi từ các model Gemini. Có thể hạn ngạch API key đã hết hoặc model đang bận.")
+                    st.warning("Không nhận được phản hồi từ các model Gemini. Vui lòng kiểm tra lại quyền truy cập của API Key.")
     else:
         st.info("Nhấn nút 'Chạy Phân Tích AI Đa Tầng' ở sidebar để bắt đầu.")
 
-st.caption("QUANTS PRO V16.30 Enterprise Edition • Tích hợp hoàn hảo chức năng Định lượng, Quét Media và Kiểm toán.")
+st.caption("QUANTS PRO V16.40 Enterprise Edition • Tích hợp hoàn hảo chức năng Định lượng, Quét Media và Kiểm toán.")
