@@ -37,7 +37,6 @@ if not gemini_api_key:
 @st.cache_resource
 def init_connections():
     try:
-        # Sử dụng gspread mở Google Sheets trực tiếp ở chế độ công khai (yêu cầu Sheet đã bật Anyone with the link can edit)
         gc = gspread.no_authorization()
         bang_tinh = gc.open_by_url(SHEET_URL)
         ai_client = genai.Client(api_key=gemini_api_key)
@@ -58,13 +57,13 @@ def safe_float(val: Any, default: float = 0.0) -> float:
         s = str(val).replace(",", "").replace("%", "").replace("+", "").strip()
         if not s or s in ("---", "N/A", ""): return default
         return float(s)
-    except Exception:
+    except Exception as e:
         return default
 
 def safe_int(val: Any, default: int = 0) -> int:
     try:
         return int(safe_float(val, default))
-    except Exception:
+    except Exception as e:
         return default
 
 def dinh_dang_phan_tram(val: float) -> str:
@@ -79,7 +78,7 @@ def lay_regime_chuan_xac(ws_target=None) -> Tuple[str, str]:
     if ws_target is None and bang_tinh:
         try:
             ws_target = bang_tinh.worksheet("Macro_Dashboard")
-        except Exception:
+        except Exception as e:
             ws_target = None
 
     diem_vni = 0.0
@@ -107,7 +106,7 @@ def lay_regime_chuan_xac(ws_target=None) -> Tuple[str, str]:
                     tong_kl = k_s
                     gtgd_ty = val_s
                     live_fetched = True
-        except Exception:
+        except Exception as e:
             pass
 
     if not live_fetched or diem_vni == 0:
@@ -127,7 +126,7 @@ def lay_regime_chuan_xac(ws_target=None) -> Tuple[str, str]:
                         chg_pct = (p_now - p_ref) / p_ref if p_ref > 0 else 0.0
                         if v_now > 0: tong_kl = v_now
                         live_fetched = True
-        except Exception:
+        except Exception as e:
             pass
 
     if gtgd_ty >= 22000:
@@ -167,7 +166,7 @@ def cong_ngay_giao_dich(start_date: datetime, num_days: int) -> str:
 if bang_tinh and ai_client:
     try:
         ws_macro = bang_tinh.worksheet("Macro_Dashboard")
-    except Exception:
+    except Exception as e:
         ws_macro = bang_tinh.add_worksheet(title="Macro_Dashboard", rows=30, cols=10)
 
     market_summary, current_regime = lay_regime_chuan_xac(ws_macro)
@@ -191,7 +190,7 @@ if bang_tinh and ai_client:
                                 insights_list.append(f"- {r[0].strip()}: {r[3].strip()} ({r[4].strip()})")
                         if insights_list:
                             media_insight_str = "\n".join(insights_list[:8])
-                except Exception:
+                except Exception as e:
                     pass
 
                 macro_vals = ws_macro.get_all_values()
@@ -337,7 +336,7 @@ RÀNG BUỘC KỶ LUẬT ĐỊNH LƯỢNG HAI TẦNG (TWO-STAGE QUANT DISCIPLINE
                                     res_json = json.loads(raw_txt[s_i : e_i + 1])
                                     all_ai_results.update(res_json)
                                     break
-                        except Exception:
+                        except Exception as e:
                             time.sleep(0.5)
                     time.sleep(0.8)
 
@@ -394,7 +393,7 @@ RÀNG BUỘC KỶ LUẬT ĐỊNH LƯỢNG HAI TẦNG (TWO-STAGE QUANT DISCIPLINE
                 if prediction_records:
                     try:
                         ws_pred_target = bang_tinh.worksheet("AI_Predictions")
-                    except Exception:
+                    except Exception as e:
                         ws_pred_target = bang_tinh.add_worksheet(title="AI_Predictions", rows=1000, cols=18)
                     ws_pred_target.append_rows(prediction_records)
 
@@ -411,4 +410,7 @@ RÀNG BUỘC KỶ LUẬT ĐỊNH LƯỢNG HAI TẦNG (TWO-STAGE QUANT DISCIPLINE
             st.dataframe(df, use_container_width=True)
         else:
             st.info("Tab TheoDoi_DongTien hiện đang trống.")
-    except Exception as
+    except Exception as e:
+        st.warning(f"Không thể hiển thị bảng dữ liệu trực tiếp: {e}")
+else:
+    st.error("Không thể kết nối đến Google Sheets hoặc Gemini AI. Vui lòng kiểm tra lại cấu hình Secret/API Key.")
