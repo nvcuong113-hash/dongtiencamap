@@ -442,7 +442,7 @@ def chay_ai_quants_v16_1(api_key: str, df: pd.DataFrame, vni: dict):
 # ============================================================================
 # GIAO DIỆN FRONTEND (STREAMLIT DASHBOARD)
 # ============================================================================
-st.title("🚀 HỆ THỐNG SMART MONEY & QUANTS PRO (V15.4 + V16.1)")
+st.title("🚀 HỆ THỐNG SMART MONEY NVCUONG")
 
 with st.sidebar:
     st.header("⚙️ Bảng Điều Khiển")
