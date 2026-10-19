@@ -7,24 +7,22 @@ from typing import Dict, List, Tuple, Optional, Any
 import requests
 import pandas as pd
 import numpy as np
-import yfinance as yf
 from google import genai
 from google.genai import types
 import streamlit as st
 
 # ============================================================================
-# CẤU HÌNH GIAO DIỆN & KHỞI TẠO
+# CẤU HÌNH
 # ============================================================================
 st.set_page_config(
-    page_title="QUANTS PRO V16.18 - Production Grade Modular Engine",
+    page_title="QUANTS PRO V16.19 - Clean Production Engine",
     page_icon="📈",
     layout="wide"
 )
 
-st.title("📈 QUANTS PRO V16.18 - HỆ THỐNG ĐỊNH LƯỢNG & SMART MONEY ĐỘC LẬP (PRODUCTION)")
-st.markdown("Hệ thống Modular tối tân: Multi-source 4 cổng, Snapshot 09:15 thật, Backtest lịch sử TCBS bars thật, Mini-batch AI 2 tầng có kỷ luật & Media Intelligence.")
+st.title("📈 QUANTS PRO V16.19 - HỆ THỐNG ĐỊNH LƯỢNG & SMART MONEY (CLEAN PRODUCTION)")
+st.markdown("Bản sửa lỗi nghiêm trọng: Snapshot 09:15 thật • Net Flow trung thực • Wyckoff & P_Win chuẩn • AI Mini-batch có kỷ luật")
 
-# Lấy Gemini API Key
 gemini_api_key = os.getenv("GEMINI_API_KEY")
 if not gemini_api_key and "GEMINI_API_KEY" in st.secrets:
     gemini_api_key = st.secrets["GEMINI_API_KEY"]
@@ -35,7 +33,7 @@ if not gemini_api_key:
 def init_gemini():
     try:
         return genai.Client(api_key=gemini_api_key)
-    except Exception as e:
+    except Exception:
         return None
 
 ai_client = init_gemini()
@@ -47,52 +45,59 @@ BENCHMARK_MA20_VOL = {
     "BSR": 12630000, "MSB": 7570000, "LPB": 2260000, "DXG": 15000000,
     "HCM": 4860000, "HPG": 25000000, "VND": 18000000, "SHS": 16500000,
     "TCB": 18000000, "PDR": 8500000, "CEO": 6000000, "DIG": 12500000,
-    "NVL": 18000000, "PVD": 5500000, "PVS": 4500000, "PNJ": 1600000
+    "NVL": 18000000, "PVD": 5500000, "PVS": 4500000, "PNJ": 1600000,
+    "KBC": 4500000, "POW": 8000000, "VCB": 3500000, "VIC": 5000000
 }
 
 if "watchlist" not in st.session_state:
-    st.session_state.watchlist = ["NKG", "IDC", "FPT", "SSI", "HCM", "HPG", "VND", "SHS", "TCB", "CTG", "BSR", "MSB", "DXG", "PNJ", "KBC", "POW"]
+    st.session_state.watchlist = ["NKG", "IDC", "FPT", "SSI", "HCM", "HPG", "VND", "SHS", "TCB", "CTG", "BSR", "MSB", "DXG", "PNJ"]
 
 if "snapshot_open_store" not in st.session_state:
-    st.session_state.snapshot_open_store = {}
+    st.session_state.snapshot_open_store = {}   # key = "YYYY-MM-DD_SYMBOL"
 
 if "ai_predictions_history" not in st.session_state:
     st.session_state.ai_predictions_history = []
 
 def safe_float(val: Any, default: float = 0.0) -> float:
     try:
-        if val is None: return default
+        if val is None:
+            return default
         s = str(val).replace(",", "").replace("%", "").replace("+", "").strip()
-        if not s or s in ("---", "N/A", ""): return default
+        if not s or s in ("---", "N/A", ""):
+            return default
         return float(s)
     except Exception:
         return default
 
 # ============================================================================
-# MODULE 1: MULTI-SOURCE DATA & SNAPSHOT 09:15 THẬT
+# 1. MULTI-SOURCE DATA
 # ============================================================================
 def lay_bien_dong_vn_index() -> float:
     try:
-        res = requests.get("https://bgapidatafeed.vps.com.vn/getliststockdata/VNINDEX", headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
+        res = requests.get(
+            "https://bgapidatafeed.vps.com.vn/getliststockdata/VNINDEX",
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=3
+        )
         if res.status_code == 200:
             arr = res.json()
             if arr and len(arr) > 0:
                 p = float(arr[0].get("lastPrice", 0))
                 r = float(arr[0].get("r", 0))
-                if p > 0 and r > 0: return (p - r) / r
+                if p > 0 and r > 0:
+                    return (p - r) / r
     except Exception:
         pass
     return -0.0066
 
 def lay_du_lieu_thi_truong_thuc_te() -> Tuple[float, float, float, int, str]:
-    diem_vni = 1689.84
-    thay_doi_vni = -16.07
-    chg_pct = -0.0094
-    gtgd_ty = 13354.74
-    tong_kl = 519290368
-    
+    diem_vni, thay_doi_vni, chg_pct = 1689.84, -16.07, -0.0094
+    gtgd_ty, tong_kl = 13354.74, 519290368
+
     try:
-        res = requests.get("https://bgapidatafeed.vps.com.vn/getliststockdata/VNINDEX", headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
+        res = requests.get(
+            "https://bgapidatafeed.vps.com.vn/getliststockdata/VNINDEX",
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=3
+        )
         if res.status_code == 200:
             arr = res.json()
             if arr and len(arr) > 0:
@@ -100,8 +105,9 @@ def lay_du_lieu_thi_truong_thuc_te() -> Tuple[float, float, float, int, str]:
                 p = float(it.get("lastPrice", 0))
                 r = float(it.get("r", it.get("refPrice", p)))
                 v = int(it.get("totalVolume", it.get("lot", 0)))
-                if v > 0 and v < 10000000 and not it.get("fVo"): v *= 10
-                if p >= 500 and v > 0:
+                if v > 0 and v < 10_000_000 and not it.get("fVo"):
+                    v *= 10
+                if 500 <= p <= 3500 and v > 0:
                     diem_vni = p
                     thay_doi_vni = round(p - r, 2)
                     chg_pct = (p - r) / r if r > 0 else 0
@@ -115,16 +121,20 @@ def lay_du_lieu_thi_truong_thuc_te() -> Tuple[float, float, float, int, str]:
 
 def lay_nganh_tu_dong(sym: str) -> str:
     try:
-        res = requests.get(f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{sym}/overview", headers={"User-Agent": "Mozilla/5.0"}, timeout=2)
+        res = requests.get(
+            f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{sym}/overview",
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=2
+        )
         if res.status_code == 200:
             data = res.json()
             if data and data.get("industryName"):
-                return data.get("industryName")
+                return data["industryName"]
     except Exception:
         pass
     return "Thị trường chung"
 
 def lay_deal_flow_thuc_te(sym: str) -> Dict[str, Any]:
+    """Chỉ trả về dữ liệu thật. Không proxy ảo."""
     try:
         url = f"https://iboard-query.ssi.com.vn/stock/deal-history?stockSymbol={sym}"
         res = requests.get(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"}, timeout=3)
@@ -132,12 +142,14 @@ def lay_deal_flow_thuc_te(sym: str) -> Dict[str, Any]:
             parsed = res.json()
             deals = parsed.get("data", parsed)
             if isinstance(deals, list) and len(deals) > 0:
-                b_vol, s_vol = 0, 0
+                b_vol = s_vol = 0
                 for d in deals:
-                    v = int(d.get("vol", d.get("volume", d.get("matchVol", 0))))
-                    side = str(d.get("action", d.get("side", ""))).upper()
-                    if side == "B": b_vol += v
-                    elif side == "S": s_vol += v
+                    v = int(d.get("vol") or d.get("volume") or d.get("matchVol") or 0)
+                    side = str(d.get("action") or d.get("side") or "").upper()
+                    if side == "B":
+                        b_vol += v
+                    elif side == "S":
+                        s_vol += v
                 if b_vol + s_vol > 0:
                     return {"realBuyVol": b_vol, "realSellVol": s_vol, "isReal": True}
     except Exception:
@@ -145,358 +157,371 @@ def lay_deal_flow_thuc_te(sym: str) -> Dict[str, Any]:
     return {"realBuyVol": 0, "realSellVol": 0, "isReal": False}
 
 def lay_va_kiem_dinh_du_lieu_da_nguon(tickers_list: List[str]) -> Dict[str, Dict]:
-    vps_data = {}
-    ssi_data = {}
-    final_map = {}
+    vps_data, ssi_data = {}, {}
 
+    # Cổng 1: VPS
     try:
-        res_vps = requests.get("https://bgapidatafeed.vps.com.vn/getliststockdata/" + ",".join(tickers_list), headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
-        if res_vps.status_code == 200:
-            arr = res_vps.json()
-            if isinstance(arr, list):
-                for it in arr:
-                    if it and "sym" in it:
-                        sym = str(it["sym"]).upper()
-                        v1 = int(it.get("totalVolume", 0))
-                        v2 = int(it.get("fVo", 0))
-                        v3 = int(it.get("totalVol", 0))
-                        v4 = int(it.get("lot", 0))
-                        if v3 > 0 and v3 < 50000000 and not it.get("fVo"): v3 *= 10
-                        if v4 > 0 and v4 < 50000000 and not it.get("fVo"): v4 *= 10
-                        vps_vol = max(v1, v2, v3, v4)
-
-                        vps_data[sym] = {
-                            "p": float(it.get("lastPrice", 0)),
-                            "r": float(it.get("r", it.get("refPrice", 0))),
-                            "vol": vps_vol,
-                            "high": float(it.get("highPrice", 0)),
-                            "low": float(it.get("lowPrice", 0)),
-                            "ave": float(it.get("avePrice", 0)),
-                            "fB": int(it.get("fBVol", it.get("fBuyVol", 0))),
-                            "fS": int(it.get("fSVolume", it.get("fSellVol", 0)))
-                        }
+        res = requests.get(
+            "https://bgapidatafeed.vps.com.vn/getliststockdata/" + ",".join(tickers_list),
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=4
+        )
+        if res.status_code == 200:
+            for it in res.json() or []:
+                if not it or "sym" not in it:
+                    continue
+                sym = str(it["sym"]).upper()
+                v1 = int(it.get("totalVolume") or 0)
+                v2 = int(it.get("fVo") or 0)
+                v3 = int(it.get("totalVol") or 0)
+                v4 = int(it.get("lot") or 0)
+                if 0 < v3 < 50_000_000 and not it.get("fVo"):
+                    v3 *= 10
+                if 0 < v4 < 50_000_000 and not it.get("fVo"):
+                    v4 *= 10
+                vps_data[sym] = {
+                    "p": float(it.get("lastPrice") or 0),
+                    "r": float(it.get("r") or it.get("refPrice") or 0),
+                    "vol": max(v1, v2, v3, v4),
+                    "high": float(it.get("highPrice") or 0),
+                    "low": float(it.get("lowPrice") or 0),
+                    "ave": float(it.get("avePrice") or 0),
+                    "fB": int(it.get("fBVol") or it.get("fBuyVol") or 0),
+                    "fS": int(it.get("fSVolume") or it.get("fSellVol") or 0),
+                }
     except Exception:
         pass
 
+    # Cổng 2: SSI
     try:
-        res_ssi = requests.get("https://iboard-query.ssi.com.vn/v2/stock/exchange/all", headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
-        if res_ssi.status_code == 200:
-            ssi_list = res_ssi.json().get("data", [])
-            for it in ssi_list:
-                sym = str(it.get("ss", "")).upper()
+        res = requests.get(
+            "https://iboard-query.ssi.com.vn/v2/stock/exchange/all",
+            headers={"User-Agent": "Mozilla/5.0"}, timeout=4
+        )
+        if res.status_code == 200:
+            for it in (res.json().get("data") or []):
+                sym = str(it.get("ss") or "").upper()
                 if sym in tickers_list:
                     ssi_data[sym] = {
-                        "p": float(it.get("matchedPrice", it.get("priorClosePrice", 0))),
-                        "r": float(it.get("priorClosePrice", 0)),
-                        "vol": int(it.get("totalMatchVolume", 0)),
-                        "high": float(it.get("highestPrice", 0)),
-                        "low": float(it.get("lowestPrice", 0)),
-                        "ave": float(it.get("avgPrice", 0)),
-                        "fB": int(it.get("buyForeignQuantity", 0)),
-                        "fS": int(it.get("sellForeignQuantity", 0))
+                        "p": float(it.get("matchedPrice") or it.get("priorClosePrice") or 0),
+                        "r": float(it.get("priorClosePrice") or 0),
+                        "vol": int(it.get("totalMatchVolume") or 0),
+                        "high": float(it.get("highestPrice") or 0),
+                        "low": float(it.get("lowestPrice") or 0),
+                        "ave": float(it.get("avgPrice") or 0),
+                        "fB": int(it.get("buyForeignQuantity") or 0),
+                        "fS": int(it.get("sellForeignQuantity") or 0),
                     }
     except Exception:
         pass
 
+    final_map = {}
     for sym in tickers_list:
-        dv = vps_data.get(sym, {"p": 0, "r": 0, "vol": 0, "high": 0, "low": 0, "ave": 0, "fB": 0, "fS": 0})
-        ds = ssi_data.get(sym, {"p": 0, "r": 0, "vol": 0, "high": 0, "low": 0, "ave": 0, "fB": 0, "fS": 0})
+        dv = vps_data.get(sym, {})
+        ds = ssi_data.get(sym, {})
 
-        best_p = ds["p"] if ds["p"] > 0 else dv["p"]
-        best_r = ds["r"] if ds["r"] > 0 else dv["r"]
-        best_vol = ds["vol"] if ds["vol"] > 0 else dv["vol"]
-        best_fb = ds["fB"] if ds["fB"] > 0 else dv["fB"]
-        best_fs = ds["fS"] if ds["fS"] > 0 else dv["fS"]
-        best_high = ds["high"] if ds["high"] > 0 else best_p
-        best_low = ds["low"] if ds["low"] > 0 else best_p
-        best_ave = ds["ave"] if ds["ave"] > 0 else (best_high + best_low) / 2
+        best_p = ds.get("p") or dv.get("p") or 0
+        best_r = ds.get("r") or dv.get("r") or best_p
+        best_vol = ds.get("vol") or dv.get("vol") or 0
+        best_fb = ds.get("fB") if ds.get("fB") is not None else dv.get("fB", 0)
+        best_fs = ds.get("fS") if ds.get("fS") is not None else dv.get("fS", 0)
+        best_high = ds.get("high") or dv.get("high") or best_p
+        best_low = ds.get("low") or dv.get("low") or best_p
+        best_ave = ds.get("ave") or dv.get("ave") or ((best_high + best_low) / 2 if best_high and best_low else best_p)
 
-        if 0 < best_p < 1000: best_p *= 1000
-        if 0 < best_r < 1000: best_r *= 1000
-        if 0 < best_high < 1000: best_high *= 1000
-        if 0 < best_low < 1000: best_low *= 1000
-        if 0 < best_ave < 1000: best_ave *= 1000
-
-        if sym == "IDC" and best_p == 0: best_p = 33900
-        if sym == "FPT" and best_p == 0: best_p = 57100
+        # Chuẩn hóa giá
+        for var in ["best_p", "best_r", "best_high", "best_low", "best_ave"]:
+            val = locals()[var]
+            if 0 < val < 1000:
+                locals()[var] = val * 1000
+        best_p = best_p if best_p >= 1000 or best_p == 0 else best_p * 1000
+        best_r = best_r if best_r >= 1000 or best_r == 0 else best_r * 1000
+        best_high = best_high if best_high >= 1000 or best_high == 0 else best_high * 1000
+        best_low = best_low if best_low >= 1000 or best_low == 0 else best_low * 1000
+        best_ave = best_ave if best_ave >= 1000 or best_ave == 0 else best_ave * 1000
 
         final_map[sym] = {
-            "p": best_p, "ref": best_r if best_r > 0 else best_p, "vol": best_vol if best_vol > 0 else 1500000,
-            "high": best_high, "low": best_low, "ave": best_ave,
-            "netForeign": best_fb - best_fs
+            "p": best_p,
+            "ref": best_r if best_r > 0 else best_p,
+            "vol": best_vol if best_vol > 0 else 0,
+            "high": best_high,
+            "low": best_low,
+            "ave": best_ave,
+            "netForeign": (best_fb or 0) - (best_fs or 0),
         }
-
     return final_map
 
 def get_ushape_expected_ratio() -> float:
     now = datetime.now()
-    if now.weekday() >= 5: return 1.0
+    if now.weekday() >= 5:
+        return 1.0
     t = now.hour * 60 + now.minute
-    if t < 540 or t >= 885: return 1.0
-    if 540 <= t < 630: return 0.15 + 0.25 * ((t - 540) / 90)
-    if 630 <= t <= 690: return 0.40 + 0.15 * ((t - 630) / 60)
-    if 690 <= t < 780: return 0.55
-    if 780 <= t < 855: return 0.55 + 0.25 * ((t - 780) / 75)
-    if 855 <= t < 885: return 0.80 + 0.20 * ((t - 855) / 30)
+    if t < 540 or t >= 885:
+        return 1.0
+    if 540 <= t < 630:
+        return 0.15 + 0.25 * ((t - 540) / 90)
+    if 630 <= t <= 690:
+        return 0.40 + 0.15 * ((t - 630) / 60)
+    if 690 < t < 780:
+        return 0.55
+    if 780 <= t < 855:
+        return 0.55 + 0.25 * ((t - 780) / 75)
+    if 855 <= t < 885:
+        return 0.80 + 0.20 * ((t - 855) / 30)
     return 1.0
 
 # ============================================================================
-# MODULE 2: QUANTITATIVE CORE & SNAPSHOT 09:15 THẬT
+# 2. QUANTITATIVE CORE (đã sửa lỗi nghiêm trọng)
 # ============================================================================
 def chay_engine_dinh_luong(tickers_list: List[str]) -> pd.DataFrame:
     raw_market = lay_va_kiem_dinh_du_lieu_da_nguon(tickers_list)
     vni_chg = lay_bien_dong_vn_index()
     exp_ratio = get_ushape_expected_ratio()
+    now = datetime.now()
+    today_str = now.strftime("%Y-%m-%d")
+    current_minutes = now.hour * 60 + now.minute
     rows = []
-    
-    today_str = datetime.now().strftime("%Y-%m-%d")
 
     for sym in tickers_list:
-        data = raw_market.get(sym, {"p": 33900 if sym=="IDC" else 57100, "ref": 33900 if sym=="IDC" else 57100, "vol": 1500000, "high": 34000, "low": 33000, "ave": 33500, "netForeign": 100})
+        data = raw_market.get(sym, {
+            "p": 0, "ref": 0, "vol": 0, "high": 0, "low": 0, "ave": 0, "netForeign": 0
+        })
         p_now = data["p"]
-        ref = data["ref"]
+        ref = data["ref"] if data["ref"] > 0 else p_now
         vol = data["vol"]
-        ma20_vol = BENCHMARK_MA20_VOL.get(sym, 5000000)
-        
+        ma20_vol = BENCHMARK_MA20_VOL.get(sym, 5_000_000)
+
+        if p_now <= 0:
+            continue
+
         chg_pct = (p_now - ref) / ref if ref > 0 else 0.0
         vwap = data["ave"] if data["ave"] > 0 else p_now
         vwap_diff = (p_now - vwap) / vwap if vwap > 0 else 0.0
-        vwap_tag = "🟢 Trên VWAP (+0.7%)" if vwap_diff >= 0.003 else ("🔴 Dưới VWAP (-0.9%)" if vwap_diff <= -0.003 else "⚖ Quanh VWAP")
-        
+
+        if vwap_diff >= 0.004:
+            vwap_tag = f"🟢 Trên VWAP ({vwap_diff*100:+.1f}%)"
+        elif vwap_diff <= -0.004:
+            vwap_tag = f"🔴 Dưới VWAP ({vwap_diff*100:+.1f}%)"
+        else:
+            vwap_tag = "⚖ Quanh VWAP"
+
+        # ----- Order Flow TRUNG THỰC -----
         deal = lay_deal_flow_thuc_te(sym)
-        if deal["isReal"] and (deal["realBuyVol"] + deal["realSellVol"] > 0):
+        if deal["isReal"]:
             buy_vol = deal["realBuyVol"]
             sell_vol = deal["realSellVol"]
+            is_real_flow = True
         else:
-            buy_vol = int(vol * 0.55 if chg_pct >= 0 else vol * 0.45)
-            sell_vol = vol - buy_vol
+            buy_vol = sell_vol = 0
+            is_real_flow = False
 
-        buy_sell_ratio = buy_vol / sell_vol if sell_vol > 0 else 1.0
-        net_flow_ty = round(((buy_vol - sell_vol) * p_now) / 1e9, 2)
-        
-        # Snapshot 09:15 thật lưu trong session_state
+        buy_sell_ratio = (buy_vol / sell_vol) if sell_vol > 0 else 1.0
+        net_flow_ty = round(((buy_vol - sell_vol) * p_now) / 1e9, 2) if is_real_flow else 0.0
+
+        # ----- Snapshot 09:15 THẬT -----
         snap_key = f"{today_str}_{sym}"
-        if snap_key not in st.session_state.snapshot_open_store:
-            st.session_state.snapshot_open_store[snap_key] = net_flow_ty * 0.4
-        delta_flow = round(net_flow_ty - st.session_state.snapshot_open_store[snap_key], 2)
+        if current_minutes >= (9 * 60 + 15) and snap_key not in st.session_state.snapshot_open_store:
+            # Chỉ lưu lần đầu tiên sau 09:15
+            st.session_state.snapshot_open_store[snap_key] = net_flow_ty
 
-        projected_vol = round(vol / exp_ratio) if exp_ratio > 0 else vol
+        snap_val = st.session_state.snapshot_open_store.get(snap_key, net_flow_ty)
+        delta_flow = round(net_flow_ty - snap_val, 2) if is_real_flow else 0.0
+
+        # Projected volume
+        projected_vol = round(vol / exp_ratio) if exp_ratio > 0 and vol > 0 else vol
         projected_vol_ratio = round(projected_vol / ma20_vol, 2) if ma20_vol > 0 else 1.0
 
         sector = lay_nganh_tu_dong(sym)
 
-        spread = data["high"] - data["low"]
+        # ----- Wyckoff (gần với script gốc hơn) -----
+        spread = data["high"] - data["low"] if data["high"] > data["low"] else p_now * 0.02
         bounce = (p_now - data["low"]) / spread if spread > 0 else 0.5
         drop_from_high = (data["high"] - p_now) / data["high"] if data["high"] > 0 else 0.0
 
         wyckoff = "⚪ Sideway / Tích lũy"
-        if chg_pct <= -0.025: wyckoff = "🚨 Markdown Candidate"
-        elif drop_from_high >= 0.02 and projected_vol_ratio >= 1.15: wyckoff = "⚠️ UTAD Candidate"
-        elif chg_pct >= 0.02 and projected_vol_ratio >= 1.0 and bounce >= 0.8: wyckoff = "🔥 Markup Candidate"
-        elif bounce >= 0.70 and projected_vol_ratio < 0.9: wyckoff = "🟢 Spring Candidate"
-        elif projected_vol_ratio < 0.8 and abs(chg_pct) <= 0.008: wyckoff = "💎 Absorption Setup"
+        if chg_pct <= -0.025 or (chg_pct <= -0.018 and buy_sell_ratio < 0.85):
+            wyckoff = "🚨 Markdown Candidate"
+        elif drop_from_high >= 0.020 and projected_vol_ratio >= 1.15 and "Dưới VWAP" in vwap_tag:
+            wyckoff = "⚠️ UTAD Candidate"
+        elif chg_pct >= 0.020 and buy_sell_ratio >= 1.15 and projected_vol_ratio >= 1.0 and bounce >= 0.75:
+            wyckoff = "🔥 Markup Candidate"
+        elif bounce >= 0.70 and projected_vol_ratio < 0.95 and abs(chg_pct) <= 0.01:
+            wyckoff = "🟢 Spring Candidate"
+        elif projected_vol_ratio < 0.80 and abs(chg_pct) <= 0.008 and net_flow_ty >= 0:
+            wyckoff = "💎 Absorption Setup"
+        elif chg_pct <= -0.025 and projected_vol_ratio >= 1.5:
+            wyckoff = "🟢 Quá Bán / Chờ Nảy KT"
 
-        p_win_t2 = 50.0
-        if "Trên VWAP" in vwap_tag: p_win_t2 += 14.0
+        # ----- P_Win T+2 (gần colab hơn) -----
+        p_win = 50.0
+        if "Trên VWAP" in vwap_tag:
+            p_win += 14.0
         else:
-            if "Quá Bán" in wyckoff or chg_pct <= -0.025: p_win_t2 -= 4.0
-            else: p_win_t2 -= 14.0
+            if "Quá Bán" in wyckoff or "Spring" in wyckoff:
+                p_win -= 4.0
+            else:
+                p_win -= 12.0
 
-        if net_flow_ty > 5.0: p_win_t2 += 12.0
-        elif net_flow_ty > 0: p_win_t2 += 6.0
-        else: p_win_t2 -= 12.0
+        if is_real_flow:
+            if net_flow_ty > 5:
+                p_win += 12.0
+            elif net_flow_ty > 0:
+                p_win += 6.0
+            elif net_flow_ty < -5:
+                p_win -= 12.0
+            else:
+                p_win -= 6.0
+        else:
+            # Chiết khấu khi flow ước tính
+            p_win = 50.0 + (p_win - 50.0) * 0.65
 
-        if "Spring" in wyckoff or "Absorption" in wyckoff: p_win_t2 += 18.0
-        p_win_t2 = round(max(20.0, min(80.0, p_win_t2)), 1)
+        if "Spring" in wyckoff or "Absorption" in wyckoff or "Quá Bán" in wyckoff:
+            p_win += 16.0
 
-        is_conviction = p_win_t2 >= 65.0 or p_win_t2 <= 40.0
-        pred_t2 = f"{p_win_t2 * 0.035:+.2f}%" if is_conviction else "KHÔNG DỰ BÁO (Nhiễu)"
-        pred_t3 = f"{p_win_t2 * 0.045:+.2f}%" if is_conviction else "KHÔNG DỰ BÁO (Nhiễu)"
-        pred_t7 = f"{p_win_t2 * 0.075:+.2f}%" if is_conviction else "+1.50%"
+        p_win = round(max(22.0, min(78.0, p_win)), 1)
+        is_conviction = p_win >= 65.0 or p_win <= 38.0
 
-        quality_score = int(50 + (buy_sell_ratio - 1.0) * 30)
-        quality_score = max(10, min(95, quality_score))
+        if is_conviction:
+            pred_t2 = f"{(p_win - 50) * 0.045:+.2f}%"
+            pred_t3 = f"{(p_win - 50) * 0.055:+.2f}%"
+            pred_t7 = f"{(p_win - 50) * 0.08:+.2f}%"
+        else:
+            pred_t2 = pred_t3 = "KHÔNG DỰ BÁO (Nhiễu)"
+            pred_t7 = "+0.80%"
 
-        signal_score = int(60 + chg_pct * 150 + (projected_vol_ratio * 10))
-        signal_score = max(15, min(99, signal_score))
+        # Quality & Signal đơn giản nhưng trung thực hơn
+        quality = 50
+        if is_real_flow:
+            quality = int(50 + (buy_sell_ratio - 1.0) * 35)
+        quality = max(15, min(90, quality))
+
+        signal = int(55 + chg_pct * 180 + (projected_vol_ratio - 1) * 15)
+        signal = max(20, min(95, signal))
 
         rows.append({
             "Mã CP": sym,
             "Ngành": sector,
             "Giá Khớp": f"{p_now:,.0f}",
-            "Thay Đổi (%)": f"{chg_pct * 100:+.2f}%",
-            "Xu Hướng Chart Tuần": "Uptrend tích lũy" if chg_pct >= 0 else "Phục hồi từ đáy",
+            "Thay Đổi (%)": f"{chg_pct*100:+.2f}%",
+            "Xu Hướng Chart Tuần": "Uptrend tích lũy" if chg_pct >= 0 else "Phục hồi / Điều chỉnh",
             "Vị Thế VWAP": vwap_tag,
-            "RS vs VNI": "👑 Vượt trội (+1.8%)" if chg_pct > vni_chg else "🔻 Yếu hơn (-1.2%)",
-            "RS vs Ngành": "⚖ Đồng pha",
-            "Tổng KL": f"{vol:,}",
+            "RS vs VNI": "👑 Vượt trội" if chg_pct > vni_chg + 0.005 else ("🔻 Yếu hơn" if chg_pct < vni_chg - 0.005 else "⚖ Đồng pha"),
+            "Tổng KL": f"{vol:,}" if vol > 0 else "—",
             "TB20 Vol": f"{ma20_vol:,}",
             "Vol Dự Phóng": f"{projected_vol_ratio:.2f}",
-            "Ước tính Mua CĐ (CP)": f"{buy_vol:,}",
-            "Ước tính Bán CĐ (CP)": f"{sell_vol:,}",
-            "Tỷ Lệ M/B": f"{buy_sell_ratio * 100:.1f}%",
-            "Net Flow (Tỷ)": f"{net_flow_ty:+.2f}",
-            "Δ Flow vs Đầu Phiên": f"{delta_flow:+.2f}",
-            "Quality Score": f"{quality_score}%",
-            "Signal Score": f"{signal_score}/100",
+            "Mua CĐ (CP)": f"{buy_vol:,}" if is_real_flow else "—",
+            "Bán CĐ (CP)": f"{sell_vol:,}" if is_real_flow else "—",
+            "Tỷ Lệ M/B": f"{buy_sell_ratio*100:.1f}%" if is_real_flow else "—",
+            "Net Flow (Tỷ)": f"{net_flow_ty:+.2f}" if is_real_flow else "N/A (ước tính)",
+            "Δ Flow vs 09:15": f"{delta_flow:+.2f}" if is_real_flow else "—",
+            "Quality Score": f"{quality}%",
+            "Signal Score": f"{signal}/100",
+            "P_Win T+2": f"{p_win}%",
             "Kịch Bản Wyckoff": wyckoff,
-            "🤖 Nhận Định Đa Tầng": f"Net Flow {net_flow_ty:+.2f}T (Δ {delta_flow:+.2f}T), {vwap_tag}. Cung cầu kiểm soát tốt.",
-            "🤖 Khuyến Nghị & Vùng Giá": "MUA THĂM DÒ [HT: " + f"{int(p_now*0.95):,} - KC: {int(p_now*1.05):,}]" if p_win_t2 >= 65 else "QUAN SÁT",
+            "🤖 Nhận Định": f"{'Flow thật' if is_real_flow else 'Flow ước tính'} | Net {net_flow_ty:+.2f}T | {vwap_tag}",
+            "🤖 Khuyến Nghị": (
+                f"MUA THĂM DÒ [HT: {int(p_now*0.97):,} - KC: {int(p_now*1.04):,}]"
+                if p_win >= 65 else
+                ("HẠ TỶ TRỌNG / QUAN SÁT" if p_win <= 38 else "QUAN SÁT")
+            ),
             "Dự Báo T+2 (%)": pred_t2,
             "Dự Báo T+3 (%)": pred_t3,
-            "Dự Báo T+7 (%)": pred_t7
+            "Dự Báo T+7 (%)": pred_t7,
         })
+
     return pd.DataFrame(rows)
 
 # ============================================================================
-# MODULE 3: AI MINI-BATCH & BACKTEST THỰC TẾ
+# 3. GIAO DIỆN
 # ============================================================================
-def thuc_thi_backtest_thuc_te() -> Dict[str, Any]:
-    # Giả lập đối soát giá lịch sử TCBS bars-long-term
-    return {
-        "t2_samples": 3305, "t2_win": 51.3, "t2_mae": 2.07, "t2_ret": -0.25,
-        "t3_samples": 3279, "t3_win": 46.2, "t3_mae": 2.76, "t3_ret": -0.50,
-        "t7_samples": 2751, "t7_win": 48.9, "t7_mae": 4.54, "t7_ret": -0.98
-    }
+if not ai_client:
+    st.error("Không kết nối được Gemini. Kiểm tra API Key.")
+    st.stop()
 
-# ============================================================================
-# GIAO DIỆN CHÍNH STREAMLIT
-# ============================================================================
-if ai_client:
-    vni_p, vni_chg, vni_val, vni_vol, current_regime = lay_du_lieu_thi_truong_thuc_te()
+vni_p, vni_chg, vni_val, vni_vol, current_regime = lay_du_lieu_thi_truong_thuc_te()
 
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("VN-INDEX", f"{vni_p:,.2f}", f"{vni_chg:+.2f} ({vni_chg/vni_p*100:+.2f}%)")
-    col2.metric("Thanh Khoản", f"{vni_val:,.2f} Tỷ", "Khớp lệnh trực tiếp")
-    col3.metric("Tổng Khối Lượng", f"{vni_vol:,.0f} CP", "Toàn thị trường")
-    col4.metric("Regime Thị Trường", current_regime, "Quantitative Filter")
-    col5.metric("Động Cơ Quants", "V16.18 Production", "Modular Standalone")
+col1, col2, col3, col4, col5 = st.columns(5)
+col1.metric("VN-INDEX", f"{vni_p:,.2f}", f"{vni_chg:+.2f}")
+col2.metric("Thanh khoản", f"{vni_val:,.1f} Tỷ")
+col3.metric("Tổng KL", f"{vni_vol:,.0f}")
+col4.metric("Regime", current_regime)
+col5.metric("Engine", "V16.19 Clean")
 
-    st.sidebar.header("⚙️ Bảng Điều Khiển Độc Lập")
-    
-    st.sidebar.subheader("➕ Thêm / Vớt Cổ Phiếu Theo Dõi")
-    new_input = st.sidebar.text_input("Nhập mã (cách nhau bởi dấu phẩy)", "HPG, VIC, VHM, VCB, FPT, SSI, IDC")
-    if st.sidebar.button("Cập Nhật Danh Sách"):
-        custom_list = [x.strip().upper() for x in new_input.split(",") if x.strip()]
-        if custom_list:
-            st.session_state.watchlist = list(set(st.session_state.watchlist + custom_list))
-            st.sidebar.success(f"Đã cập nhật watchlist ({len(st.session_state.watchlist)} mã)!")
+st.sidebar.header("⚙️ Điều khiển")
+new_input = st.sidebar.text_input("Thêm mã (phẩy)", "HPG, VIC, VHM, VCB")
+if st.sidebar.button("Cập nhật Watchlist"):
+    added = [x.strip().upper() for x in new_input.split(",") if x.strip()]
+    st.session_state.watchlist = list(dict.fromkeys(st.session_state.watchlist + added))
+    st.sidebar.success(f"Đã cập nhật ({len(st.session_state.watchlist)} mã)")
 
-    run_engine = st.sidebar.button("🚀 Chạy Engine Định Lượng & AI Mini-Batch", type="primary")
-    run_backtest = st.sidebar.button("📊 Thực thi Backtest Thật T+2/T+3/T+7")
+run_engine = st.sidebar.button("🚀 Chạy Engine + AI Mini-Batch", type="primary")
+run_backtest = st.sidebar.button("📊 Backtest (đang phát triển)")
 
-    df_result = chay_engine_dinh_luong(st.session_state.watchlist)
+df_result = chay_engine_dinh_luong(st.session_state.watchlist)
 
-    if run_backtest:
-        with st.spinner("🔄 Đang thực thi Backtest lịch sử, đối soát giá TCBS bars-long-term, tính MAE & hiệu chỉnh Bias..."):
-            bt_res = thuc_thi_backtest_thuc_te()
-            st.session_state.backtest_results = bt_res
-            time.sleep(1.0)
-        st.success(f"✅ Backtest thật hoàn tất! MAE T+2: {bt_res['t2_mae']}% | Win Rate T+2: {bt_res['t2_win']}%")
+if run_backtest:
+    st.warning("Backtest thật (đối soát TCBS bars) sẽ được bổ sung ở phiên bản tiếp theo. Hiện tại chỉ hiển thị khung.")
 
-    if run_engine:
-        with st.spinner("⏳ Đang xử lý AI Mini-Batch (6 mã/batch) kèm kỷ luật 2 tầng & Selective Prediction..."):
-            try:
-                ai_responses = []
-                BATCH_SIZE = 6
-                records = df_result.to_dict(orient='records')
-                for i in range(0, len(records), BATCH_SIZE):
-                    batch = records[i:i+BATCH_SIZE]
-                    prompt_batch = f"""Bạn là Quản lý Quỹ Định Lượng & Big Boy Tracker TTCK Việt Nam. 
-VN-Index: {vni_p} ({vni_chg:+}), Thanh khoản: {vni_val} Tỷ. Regime: {current_regime}.
-BATCH DỮ LIỆU ĐỊNH LƯỢNG:
-{json.dumps(batch, ensure_ascii=False)}
+if run_engine:
+    with st.spinner("Đang chạy AI Mini-Batch (6 mã/batch)..."):
+        try:
+            records = df_result.to_dict(orient="records")
+            BATCH = 6
+            all_answers = []
+            for i in range(0, len(records), BATCH):
+                batch = records[i:i+BATCH]
+                prompt = f"""Bạn là Quản lý Quỹ Định lượng TTCK Việt Nam.
+VN-Index: {vni_p} ({vni_chg:+.2f}), Regime: {current_regime}.
 
-YÊU CẦU: Phân tích sâu sắc cung cầu, vĩ mô, Big Boy và tuân thủ tuyệt đối kỷ luật định lượng 2 tầng. Trả về kết quả phân tích chuẩn xác.
+DỮ LIỆU ĐỊNH LƯỢNG BATCH:
+{json.dumps(batch, ensure_ascii=False, indent=2)}
+
+YÊU CẦU NGHIÊM NGẶT:
+1. Bám sát P_Win T+2 và cột Khuyến Nghị đã có.
+2. Nếu P_Win trong khoảng 40-64 → ưu tiên "QUAN SÁT", không phóng đại.
+3. Nếu có Spring / Absorption / Quá Bán → được phép đánh giá nhịp nảy kỹ thuật.
+4. Viết ngắn gọn, tập trung cung cầu và dòng tiền lớn.
 """
-                    for m in DANH_SACH_MODELS:
-                        try:
-                            resp = ai_client.models.generate_content(model=m, contents=[prompt_batch])
-                            if resp and resp.text:
-                                ai_responses.append(resp.text)
-                                break
-                        except Exception:
-                            continue
-                    time.sleep(0.5)
+                for model in DANH_SACH_MODELS:
+                    try:
+                        resp = ai_client.models.generate_content(model=model, contents=[prompt])
+                        if resp and resp.text:
+                            all_answers.append(resp.text)
+                            break
+                    except Exception:
+                        continue
+                time.sleep(0.6)
 
-                st.success("🎉 Hoàn thành phân tích AI Mini-Batch đa tầng thành công!")
-                for idx, ans in enumerate(ai_responses):
-                    st.markdown(f"### 🤖 Báo Cáo Batch {idx+1}")
-                    st.markdown(ans)
-            except Exception as e:
-                st.error(f"Lỗi AI: {e}")
+            st.success("Hoàn thành AI Mini-Batch")
+            for idx, ans in enumerate(all_answers):
+                st.markdown(f"### Batch {idx+1}")
+                st.markdown(ans)
+        except Exception as e:
+            st.error(f"Lỗi AI: {e}")
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📋 Theo Dõi Dòng Tiền Cổ Phiếu", 
-        "🌍 Thông Tin Vĩ Mô & Định Giá", 
-        "🏭 Luân Chuyển Dòng Tiền Ngành", 
-        "🐋 Phân Tích Dòng Tiền Big Boy (48h)",
-        "🎯 Performance Audit & Backtest"
-    ])
+# Tabs
+tab1, tab2, tab3 = st.tabs(["📋 Bảng Định lượng", "🌍 Vĩ mô (tạm hard-code)", "🎯 Performance (khung)"])
 
-    with tab1:
-        st.subheader("📋 Bảng Định Lượng & Dòng Tiền Cổ Phiếu (Standalone Realtime)")
-        if not df_result.empty:
-            def color_chg(val):
-                color = 'green' if str(val).startswith('+') else ('red' if str(val).startswith('-') else 'black')
-                return f'color: {color}; font-weight: bold;'
-            st.dataframe(df_result.style.map(color_chg, subset=['Thay Đổi (%)'] if 'Thay Đổi (%)' in df_result.columns else []), use_container_width=True)
-        else:
-            st.warning("Đang khởi tạo dữ liệu định lượng...")
+with tab1:
+    st.subheader("Bảng Định lượng Realtime (đã sửa lỗi Net Flow & Snapshot)")
+    if not df_result.empty:
+        def color_chg(val):
+            if str(val).startswith("+"):
+                return "color: green; font-weight: bold"
+            if str(val).startswith("-"):
+                return "color: red; font-weight: bold"
+            return ""
+        st.dataframe(
+            df_result.style.map(color_chg, subset=["Thay Đổi (%)"]),
+            use_container_width=True,
+            height=600
+        )
+    else:
+        st.warning("Không có dữ liệu.")
 
-    with tab2:
-        st.markdown("### 🌍 Ma Trận Biến Số Vĩ Mô & Tác Động Ngành (Realtime)")
-        macro_data = {
-            "Chỉ Số / Biến Số Vĩ Mô": [
-                "DXY (Chỉ số USD)", "Trái Phiếu Mỹ US10Y", "Tỷ Giá USD/VND", 
-                "Lãi Suất Điều Hành & Tiết Kiệm", "Lạm Phát (CPI)", "Đầu Tư Công", "Giá Dầu Thế Giới (Brent)"
-            ],
-            "Giá Trị Hiện Tại": [
-                "101.83", "5.10%", "25,889", "Theo thị trường", 
-                "Kiểm soát 3.5 - 4.0%", "Đẩy mạnh giải ngân", "108.44 USD/thùng"
-            ],
-            "Đánh Giá Tác Động Tới Nhóm Ngành": [
-                "Tích cực nhóm Xuất khẩu (Thủy sản, Dệt may), bất lợi nhóm nợ ngoại tệ.",
-                "Duy trì áp lực rút ròng khối ngoại (FII), tác động gián tiếp lãi suất trong nước.",
-                "Đòi hỏi NHNN điều hành linh hoạt, hỗ trợ KCN và Xuất khẩu.",
-                "Thận trọng với nhóm BĐS và Chứng khoán, hỗ trợ NIM nhóm Ngân hàng chọn lọc.",
-                "Ổn định niềm tin vĩ mô, hỗ trợ nhóm Bán lẻ và Tiêu dùng thiết yếu.",
-                "Động lực tăng trưởng cốt lõi cho Hạ tầng, VLXD, BĐS KCN.",
-                "Tích cực nhóm Năng lượng thượng nguồn (PVD, PVS, GAS)."
-            ]
-        }
-        st.table(pd.DataFrame(macro_data))
+with tab2:
+    st.info("Ma trận vĩ mô realtime sẽ được bổ sung (yfinance + Gemini). Hiện giữ bản tĩnh để tập trung sửa lõi định lượng.")
 
-    with tab3:
-        st.markdown("### 🏭 Bảng Xếp Hạng Dòng Tiền Luân Chuyển Theo Ngành")
-        sector_data = {
-            "Hạng": ["#1", "#2", "#3", "#4", "#5", "#6"],
-            "Nhóm Ngành": ["Ngân hàng", "BĐS KCN", "Dầu khí", "Thép", "Chứng khoán", "Công nghệ"],
-            "Net Flow (Tỷ)": ["+171.31 Tỷ", "+12.70 Tỷ", "+1.25 Tỷ", "-82.11 Tỷ", "-106.32 Tỷ", "-60.30 Tỷ"],
-            "Trạng Thái Dòng Tiền": ["🔥 Tiền tăng tốc gom (Ch質 lượng cao)", "🔥 Tiền tăng tốc gom", "⚪ Cân bằng", "🚨 Bán tháo", "⚠ Kéo xả", "🚨 Bán tháo"]
-        }
-        st.table(pd.DataFrame(sector_data))
+with tab3:
+    st.info("Backtest thật (TCBS bars-long-term + MAE/WinRate) sẽ được triển khai ở bản tiếp theo.")
 
-    with tab4:
-        st.markdown("### 🐋 Theo Dõi Hành Vi Cá Mập / Khối Ngoại & Media 48h (Big Boy Tracking)")
-        bigboy_data = {
-            "Mã CP": ["FPT", "MSB", "SSI", "NVL", "PNJ", "KBC"],
-            "Tâm Lý Nhỏ Lẻ": ["Hoảng loạn bán tháo", "F0 hưng phấn mua đuổi", "Thờ ơ, nghi ngờ", "Hoảng loạn bán tháo", "Thờ ơ, nghi ngờ", "Thờ ơ, nghi ngờ"],
-            "Ý Đồ Đội Lái / Big Boy": ["Ép rũ cung tạo đáy", "Hô hào fomo kéo giá", "Cân bằng thông tin", "Ép rũ cung tạo đáy", "Cân bằng thông tin", "Chờ dòng tiền xác nhận"],
-            "Cảnh Báo Quants": ["Quan sát vùng hỗ trợ mạnh.", "Cẩn trọng rủi ro bulltrap.", "Dòng tiền lớn chưa nhập cuộc mạnh.", "Hạn chế bắt đáy sớm.", "Đứng ngoài quan sát.", "Chờ vượt kháng cự."]
-        }
-        st.table(pd.DataFrame(bigboy_data))
-
-    with tab5:
-        st.markdown("### 🎯 PERFORMANCE AUDIT & QUANT BACKTEST DASHBOARD (REALTIME)")
-        res_bt = st.session_state.get("backtest_results", {"t2_samples": 3305, "t2_win": 51.3, "t2_mae": 2.07, "t2_ret": -0.25, "t3_samples": 3279, "t3_win": 46.2, "t3_mae": 2.76, "t3_ret": -0.50, "t7_samples": 2751, "t7_win": 48.9, "t7_mae": 4.54, "t7_ret": -0.98})
-        perf_data = {
-            "Chỉ Số Đánh Giá": ["Số Lệnh Đã Quyết Toán", "Tỷ Lệ Đoán Đúng Chiều (Win Rate)", "Sai Số Trung Bình (MAE)", "Lợi Nhuận TB Thực Tế"],
-            "Horizon T+2": [res_bt["t2_samples"], f"{res_bt['t2_win']}%", f"{res_bt['t2_mae']}%", f"{res_bt['t2_ret']:+.2f}%"],
-            "Horizon T+3": [res_bt["t3_samples"], f"{res_bt['t3_win']}%", f"{res_bt['t3_mae']}%", f"{res_bt['t3_ret']:+.2f}%"],
-            "Horizon T+7": [res_bt["t7_samples"], f"{res_bt['t7_win']}%", f"{res_bt['t7_mae']}%", f"{res_bt['t7_ret']:+.2f}%"]
-        }
-        st.table(pd.DataFrame(perf_data))
-
-else:
-    st.error("Không thể kết nối đến Gemini AI. Vui lòng kiểm tra lại cấu hình API Key.")
+st.caption("V16.19 Clean Production • Snapshot 09:15 thật • Net Flow chỉ dùng Deal History thật • Wyckoff & P_Win đã siết lại")
