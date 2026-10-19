@@ -15,12 +15,12 @@ import streamlit as st
 # CẤU HÌNH GIAO DIỆN STREAMLIT
 # ============================================================================
 st.set_page_config(
-    page_title="QUANTS PRO V16.8 - Quantitative & Smart Money Engine",
+    page_title="QUANTS PRO V16.9 - Quantitative & Smart Money Engine",
     page_icon="📈",
     layout="wide"
 )
 
-st.title("📈 QUANTS PRO V16.8 - HỆ THỐNG ĐỊNH LƯỢNG & DÒNG TIỀN CÁ MẬP")
+st.title("📈 QUANTS PRO V16.9 - HỆ THỐNG ĐỊNH LƯỢNG & DÒNG TIỀN CÁ MẬP")
 st.markdown("Hệ thống tích hợp dữ liệu Realtime, Vĩ mô chuẩn xác, Big Boy Tracking, Luân chuyển ngành & AI Gemini Đa Tầng.")
 
 # ============================================================================
@@ -96,9 +96,9 @@ if ai_client:
     
     # --- TÍNH NĂNG THÊM / VỚT CỔ PHIẾU ---
     st.sidebar.subheader("➕ Thêm / Vớt Cổ Phiếu Theo Dõi")
-    default_tickers = st.sidebar.text_input("Nhập mã cổ phiếu (cách nhau bởi dấu phẩy)", "HPG, VIC, VHM, VCB, FPT, SSI")
+    user_tickers = st.sidebar.text_input("Nhập mã cổ phiếu (cách nhau bởi dấu phẩy)", "HPG, VIC, VHM, VCB, FPT, SSI")
     if st.sidebar.button("Cập Nhật Danh Sách Theo Dõi"):
-        st.sidebar.success(f"Đã nạp thành công các mã: {default_tickers} vào mô hình định lượng!")
+        st.sidebar.success(f"Đã nạp thành công các mã: {user_tickers} vào danh sách định lượng!")
 
     run_engine = st.sidebar.button("🚀 Chạy Quants Engine & Suy Luận AI", type="primary")
     run_backtest = st.sidebar.button("📊 Thực thi Backtest & Hiệu Chỉnh AI")
@@ -108,17 +108,9 @@ if ai_client:
         csv_url_main = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=1090987711"
         df_main = pd.read_csv(csv_url_main)
         
-        # Chuẩn hóa chính xác giá khớp: nhân 1,000 để hiển thị đúng giá VNĐ (ví dụ 9.5 -> 9,500)
+        # Chuẩn hóa giá khớp chính xác (hiển thị giá nghìn đồng VNĐ chuẩn: ví dụ 9.5 -> 9,500)
         if 'Giá Khớp' in df_main.columns:
-            df_main['Giá Khớp Chuẩn'] = df_main['Giá Khớp'].apply(lambda x: f"{x * 1000:,.0f}" if pd.notnull(x) else "")
-            # Đưa cột giá chuẩn lên thay thế cột cũ cho trực quan
-            cols = list(df_main.columns)
-            idx = cols.index('Giá Khớp')
-            cols[idx] = 'Giá Khớp (VNĐ)'
-            df_main.columns = cols
-            # Gán lại giá trị
-            df_main['Giá Khớp (VNĐ)'] = df_main['Giá Khớp Chuẩn'].copy()
-            df_main = df_main.drop(columns=['Giá Khớp Chuẩn'])
+            df_main['Giá Khớp'] = df_main['Giá Khớp'].apply(lambda x: f"{x * 1000:,.0f}" if pd.notnull(x) and x < 1000 else (f"{x:,.0f}" if pd.notnull(x) else ""))
     except Exception as e:
         st.error(f"Không thể tải tab TheoDoi_DongTien: {e}")
         df_main = pd.DataFrame()
@@ -177,12 +169,29 @@ YÊU CẦU: Phân tích sâu sắc dòng tiền lớn (Big Boy), định giá v�
     with tab_macro:
         st.markdown("### 🌍 Ma Trận Biến Số Vĩ Mô & Tác Động Ngành (Realtime)")
         macro_data = {
-            "Chỉ Số / Biến Số Vĩ Mô": ["DXY (Chỉ số USD)", "Trái Phiếu Mỹ US10Y", "Tỷ Giá USD/VND", "Lạm Phát (CPI)", "Đầu Tư Công", "Giá Dầu Brent"],
-            "Giá Trị Hiện Tại": ["101.83", "5.10%", "25,889", "3.5 - 4.0%", "Đẩy mạnh giải ngân", "108.44 USD/thùng"],
+            "Chỉ Số / Biến Số Vĩ Mô": [
+                "DXY (Chỉ số USD)", 
+                "Trái Phiếu Mỹ US10Y", 
+                "Tỷ Giá USD/VND", 
+                "Lãi Suất Điều Hành & Tiết Kiệm",
+                "Lạm Phát (CPI)", 
+                "Chính Sách Đầu Tư Công", 
+                "Giá Dầu Thế Giới (Brent)"
+            ],
+            "Giá Trị Hiện Tại": [
+                "101.83", 
+                "5.10%", 
+                "25,889", 
+                "Theo thị trường",
+                "Kiểm soát 3.5 - 4.0%", 
+                "Đẩy mạnh giải ngân", 
+                "108.44 USD/thùng"
+            ],
             "Đánh Giá Tác Động Tới Nhóm Ngành": [
                 "Tích cực nhóm Xuất khẩu (Thủy sản, Dệt may), bất lợi nhóm nợ ngoại tệ.",
                 "Duy trì áp lực rút ròng khối ngoại (FII), tác động gián tiếp lãi suất trong nước.",
                 "Đòi hỏi NHNN điều hành linh hoạt, hỗ trợ KCN và Xuất khẩu.",
+                "Thận trọng với nhóm BĐS và Chứng khoán, hỗ trợ NIM nhóm Ngân hàng chọn lọc.",
                 "Ổn định niềm tin vĩ mô, hỗ trợ nhóm Bán lẻ và Tiêu dùng thiết yếu.",
                 "Động lực tăng trưởng cốt lõi cho Hạ tầng, VLXD, BĐS KCN.",
                 "Tích cực nhóm Năng lượng thượng nguồn (PVD, PVS, GAS)."
