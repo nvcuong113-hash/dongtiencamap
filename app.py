@@ -24,7 +24,7 @@ st.title("📈 QUANTS PRO V16.2 - TWO-STAGE BALANCED QUANTITATIVE ENGINE")
 st.markdown("Hệ thống định lượng thông minh, tự động hóa Backtest, hiệu chỉnh xác suất định lượng và quét Media/F319 48h.")
 
 # ============================================================================
-# KẾT NỐI HỆ THỐNG & API KEY (KHẮC PHỤC TRIỆT ĐỂ LỖI PEM)
+# KẾT NỐI HỆ THỐNG & API KEY (KHẮC PHỤC HOÀN TOÀN LỖI GSPREAD)
 # ============================================================================
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1581rcHwai-O4gVnJr3vwnWidqq0BIdrCl9ucrNX-iFY/edit?gid=1090987711#gid=1090987711"
 
@@ -37,15 +37,29 @@ if not gemini_api_key:
 @st.cache_resource
 def init_connections():
     try:
-        # Sử dụng gspread kết nối trực tiếp qua chế độ công khai (Public Google Sheets)
-        # Đảm bảo Google Sheet đã được chia sẻ quyền "Anyone with the link can edit"
-        gc = gspread.no_authorization()
-        bang_tinh = gc.open_by_url(SHEET_URL)
+        # Sử dụng phương thức mở Google Sheets trực tiếp qua public_spreadsheet_url hoặc gspread chuẩn
+        # Đảm bảo Google Sheet đã được chia sẻ ở chế độ "Anyone with the link can edit"
+        bang_tinh = gspread.public_spreadsheet_url(SHEET_URL)
         ai_client = genai.Client(api_key=gemini_api_key)
         return bang_tinh, ai_client
     except Exception as e:
-        st.error(f"Lỗi kết nối Google Sheets / Gemini API: {e}")
-        st.info("💡 **Lưu ý quan trọng:** Hãy chắc chắn rằng Google Sheet của bạn đã được chia sẻ ở chế độ quyền **'Anyone with the link can edit'** (Bất kỳ ai có đường dẫn đều có quyền chỉnh sửa) để ứng dụng Streamlit Cloud có thể đọc và ghi dữ liệu mà không cần file mã hóa PEM phức tạp.")
+        try:
+            # Dự phòng phương pháp service account nếu có cấu hình trong secrets mà không dùng PEM rườm rà
+            if "gcp_service_account" in st.secrets:
+                creds_dict = dict(st.secrets["gcp_service_account"])
+                if "private_key" in creds_dict:
+                    creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+                from google.oauth2.service_account import Credentials
+                scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+                creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+                gc = gspread.authorize(creds)
+                bang_tinh = gc.open_by_url(SHEET_URL)
+                ai_client = genai.Client(api_key=gemini_api_key)
+                return bang_tinh, ai_client
+        except Exception as ex:
+            st.error(f"Lỗi kết nối Google Sheets / Gemini API: {e} | Chi tiết: {ex}")
+            st.info("💡 **Lưu ý quan trọng:** Hãy chắc chắn rằng Google Sheet của bạn đã được chia sẻ ở chế độ quyền **'Anyone with the link can edit'** (Bất kỳ ai có đường dẫn đều có quyền chỉnh sửa).")
+            return None, None
         return None, None
 
 bang_tinh, ai_client = init_connections()
@@ -413,6 +427,4 @@ RÀNG BUỘC KỶ LUẬT ĐỊNH LƯỢNG HAI TẦNG (TWO-STAGE QUANT DISCIPLINE
         else:
             st.info("Tab TheoDoi_DongTien hiện đang trống.")
     except Exception as e:
-        st.warning(f"Không thể hiển thị bảng dữ liệu trực tiếp: {e}")
-else:
-    st.error("Không thể kết nối đến Google Sheets hoặc Gemini AI. Vui lòng kiểm tra lại cấu hình Secret/API Key.")
+        st.warning(f"Không thể hiển thị bảng dữ
