@@ -1,363 +1,300 @@
-import os
-import re
-import json
-import time
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Any, Optional
-import requests
+from __future__ import annotations
+import json, os
+from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-try:
-    import yfinance as yf
-    HAS_YF = True
-except Exception:
-    HAS_YF = False
+from quants.config import APP_NAME, DEFAULT_WATCHLIST, SECTORS, TZ
+from quants.db import init_db, query, connect, event
+from quants.providers import fetch_vnindex, fetch_macro
+from quants.engine import compute_quant
+from quants.ai_engine import run_ai, enforce_predictions, save_prediction_audit, analyze_media, analyze_macro
+from quants.media import crawl_media, recent_media, media_summary
+from quants.audit import settle_predictions, build_performance, adaptive_feedback
 
-from google import genai
-from google.genai import types
+st.set_page_config(page_title=APP_NAME, page_icon='📈', layout='wide', initial_sidebar_state='expanded')
+st.markdown('''<style>
+:root{color-scheme:dark} .stApp{background:#051424;color:#d4e4fa}
+[data-testid="stSidebar"]{background:#010f1f;border-right:1px solid #273647}
+.block-container{padding-top:1rem;padding-bottom:2rem;max-width:100%}
+[data-testid="stMetric"]{background:#0d1c2d;border:1px solid #273647;padding:12px;border-radius:8px}
+[data-testid="stMetricValue"]{font-family:monospace;color:#adc6ff}
+div[data-testid="stDataFrame"]{border:1px solid #273647;border-radius:8px}
+.qp-banner{background:#010f1f;border:1px solid #273647;padding:14px 18px;border-radius:8px;margin-bottom:12px}
+.qp-sub{color:#8c909f;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase}
+.qp-title{font-size:1.35rem;font-weight:750;color:#adc6ff;letter-spacing:.02em}
+.qp-chip{display:inline-block;background:#122131;border:1px solid #424754;border-radius:4px;padding:4px 8px;margin-right:5px;font-size:.76rem}
+</style>''', unsafe_allow_html=True)
 
-# ============================================================================
-# CẤU HÌNH GIAO DIỆN & SESSION STATE
-# ============================================================================
-st.set_page_config(
-    page_title="QUANTS PRO V16.2 - Two-Stage Balanced Quantitative Engine",
-    page_icon="📈",
-    layout="wide"
-)
+init_db()
 
-st.title("📈 QUANTS PRO V16.2 – Two-Stage Balanced Quantitative Engine")
-st.markdown("Tích hợp: Selling Climax Detection, Mean Reversion, Selective Prediction & Full Regime Audit")
+@st.cache_data(ttl=90, show_spinner=False)
+def load_market():
+    return fetch_vnindex()
 
-st.sidebar.header("🛠 Cấu hình hệ thống & API Key")
-user_api_key = st.sidebar.text_input("Gemini API Key", type="password", value="")
-gemini_api_key = user_api_key or os.getenv("GEMINI_API_KEY") or st.secrets.get("GEMINI_API_KEY", "AQ.Ab8RN6Iu7HArf8KqBveXlEPhINTz1xYTqQCIEXpPVkqmAJNg8A")
+@st.cache_data(ttl=1800, show_spinner=False)
+def load_macro():
+    return fetch_macro()[0]
 
-@st.cache_resource
-def init_gemini(api_key):
+def save_market(index, regime):
+    if not index.get('valid'): return
+    with connect() as c:
+        c.execute('INSERT INTO market_snapshots(recorded_at,provider,price,ref_price,change_pct,volume,value_billion,foreign_net,regime,raw_json) VALUES(?,?,?,?,?,?,?,?,?,?)',(datetime.now(TZ).isoformat(timespec='seconds'),index.get('provider'),index.get('price'),index.get('ref_price'),index.get('change_pct'),index.get('volume'),index.get('value_billion'),index.get('foreign_net'),regime,json.dumps(index.get('raw',{}),ensure_ascii=False,default=str)))
+    for m in load_macro():
+        with connect() as c:
+            c.execute('INSERT INTO macro_snapshots(recorded_at,factor,value,change_pct,source) VALUES(?,?,?,?,?)',(datetime.now(TZ).isoformat(timespec='seconds'),m['factor'],m['value'],m.get('change_pct'),m['source']))
+
+def regime_for(index):
+    if not index.get('valid'): return 'UNKNOWN — thiếu VN-Index'
+    ch=index.get('change_pct') or 0
+    if ch>=1.2: return 'Bullish Expansion / Uptrend'
+    if ch<=-1.2: return 'Distribution / Pullback'
+    return 'Sideway / Cạn thanh khoản (candidate)'
+
+def fmt(v, digits=2):
+    return 'N/A' if v is None or pd.isna(v) else f'{v:,.{digits}f}'
+
+def rows_to_df(rows):
+    out=[]
+    for r in rows:
+        out.append({
+            'Mã CP':r['symbol'],'Ngành':r['sector'],'Giá khớp':r['price'],'Thay đổi (%)':r['change_pct'],
+            'Xu hướng chart tuần':r['weekly_trend'],'Vị thế VWAP':r['vwap_position'],'RS vs VNI':r['rs_vni'],'RS vs ngành':r['rs_sector'],
+            'Tổng KL':r['volume'],'TB20 Vol (MA20)':r['ma20_vol'],'Vol dự phóng':r['projected_volume'],'VolRatio':r['vol_ratio'],
+            'Mua chủ động (CP)':r['buy_vol'],'Bán chủ động (CP)':r['sell_vol'],'Tỷ lệ M/B':r['mb_ratio'],'Net Flow (tỷ)':r['net_flow_billion'],
+            'Δ Flow vs đầu phiên':r['delta_flow_open'],'Quality Score':r['quality_score'],'Signal Score':r['signal_score'],'Score vs ngành':r['score_vs_sector'],
+            'Đồng thuận (%)':r['agreement_pct'],'Wyckoff':r['wyckoff'],'P_Win (heuristic)':r['p_win'],'Conviction':r['conviction'],
+            'Tín hiệu ngoại':('Mua ròng' if (r['foreign_net_today'] or 0)>0 else 'Bán ròng' if (r['foreign_net_today'] or 0)<0 else 'Không rõ'),
+            'Ngoại Net hôm nay':r['foreign_net_today'],'Ngoại Net 5 phiên':r.get('foreign_net_5d'),'Nguồn dữ liệu':r['source_label'],'Lệch feed (%)':r['divergence_pct'],
+            'Nhận định VSA AI':r.get('ai_vsa','Chưa chạy AI'),'Khuyến nghị':r.get('ai_action',r.get('action')),
+            'Dự báo T+2 (%)':r.get('pred_t2'),'Dự báo T+3 (%)':r.get('pred_t3'),'Dự báo T+7 (%)':r.get('pred_t7'),
+            'Trạng thái dự báo':r.get('prediction_status','Chưa chạy AI')})
+    return pd.DataFrame(out)
+
+if 'rows' not in st.session_state: st.session_state.rows=[]
+if 'last_run' not in st.session_state: st.session_state.last_run=None
+
+with st.sidebar:
+    st.markdown('### ⚙️ Engine Parameters')
+    watch_text=st.text_area('Danh sách mã theo dõi',','.join(st.session_state.get('watchlist',DEFAULT_WATCHLIST)),height=100)
+    watchlist=list(dict.fromkeys(s.strip().upper() for s in watch_text.replace(';',',').replace('\n',',').split(',') if s.strip().isalnum() and 2<=len(s.strip())<=5))[:100]
+    ai_provider=st.selectbox('Mô hình AI', ['Gemini','OpenAI'], index=0, help='Gemini dùng GEMINI_API_KEY; OpenAI dùng OPENAI_API_KEY trong Secrets.')
+    ai_enabled=st.checkbox('Cho phép gọi AI trả phí',value=True)
+    extra_rss=st.text_input('RSS bổ sung (tuỳ chọn)',value=os.getenv('QUANTS_EXTRA_RSS',''))
+    hours=st.slider('Cửa sổ Media Intelligence (giờ)',24,72,48)
+    run_button=st.button('⚡ SYNC NOW — lấy dữ liệu',type='primary',use_container_width=True)
+    ai_button=st.button('🤖 Chạy AI 2 tầng',use_container_width=True)
+    media_button=st.button('📰 Quét tin 48h',use_container_width=True)
+    media_ai_button=st.button('🧠 Phân tích tin bằng AI',use_container_width=True)
+    macro_ai_button=st.button('🌍 AI phân tích vĩ mô',use_container_width=True)
+    settle_button=st.button('🧾 Đối soát T+2/T+3/T+7',use_container_width=True)
+    perf_button=st.button('📊 Tính lại hiệu năng',use_container_width=True)
+    st.caption('Khóa API chỉ cấu hình trong Streamlit Secrets/environment; không nhúng vào mã nguồn.')
+
+index=load_market(); macro,macro_errors=fetch_macro(); regime=regime_for(index)
+if run_button:
+    with st.spinner('Đang đồng bộ VN-Index, feed cổ phiếu, lịch sử và tính Quant…'):
+        rows,errors=compute_quant(watchlist,index,datetime.now(TZ))
+        st.session_state.rows=rows; st.session_state.watchlist=watchlist; st.session_state.last_run=datetime.now(TZ).isoformat(timespec='seconds')
+        save_market(index,regime)
+        if errors: st.session_state.run_errors=errors
+        else: st.session_state.run_errors=[]
+    st.rerun()
+if media_button:
+    with st.spinner(f'Đang quét RSS trong {hours} giờ gần nhất…'):
+        count,errors=crawl_media(watchlist,hours,extra_rss)
+        st.session_state.media_message=f'Đã xử lý {count} bài có URL duy nhất.'
+        st.session_state.media_errors=errors
+if media_ai_button:
     try:
-        if not api_key: return None
-        return genai.Client(api_key=api_key)
-    except Exception:
-        return None
-
-ai_client = init_gemini(gemini_api_key)
-DANH_SACH_MODELS = ["gemini-flash-lite-latest", "gemini-2.0-flash", "gemini-1.5-flash"]
-
-BENCHMARK_MA20_VOL = {
-    "NKG": 1510000, "IDC": 1290000, "FPT": 6380000, "GEG": 160000,
-    "HSG": 2230000, "VHM": 10100000, "SSI": 20000000, "CTG": 7640000,
-    "BSR": 12630000, "MSB": 7570000, "LPB": 2260000, "DXG": 15000000,
-    "HCM": 4860000, "HPG": 25000000, "VCI": 6500000, "VND": 18000000,
-    "TCH": 6500000, "VPB": 15000000, "SHS": 16500000, "TCB": 18000000,
-    "PDR": 8500000, "CEO": 6000000, "DIG": 12500000, "NVL": 18000000,
-    "PVD": 5500000, "PVS": 4500000, "PNJ": 1600000
-}
-
-if "watchlist" not in st.session_state:
-    st.session_state.watchlist = ["NKG", "IDC", "FPT", "SSI", "HPG", "VND", "SHS", "TCB", "CTG", "BSR", "MSB", "DXG", "PNJ"]
-
-if "prediction_history" not in st.session_state:
-    st.session_state.prediction_history = []
-
-if "media_cache" not in st.session_state:
-    st.session_state.media_cache = []
-
-# ============================================================================
-# 1. HÀM HỖ TRỢ & TÍNH NGÀY GIAO DỊCH VIỆT NAM
-# ============================================================================
-def safe_float(val: Any, default: float = 0.0) -> float:
+        st.session_state.media_ai_message=f'Đã phân tích/ghi nhận {analyze_media(ai_provider,hours)} bài bằng {ai_provider}.'
+    except Exception as e:
+        st.session_state.media_ai_message=f'Media AI chưa hoàn tất: {e}'
+if macro_ai_button:
     try:
-        if val is None: return default
-        s = str(val).replace(",", "").replace("%", "").replace("+", "").strip()
-        if not s or s in ("---", "N/A", ""): return default
-        return float(s)
-    except:
-        return default
-
-def dinh_dang_phan_tram(val: float) -> str:
-    if abs(val) < 0.001: return "0.00%"
-    return f"{val:+.2f}%"
-
-VIETNAM_HOLIDAYS_2026 = [
-    "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19", "2026-02-20",
-    "2026-04-26", "2026-04-27", "2026-04-30", "2026-05-01", "2026-09-02", "2026-09-03",
-]
-
-def cong_ngay_giao_dich(start_date: datetime, num_days: int) -> str:
-    cur_date = start_date
-    added = 0
-    while added < num_days:
-        cur_date += timedelta(days=1)
-        if cur_date.weekday() < 5 and cur_date.strftime("%Y-%m-%d") not in VIETNAM_HOLIDAYS_2026:
-            added += 1
-    return cur_date.strftime("%Y-%m-%d")
-
-# ============================================================================
-# 2. BỐI CẢNH THỊ TRƯỜNG & REGIME
-# ============================================================================
-def lay_regime_chuan_xac() -> Tuple[str, str]:
-    diem_vni, thay_doi_vni, chg_pct, gtgd_ty, tong_kl = 1689.84, -16.07, -0.0094, 13354.0, 519000000
-    try:
-        r = requests.get("https://bgapidatafeed.vps.com.vn/getliststockdata/VNINDEX", headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
-        if r.status_code == 200:
-            arr = r.json()
-            if arr:
-                it = arr[0]
-                p = float(it.get("lastPrice") or 0)
-                ref = float(it.get("r") or it.get("refPrice") or p)
-                v = int(it.get("totalVolume") or it.get("lot") or 0)
-                if v > 0 and v < 10_000_000 and not it.get("fVo"): v *= 10
-                if 500 <= p <= 3500:
-                    diem_vni, thay_doi_vni = p, round(p - ref, 2)
-                    chg_pct = (p - ref) / ref if ref else 0
-                    tong_kl = v or tong_kl
-                    gtgd_ty = round(tong_kl * p * 1000 * 0.000024 / 1e9, 1)
-    except:
-        pass
-
-    if gtgd_ty >= 22000:
-        regime = "High-Vol Bullish Expansion" if thay_doi_vni >= 0 else "High-Vol Distribution"
-    elif gtgd_ty <= 12000 and gtgd_ty > 0:
-        regime = "Low-Vol Squeeze / Cạn kiệt thanh khoản"
+        n=analyze_macro(ai_provider,macro)
+        st.session_state.macro_ai_message=f'Đã lưu {n} nhận định vĩ mô AI.'
+    except Exception as e:
+        st.session_state.macro_ai_message=f'Macro AI chưa hoàn tất: {e}'
+if ai_button:
+    if not st.session_state.rows:
+        st.warning('Hãy bấm SYNC NOW trước khi chạy AI.')
+    elif not ai_enabled:
+        st.warning('AI đang bị tắt trong sidebar.')
     else:
-        regime = "Normal Sideway Accumulation" if abs(thay_doi_vni) < 5 else ("Moderate Uptrend" if thay_doi_vni > 0 else "Moderate Pullback")
-
-    summary = f"VN-Index: {diem_vni:,.2f} ({thay_doi_vni:+.2f}đ) | KL: {tong_kl:,.0f} CP | GTGD: {gtgd_ty:,.0f} Tỷ | Regime: [{regime}]"
-    return summary, regime
-
-# ============================================================================
-# 3. KÉO DỮ LIỆU ĐA NGUỒN & DEAL HISTORY THỰC TẾ
-# ============================================================================
-def lay_du_lieu_co_phieu(tickers: List[str]) -> Dict[str, Dict]:
-    vps = {}
-    try:
-        r = requests.get("https://bgapidatafeed.vps.com.vn/getliststockdata/" + ",".join(tickers), headers={"User-Agent": "Mozilla/5.0"}, timeout=4)
-        if r.status_code == 200:
-            for it in r.json() or []:
-                sym = str(it.get("sym", "")).upper()
-                if not sym: continue
-                v1 = int(it.get("totalVolume") or 0)
-                v3 = int(it.get("totalVol") or 0)
-                v4 = int(it.get("lot") or 0)
-                if 0 < v3 < 50_000_000 and not it.get("fVo"): v3 *= 10
-                if 0 < v4 < 50_000_000 and not it.get("fVo"): v4 *= 10
-                vps[sym] = {
-                    "p": float(it.get("lastPrice") or 0),
-                    "r": float(it.get("r") or it.get("refPrice") or 0),
-                    "vol": max(v1, v3, v4),
-                    "high": float(it.get("highPrice") or 0),
-                    "low": float(it.get("lowPrice") or 0),
-                    "ave": float(it.get("avePrice") or 0),
-                    "fB": int(it.get("fBVol") or it.get("fBuyVol") or 0),
-                    "fS": int(it.get("fSVolume") or it.get("fSellVol") or 0),
-                }
-    except:
-        pass
-
-    result = {}
-    for sym in tickers:
-        d = vps.get(sym, {})
-        p = d.get("p") or 0
-        r = d.get("r") or p
-        if 0 < p < 1000: p *= 1000
-        if 0 < r < 1000: r *= 1000
-        result[sym] = {
-            "p": p, "ref": r if r > 0 else p,
-            "vol": d.get("vol") or 0,
-            "high": d.get("high") or p, "low": d.get("low") or p, "ave": d.get("ave") or p,
-            "netForeign": (d.get("fB") or 0) - (d.get("fS") or 0)
-        }
-    return result
-
-def lay_deal_flow(sym: str) -> Dict:
-    try:
-        r = requests.get(f"https://iboard-query.ssi.com.vn/stock/deal-history?stockSymbol={sym}", headers={"User-Agent": "Mozilla/5.0"}, timeout=3)
-        if r.status_code == 200:
-            data = r.json()
-            deals = data.get("data") or data
-            if isinstance(deals, list) and deals:
-                b = s = 0
-                for d in deals:
-                    v = int(d.get("vol") or d.get("volume") or d.get("matchVol") or 0)
-                    side = str(d.get("action") or d.get("side") or "").upper()
-                    if side == "B": b += v
-                    elif side == "S": s += v
-                if b + s > 0: return {"buy": b, "sell": s, "isReal": True}
-    except:
-        pass
-    return {"buy": 0, "sell": 0, "isReal": False}
-
-def uoc_luong_order_flow(vol: int, chg_pct: float) -> Tuple[int, int]:
-    if vol <= 0: return 0, 0
-    ratio = 0.62 if chg_pct >= 0.015 else (0.38 if chg_pct <= -0.015 else 0.50)
-    buy = int(vol * ratio)
-    return buy, vol - buy
-
-# ============================================================================
-# 4. ENGINE ĐỊNH LƯỢNG 2 TẦNG (TWO-STAGE QUANT ENGINE)
-# ============================================================================
-def chay_engine_dinh_luong(tickers: List[str]) -> Tuple[pd.DataFrame, List[Dict]]:
-    market = lay_du_lieu_co_phieu(tickers)
-    market_summary, current_regime = lay_regime_chuan_xac()
-    
-    today_dt = datetime.now()
-    target_t2 = cong_ngay_giao_dich(today_dt, 2)
-    target_t3 = cong_ngay_giao_dich(today_dt, 3)
-    target_t7 = cong_ngay_giao_dich(today_dt, 7)
-
-    rows = []
-    payloads_for_ai = []
-
-    for sym in tickers:
-        d = market.get(sym, {})
-        p = d.get("p") or 0
-        if p <= 0: continue
-        ref = d.get("ref") or p
-        vol = d.get("vol") or 0
-        high = d.get("high") or p
-        low = d.get("low") or p
-        ave = d.get("ave") or p
-        ma20 = BENCHMARK_MA20_VOL.get(sym, 5_000_000)
-        chg_pct = (p - ref) / ref if ref else 0
-
-        vwap_diff = (p - ave) / ave if ave else 0
-        vwap_txt = f"🟢 Trên VWAP (+{vwap_diff*100:.1f}%)" if vwap_diff >= 0.003 else (f"🔴 Dưới VWAP ({vwap_diff*100:.1f}%)" if vwap_diff <= -0.003 else "⚖ Quanh VWAP")
-
-        deal = lay_deal_flow(sym)
-        buy, sell = (deal["buy"], deal["sell"]) if deal["isReal"] else uoc_luong_order_flow(vol, chg_pct)
-        net_flow = round(((buy - sell) * p) / 1e9, 2)
-        vol_ratio = round(vol / ma20, 2) if ma20 else 1.0
-
-        # TÍNH TOÁN P_WIN T+2 & SELLING CLIMAX DETECTION
-        p_win_t2 = 50.0
-        if "Trên VWAP" in vwap_txt: p_win_t2 += 14.0
-        else:
-            if chg_pct <= -0.025 and vol_ratio >= 1.6: p_win_t2 -= 4.0 # Hấp thụ cao trào đáy
-            else: p_win_t2 -= 14.0
-
-        if net_flow > 5.0: p_win_t2 += 12.0
-        elif net_flow < -5.0:
-            if vol_ratio >= 1.8: p_win_t2 += 8.0
-            else: p_win_t2 -= 12.0
-
-        p_win_t2 = round(max(20.0, min(80.0, p_win_t2)), 1)
-        is_conviction = p_win_t2 >= 65.0 or p_win_t2 <= 40.0
-
-        wyckoff = "⚪ Sideway / Tích lũy"
-        if chg_pct <= -0.025: wyckoff = "🟢 Quá Bán / Chờ Nảy KT" if vol_ratio >= 1.5 else "🚨 Markdown Candidate"
-        elif chg_pct >= 0.02: wyckoff = "🔥 Markup Candidate"
-
-        item_data = {
-            "symbol": sym, "price": p, "chg_pct": f"{chg_pct*100:+.2f}%",
-            "vwap_pos": vwap_txt, "net_flow": f"{net_flow:+.2f}T",
-            "quant_p_win_t2": p_win_t2, "is_conviction": is_conviction, "wyckoff": wyckoff
-        }
-        payloads_for_ai.append(item_data)
-
-        rows.append({
-            "Mã CP": sym, "Giá Khớp": f"{p:,.0f}", "Thay Đổi (%)": f"{chg_pct*100:+.2f}%",
-            "Vị Thế VWAP": vwap_txt, "Net Flow (Tỷ)": f"{net_flow:+.2f}",
-            "P_Win T+2": f"{p_win_t2}%", "Wyckoff": wyckoff,
-            "Trạng Thái Lọc": "Vào lệnh chuẩn" if is_conviction else "Vùng nhiễu (Quan sát)"
-        })
-
-    return pd.DataFrame(rows), payloads_for_ai
-
-# ============================================================================
-# 5. MODULE QUÉT MEDIA & Ý ĐỒ LÁI 48H (CHUẨN TỪ SCRIPT GỐC)
-# ============================================================================
-def chay_quet_media_48h(tickers: List[str]):
-    prompt = f"""Bạn là Chuyên gia Điều tra Dòng Tiền & Bóc Mẽ Tâm Lý Lái trên TTCK Việt Nam.
-Phân tích chi tiết danh sách mã sau trong 48h qua: {", ".join(tickers)}.
-Trả về JSON ARRAY chuẩn:
-[
-  {{"target": "Mã CP hoặc Ngành", "pr_level": "Cao / Trung bình / Thấp", "retail_buzz": "F0 Hưng phấn mua đuổi / Hoảng loạn bán tháo / Thờ ơ nghi ngờ", "sentiment": "Tích cực / Tiêu cực / Trung tính", "lai_intent": "Bơm tin để phân phối / Ép rũ cung tạo đáy / Hô hào fomo", "warning": "Cảnh báo ngắn cho Quants"}}
-]"""
-    if ai_client:
-        for m_name in DANH_SACH_MODELS:
+        with st.spinner(f'Đang gọi {ai_provider} theo mini-batch tối đa 6 mã…'):
             try:
-                res = ai_client.models.generate_content(
-                    model=m_name, contents=[prompt],
-                    config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0)
-                )
-                if res and res.text:
-                    txt = res.text.strip()
-                    s, e = txt.find("["), txt.rfind("]")
-                    if s != -1 and e != -1: return json.loads(txt[s:e+1])
-            except:
-                continue
+                from quants.media import media_summary
+                med=media_summary(); media_context=med.to_dict('records') if not med.empty else []
+                feedback=adaptive_feedback('T+2')
+                ai=run_ai(st.session_state.rows,regime,macro,ai_provider,{'media':media_context,'adaptive_feedback':feedback})
+                st.session_state.rows=enforce_predictions(st.session_state.rows,ai)
+                saved=save_prediction_audit(st.session_state.rows,regime)
+                st.session_state.ai_message=f'AI trả kết quả cho {len(ai)} mã; đã ghi/đối chiếu {saved} bản ghi (bản ghi dự báo đã tồn tại không bị ghi đè).'
+            except Exception as e:
+                event('ERROR','ui.ai',str(e)); st.session_state.ai_message=f'AI chưa hoàn tất: {e}'
+if settle_button:
+    with st.spinner('Đối soát theo đúng ngày giao dịch mục tiêu…'):
+        st.session_state.settle_message=f'Đã cập nhật {settle_predictions()} giá thực tế đến hạn.'
+if perf_button:
+    with st.spinner('Tính MAE, Bias, Win Rate theo horizon/regime…'):
+        result=build_performance(); st.session_state.perf_message=f'Đã tính {len(result)} ô hiệu năng.'
 
-    # Fallback dự phòng thông minh
-    return [{"target": s, "pr_level": "Trung bình (48h)", "retail_buzz": "Cân bằng / Thận trọng", "sentiment": "Trung tính", "lai_intent": "Ép rũ cung tạo đáy", "warning": f"Theo dõi sát phản ứng giá tại hỗ trợ của {s}"} for s in tickers]
+# Header and KPI ribbon
+st.markdown(f'''<div class="qp-banner"><div class="qp-sub">Smart Money Flow • Two-Stage Balanced Quantitative Engine</div><div class="qp-title">QUANTS PRO V16.1 <span class="qp-chip">STREAMLIT EDITION</span><span class="qp-chip">SQLite</span></div><div class="qp-sub">Data freshness: {st.session_state.last_run or 'Chưa đồng bộ trong phiên UI'} · AI: {ai_provider} · Regime: {regime}</div></div>''',unsafe_allow_html=True)
+k1,k2,k3,k4,k5=st.columns(5)
+k1.metric('VN-INDEX',fmt(index.get('price')),fmt(index.get('change_pct'))+'%' if index.get('change_pct') is not None else 'N/A')
+k2.metric('KL VN-INDEX',fmt(index.get('volume'),0))
+k3.metric('GTGD (tỷ)',fmt(index.get('value_billion')))
+k4.metric('Ngoại Net (CP)',fmt(index.get('foreign_net'),0))
+k5.metric('Market Regime',regime.split('/')[0].strip())
+if not index.get('valid'):
+    st.warning('Không lấy được VN-Index từ ba nguồn ngoài. Không suy diễn điểm số VN-Index. Khi có dữ liệu rổ theo dõi, hệ thống chỉ ước tính tổng KL/GTGD rổ để tham khảo, không thay thế VN-Index.')
+    if st.session_state.rows:
+        basket_vol=round(sum((r.get('volume') or 0) for r in st.session_state.rows)/0.45)
+        basket_value=round(sum((r.get('price') or 0)*(r.get('volume') or 0)/1e9 for r in st.session_state.rows)/0.45,1)
+        b1,b2=st.columns(2)
+        b1.metric('KL rổ theo dõi (ước tính quy đổi)',f'{basket_vol:,.0f}')
+        b2.metric('GTGD rổ theo dõi (tỷ, ước tính)',f'{basket_value:,.1f}')
+if st.session_state.get('run_errors'):
+    with st.expander(f"Cảnh báo nguồn dữ liệu ({len(st.session_state.run_errors)})"):
+        st.write('\n'.join(st.session_state.run_errors[:100]))
+for key in ('media_message','media_ai_message','macro_ai_message','ai_message','settle_message','perf_message'):
+    if st.session_state.get(key): st.info(st.session_state[key])
+if st.session_state.get('media_errors'):
+    with st.expander('Nguồn Media chưa truy cập được'):
+        st.write('\n'.join(st.session_state.media_errors))
 
-# ============================================================================
-# GIAO DIỆN CHÍNH (STREAMLIT UI)
-# ============================================================================
-market_summary, current_regime = lay_regime_chuan_xac()
+# Load persisted recent snapshot if this session has not run yet.
+rows=st.session_state.rows
+if not rows:
+    st.info('Bấm **SYNC NOW** ở thanh bên để lấy dữ liệu thị trường thật. Nếu nguồn ngoài không trả dữ liệu hợp lệ, bảng sẽ không dựng số liệu giả.')
 
-c1, c2, c3 = st.columns(3)
-c1.metric("Thị Trường Chung", market_summary.split(" | ")[0])
-c2.metric("Thanh khoản & KL", market_summary.split(" | ")[1])
-c3.metric("Regime", current_regime)
+tabs=st.tabs(['Smart Flow Radar','DOM & Order Flow Depth','Wyckoff Matrix Setup','Alpha Factor Screener','Media Intelligence','Market Breadth & Liquidity','Macro & Backtest Matrix','System Health'])
 
-txt = st.sidebar.text_input("Thêm mã cổ phiếu (phân cách dấu phẩy)", "HPG, VIC, VHM, VCB")
-if st.sidebar.button("Cập nhật Watchlist"):
-    add = [x.strip().upper() for x in txt.split(",") if x.strip()]
-    st.session_state.watchlist = list(dict.fromkeys(st.session_state.watchlist + add))
-    st.sidebar.success(f"Đã cập nhật ({len(st.session_state.watchlist)} mã)")
+with tabs[0]:
+    st.subheader('Smart Flow Radar')
+    if rows:
+        df=rows_to_df(rows)
+        f1,f2,f3,f4=st.columns([1,1,1,2])
+        sector_options=['Tất cả']+sorted(df['Ngành'].dropna().unique().tolist())
+        sector_filter=f1.selectbox('Ngành',sector_options,key='radar_sector')
+        wyckoff_options=['Tất cả']+sorted(df['Wyckoff'].dropna().unique().tolist())
+        wyckoff_filter=f2.selectbox('Wyckoff',wyckoff_options,key='radar_wyckoff')
+        conviction_only=f3.checkbox('Chỉ kèo hội tụ cao',key='radar_conviction')
+        search=f4.text_input('Tìm mã cổ phiếu',placeholder='FPT, HPG, SSI…',key='radar_search').upper().strip()
+        if sector_filter!='Tất cả': df=df[df['Ngành']==sector_filter]
+        if wyckoff_filter!='Tất cả': df=df[df['Wyckoff']==wyckoff_filter]
+        if conviction_only: df=df[df['Conviction']==True]
+        if search: df=df[df['Mã CP'].str.contains(search,na=False)]
+        sort=st.selectbox('Sắp xếp theo',['Net Flow (tỷ)','Signal Score','P_Win (heuristic)','Thay đổi (%)','VolRatio'],key='radar_sort')
+        if sort in df.columns: df=df.sort_values(sort,ascending=False,na_position='last')
+        st.dataframe(df,use_container_width=True,height=550,hide_index=True)
+        st.download_button('⬇️ Xuất bảng Quant CSV',df.to_csv(index=False).encode('utf-8-sig'),'quants_radar.csv','text/csv')
+        st.caption('P_Win là điểm heuristic theo đặc tả, chưa được hiệu chuẩn bằng dữ liệu ngoài mẫu. Không coi là xác suất thắng đã chứng minh.')
+    else: st.info('Chưa có snapshot hiện tại.')
 
-run_ai_btn = st.sidebar.button("🚀 Chạy Mini-Batch AI Inference", type="primary")
-run_media_btn = st.sidebar.button("📰 Quét Media & Ý Đồ Lái (48h)")
+with tabs[1]:
+    st.subheader('DOM & Order Flow Depth')
+    st.caption('Nguồn deal-history công khai có thể không cung cấp side B/S đầy đủ. Chỉ gắn Real Deal khi trường side được nhận diện; nếu không, dùng proxy và ghi nhãn rõ.')
+    if rows:
+        flowdf=rows_to_df(rows)[['Mã CP','Giá khớp','Tổng KL','Mua chủ động (CP)','Bán chủ động (CP)','Tỷ lệ M/B','Net Flow (tỷ)','Δ Flow vs đầu phiên','Nguồn dữ liệu','Lệch feed (%)']]
+        st.dataframe(flowdf,use_container_width=True,hide_index=True)
+        hist=query('SELECT recorded_at,symbol,net_flow_billion,source,buy_vol,sell_vol FROM flow_snapshots ORDER BY recorded_at DESC LIMIT 500')
+        st.markdown('#### Lịch sử snapshot flow')
+        st.dataframe(hist,use_container_width=True,hide_index=True)
+    else: st.info('Chạy Sync Now để tải flow.')
 
-df_quant, payloads = chay_engine_dinh_luong(st.session_state.watchlist)
+with tabs[2]:
+    st.subheader('Wyckoff Matrix Setup')
+    if rows:
+        wdf=rows_to_df(rows)
+        wdf=wdf[['Mã CP','Giá khớp','Thay đổi (%)','Xu hướng chart tuần','Vị thế VWAP','VolRatio','Net Flow (tỷ)','Wyckoff','Khuyến nghị','Trạng thái dự báo']]
+        st.dataframe(wdf,use_container_width=True,hide_index=True)
+        st.markdown('#### Chi tiết vùng giá tuần')
+        levels=[]
+        for r in rows:
+            lv=r.get('key_levels') or {}
+            levels.append({'Mã CP':r['symbol'],'MA10W':lv.get('ma10w'),'MA20W':lv.get('ma20w'),'Hỗ trợ tuần':lv.get('support'),'Kháng cự tuần':lv.get('resistance'),'Drop from peak (%)':(r['weekly'].get('drop_from_peak') or 0)*100 if r['weekly'].get('drop_from_peak') is not None else None})
+        st.dataframe(pd.DataFrame(levels),use_container_width=True,hide_index=True)
+    else: st.info('Chưa có dữ liệu.')
 
-tab1, tab2, tab3, tab4 = st.tabs(["📋 Định Lượng 2 Tầng", "📰 Media & Ý Đồ Lái (48h)", "📊 Kiểm Toán & Backtest", "🤖 Mini-Batch AI Inference"])
+with tabs[3]:
+    st.subheader('Alpha Factor Screener — 30 trường theo SRS')
+    if rows:
+        df=rows_to_df(rows)
+        wanted=['Mã CP','Ngành','Giá khớp','Thay đổi (%)','Xu hướng chart tuần','Vị thế VWAP','RS vs VNI','RS vs ngành','Tổng KL','TB20 Vol (MA20)','Vol dự phóng','Mua chủ động (CP)','Bán chủ động (CP)','Tỷ lệ M/B','Net Flow (tỷ)','Δ Flow vs đầu phiên','Quality Score','Tín hiệu ngoại','Ngoại Net hôm nay','Ngoại Net 5 phiên','Signal Score','Score vs ngành','Đồng thuận (%)','Wyckoff','Nhận định VSA AI','Khuyến nghị','Nguồn dữ liệu','Dự báo T+2 (%)','Dự báo T+3 (%)','Dự báo T+7 (%)']
+        st.dataframe(df[[c for c in wanted if c in df.columns]],use_container_width=True,height=550,hide_index=True)
+        st.markdown('#### Lịch sử kết quả dự báo')
+        p=query('SELECT created_at,symbol,base_price,regime,p_win,conviction,prediction_status,pred_t2,target_t2,actual_t2,pred_t3,target_t3,actual_t3,pred_t7,target_t7,actual_t7,ai_provider,ai_model FROM predictions ORDER BY created_at DESC LIMIT 200')
+        st.dataframe(p,use_container_width=True,hide_index=True)
+    else: st.info('Chưa có kết quả Quant.')
 
-with tab1:
-    st.subheader("Bảng Định Lượng & Xác Suất P_Win T+2 (Two-Stage Quant)")
-    if not df_quant.empty: st.dataframe(df_quant, use_container_width=True, height=520)
+with tabs[4]:
+    st.subheader('Media Intelligence — cửa sổ 48 giờ')
+    st.caption('Bản hiện tại lấy Google News RSS và RSS tùy chỉnh; nguồn Telegram/24HMoney chỉ được hỗ trợ khi bạn cung cấp endpoint/RSS hợp lệ. Ý đồ “lái” chỉ là giả thuyết từ nội dung, không phải kết luận thao túng.')
+    msum=media_summary()
+    if not msum.empty: st.markdown('#### Retail Buzz / PR level theo mã'); st.dataframe(msum,use_container_width=True,hide_index=True)
+    mdf=recent_media(hours=hours,limit=200)
+    if not mdf.empty:
+        display=mdf[['published_at','source','title','url','symbols_json','sentiment','pr_level','retail_buzz','lai_intent','warning']]
+        st.dataframe(display,use_container_width=True,hide_index=True)
+        st.download_button('⬇️ Xuất Media CSV',display.to_csv(index=False).encode('utf-8-sig'),'media_intelligence.csv','text/csv')
+    else: st.info('Chưa có bài tin trong cửa sổ đã chọn. Bấm Quét tin 48h để thu thập.')
+    st.markdown('#### Nhập insight thủ công')
+    with st.form('media_manual',clear_on_submit=True):
+        title=st.text_input('Tiêu đề / sự kiện'); url=st.text_input('URL'); source=st.text_input('Nguồn'); symbols_text=st.text_input('Mã liên quan (ví dụ FPT, SSI)'); summary=st.text_area('Tóm tắt / luận cứ')
+        if st.form_submit_button('Lưu insight'):
+            if title.strip():
+                from quants.db import connect
+                with connect() as c: c.execute('INSERT OR IGNORE INTO media_articles(published_at,fetched_at,source,title,url,summary,symbols_json,sentiment,pr_level,retail_buzz,lai_intent,warning,raw_text) VALUES(datetime(\'now\'),datetime(\'now\'),?,?,?,?,?,?,?,?,?,?,?)',(source or 'Manual',title,url or f'manual:{datetime.now(TZ).timestamp()}',summary,json.dumps([x.strip().upper() for x in symbols_text.split(',') if x.strip()]),'Chưa phân loại','Thấp','Chưa phân loại','Chưa đủ bằng chứng','Tin nhập thủ công; cần kiểm chứng.',summary))
+                st.success('Đã lưu insight.'); st.rerun()
+            else: st.error('Nhập tiêu đề trước.')
 
-with tab2:
-    st.subheader("Bản Đồ Truyền Thông & Ý Đồ Lái (48h qua)")
-    if run_media_btn or not st.session_state.media_cache:
-        with st.spinner("Đang tổng hợp dữ liệu truyền thông và bóc tách ý đồ đội lái..."):
-            st.session_state.media_cache = chay_quet_media_48h(st.session_state.watchlist)
-    if st.session_state.media_cache:
-        st.dataframe(pd.DataFrame(st.session_state.media_cache), use_container_width=True)
+with tabs[5]:
+    st.subheader('Market Breadth & Sector Rotation')
+    sector_df=query('SELECT recorded_at,sector_name,net_flow_billion,delta_flow,flow_intensity,market_share_pct,avg_price_change,leader_symbol,flow_status,rank_score FROM sector_snapshots ORDER BY id DESC LIMIT 100')
+    if not sector_df.empty:
+        latest=sector_df.groupby('sector_name',as_index=False).first().sort_values('rank_score',ascending=False)
+        st.dataframe(latest,use_container_width=True,hide_index=True)
+    else: st.info('Chưa có sector snapshots. Chạy Sync Now.')
+    if rows:
+        breadth=pd.DataFrame([{'Mã CP':r['symbol'],'Ngành':r['sector'],'Change (%)':r['change_pct'],'Net Flow (tỷ)':r['net_flow_billion']} for r in rows])
+        a,b=st.columns(2)
+        with a: st.markdown('#### Breadth theo mã'); st.dataframe(breadth.sort_values('change_pct',ascending=False),use_container_width=True,hide_index=True)
+        with b:
+            st.markdown('#### Tỷ trọng mã tăng/giảm')
+            st.bar_chart(pd.DataFrame({'Số mã':[sum(x['change_pct']>0 for x in rows),sum(x['change_pct']<0 for x in rows),sum(x['change_pct']==0 for x in rows)]},index=['Tăng','Giảm','Tham chiếu']))
 
-with tab3:
-    st.subheader("Hệ Thống Kiểm Toán & Sai Số Lịch Sử (AI Predictions Tracking)")
-    st.markdown("Tab quản lý độ lệch chuẩn MAE, tỷ lệ thắng (Win Rate) và đối soát thực tế theo chuẩn Colab.")
-    if st.session_state.prediction_history:
-        st.dataframe(pd.DataFrame(st.session_state.prediction_history), use_container_width=True)
-    else:
-        st.info("Chưa có lịch sử backtest ghi nhận trong phiên.")
+with tabs[6]:
+    st.subheader('Macro & Backtest Matrix')
+    macro_df=pd.DataFrame(macro)
+    if not macro_df.empty: st.dataframe(macro_df,use_container_width=True,hide_index=True)
+    else: st.warning('Không có dữ liệu macro từ Yahoo Finance. Không tự điền giá giả.')
+    macro_history=query("SELECT recorded_at,factor,value,source,impact,confidence,details_json FROM macro_snapshots ORDER BY id DESC LIMIT 50")
+    if not macro_history.empty:
+        st.markdown('#### Macro snapshots & AI interpretation'); st.dataframe(macro_history,use_container_width=True,hide_index=True)
+    perf=query('SELECT calculated_at,horizon,regime_group,sample_count,win_rate_pct,mae_pct,avg_return_pct,bias_pct,coverage_pct FROM model_performance ORDER BY id DESC LIMIT 60')
+    st.markdown('#### Performance audit')
+    if not perf.empty: st.dataframe(perf,use_container_width=True,hide_index=True)
+    else: st.info('Chưa có kết quả performance. Cần có dự báo đã lưu và giá đóng cửa mục tiêu đúng ngày.')
+    fb=adaptive_feedback('T+2')
+    st.markdown('#### Adaptive feedback'); st.write(fb.get('instruction'))
+    if fb.get('active'): st.warning('Điều kiện cảnh báo thiên lệch/Win Rate đã kích hoạt. Chỉ là hướng dẫn cho AI, không tự ý sửa dự báo đã niêm phong.')
+    if st.button('Tính lại Performance Audit',key='perf2'): build_performance(); st.rerun()
 
-with tab4:
-    st.subheader("Trợ Lý AI Định Lượng (Mini-Batch Inference)")
-    if run_ai_btn:
-        with st.spinner("Đang thực hiện suy luận Mini-Batch theo kỷ luật chống phóng đại..."):
-            batch_prompt = f"""Bạn là Giám đốc Quản lý Quỹ Định Lượng TTCK Việt Nam.
-REGIME: {current_regime}
-DỮ LIỆU ĐẦU VÀO KÈM XÁC SUẤT: {json.dumps(payloads, ensure_ascii=False)}
-YÊU CẦU: Bám sát xác suất P_Win, xuất nhận định VSA sâu sắc, không phóng đại."""
-            
-            ai_output = "Thị trường phân hóa mạnh, tập trung các mã có dòng tiền Net Flow dương và áp lực bán cạn kiệt."
-            if ai_client:
-                for m_name in DANH_SACH_MODELS:
-                    try:
-                        res = ai_client.models.generate_content(
-                            model=m_name, contents=[batch_prompt],
-                            config=types.GenerateContentConfig(temperature=0.0)
-                        )
-                        if res and res.text:
-                            ai_output = res.text
-                            break
-                    except:
-                        continue
-            st.markdown(ai_output)
-    else:
-        st.info("Nhấn nút 'Chạy Mini-Batch AI Inference' ở sidebar để phân tích chi tiết.")
+with tabs[7]:
+    st.subheader('System Health & Engine Parameters')
+    st.write({'database_path':os.getenv('QUANTS_DB_PATH','./data/quants_pro.sqlite3'),'db_exists':os.path.exists(os.getenv('QUANTS_DB_PATH','./data/quants_pro.sqlite3')),'watchlist_count':len(watchlist),'last_quant_sync':st.session_state.last_run,'ai_provider':ai_provider})
+    events=query('SELECT recorded_at,level,component,message,details_json FROM system_events ORDER BY id DESC LIMIT 100')
+    st.markdown('#### Event log'); st.dataframe(events,use_container_width=True,hide_index=True)
+    snapshots=query('SELECT recorded_at,provider,price,change_pct,volume,regime FROM market_snapshots ORDER BY id DESC LIMIT 100')
+    st.markdown('#### VN-Index provider waterfall log'); st.dataframe(snapshots,use_container_width=True,hide_index=True)
+    st.markdown('#### Database backup')
+    db_path=os.getenv('QUANTS_DB_PATH','./data/quants_pro.sqlite3')
+    if os.path.exists(db_path):
+        with open(db_path,'rb') as f: st.download_button('Tải bản sao SQLite',f.read(),'quants_pro_backup.sqlite3','application/octet-stream')
+    st.warning('Streamlit Community Cloud có thể không giữ file SQLite qua mọi lần khởi tạo lại. Để lưu bền vững cần gắn persistent volume hoặc chuyển DB sang PostgreSQL; đây là giới hạn hạ tầng, không phải lỗi code.')
 
-st.caption("QUANTS PRO V16.2 Enterprise Balanced Engine • Tích hợp đầy đủ logic định lượng và bóc tách thông minh.")
+st.divider()
+st.caption('QUANTS PRO V16.1 • Hỗ trợ quyết định, không phải khuyến nghị đầu tư cá nhân. Các nguồn công khai có thể thay đổi schema/điều khoản; kiểm tra trạng thái nguồn trước khi sử dụng. Forecast chưa được kiểm định ngoài mẫu thì không được coi là hiệu năng đã chứng minh.')
