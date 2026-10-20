@@ -1,10 +1,1 @@
-QUANTS PRO V16.1 — PATCH ONLY v16
-
-So với gói v15, chỉ có các file sau thay đổi/được thêm:
-- app.py (thay thế file hiện tại ở thư mục gốc)
-- quants/ai_engine.py (thay thế file hiện tại trong thư mục quants/)
-- README_UPGRADE_v16.md (tài liệu hướng dẫn, có thể bỏ qua khi upload)
-
-KHÔNG thay toàn bộ repository. Không upload thư mục data/ hoặc file SQLite sinh ra trong lần chạy.
-
-Cách áp dụng: giải nén ZIP; upload/replace app.py ở root và quants/ai_engine.py trong thư mục quants trên GitHub; commit thay đổi. Giữ nguyên các file khác và Streamlit Secrets.
+Patch v17: ghi de app.py va quants/ai_engine.py; giu nguyen cac file khac. Xem README_UPGRADE_v17.md.
