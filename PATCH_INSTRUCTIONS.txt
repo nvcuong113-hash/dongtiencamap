@@ -1,1 +1,14 @@
-Chi ghi de quants/ai_engine.py. Cau hinh Secrets theo README_PROVIDER_SWITCH_v19.md.
+QUANTS PRO V16.1 — PATCH V20 (only changed files)
+
+Replace these two files in the GitHub repository, preserving paths:
+- app.py
+- quants/ai_engine.py
+
+Commit and push to the branch deployed by Streamlit Cloud. Wait until deployment completes.
+Verify the dashboard header shows: Build: PROVIDER-FIX-V20. If this marker is absent, the deployed app is not running this patch/branch.
+
+In Streamlit Secrets, set OPENAI_API_KEY and optionally OPENAI_MODEL = "gpt-4o-mini". If using Gemini, set GEMINI_API_KEY and optionally GEMINI_MODEL. Never paste keys into chat or commit them.
+
+The provider switch clears stale AI error messages. OpenAI calls use only the configured OpenAI model and do not fall back to Gemini. Error messages identify the active provider/model. Tables format numeric columns with comma thousands separators and 2 decimal places.
+
+Validation performed locally: Python syntax compilation only. Live provider calls require the user's valid key, provider billing/quota and deployment environment; this patch does not claim those have been live-tested.
