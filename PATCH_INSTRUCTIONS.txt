@@ -1,1 +1,1 @@
-Patch v17: ghi de app.py va quants/ai_engine.py; giu nguyen cac file khac. Xem README_UPGRADE_v17.md.
+Chi ghi de quants/ai_engine.py. Cau hinh Secrets theo README_PROVIDER_SWITCH_v19.md.
