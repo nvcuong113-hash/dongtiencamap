@@ -534,7 +534,7 @@ with tabs[3]:
 st.caption(f"Hệ thống QUANTS PRO V16.2 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
 
 # ============================================================================
-# FLOATING WIDGET: TRỢ LÝ CHUYÊN GIA AI (GÓC DƯỚI BÊN PHẢI)
+# FLOATING WIDGET: TRỢ LÝ CHUYÊN GIA AI (GÓC DƯỚI BÊN PHẢI - SỬA LỖI UI/UX Ô CHAT)
 # ============================================================================
 with st.popover("💬 Trợ Lý AI Trực Tuyến"):
     st.markdown("#### 🤖 Trợ Lý Định Lượng AI (Chat với dữ liệu)")
@@ -545,42 +545,39 @@ with st.popover("💬 Trợ Lý AI Trực Tuyến"):
             {"role": "assistant", "content": "Xin chào! Tôi đã đọc dữ liệu thị trường và danh mục của bạn. Bạn muốn phân tích mã nào?"}
         ]
 
-    for msg in st.session_state.chat_messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+    # Container chứa toàn bộ lịch sử tin nhắn để cuộn và hiển thị ở trên
+    chat_container = st.container(height=380)
+    with chat_container:
+        for msg in st.session_state.chat_messages:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
 
-    if prompt_user := st.chat_input("Nhập câu hỏi (Ví dụ: Đánh giá giúp tôi mã FPT)..."):
+    # Khung nhập liệu đặt ở dưới cùng của popover
+    if prompt_user := st.chat_input("Nhập câu hỏi (Ví dụ: Đánh giá giúp tôi mã FPT)...", key="chat_input_widget"):
         st.session_state.chat_messages.append({"role": "user", "content": prompt_user})
-        with st.chat_message("user"):
-            st.markdown(prompt_user)
+        
+        try:
+            live_market_summary = pd.DataFrame(st.session_state.rows).to_json(orient="records", force_ascii=False) if st.session_state.rows else "Chưa có dữ liệu snapshot."
+            user_portfolio_summary = json.dumps(st.session_state.user_portfolio, ensure_ascii=False)
+            
+            system_context = f"""
+            Bạn là Trợ lý Quản lý Quỹ Định Lượng tại TTCK Việt Nam.
+            DỮ LIỆU BẢNG ĐIỆN QUANTS HIỆN TẠI: {live_market_summary}
+            DANH MỤC ĐẦU TƯ CỦA NGƯỜI DÙNG: {user_portfolio_summary}
+            
+            YÊU CẦU: Trả lời ngắn gọn, khách quan, bám sát số liệu thực tế được cung cấp. Cảnh báo rõ ràng nếu mã nào vi phạm ngưỡng cắt lỗ.
+            """
 
-        with st.chat_message("assistant"):
-            with st.spinner("AI đang phân tích..."):
-                try:
-                    live_market_summary = pd.DataFrame(st.session_state.rows).to_json(orient="records", force_ascii=False) if st.session_state.rows else "Chưa có dữ liệu snapshot."
-                    user_portfolio_summary = json.dumps(st.session_state.user_portfolio, ensure_ascii=False)
-                    
-                    system_context = f"""
-                    Bạn là Trợ lý Quản lý Quỹ Định Lượng tại TTCK Việt Nam.
-                    DỮ LIỆU BẢNG ĐIỆN QUANTS HIỆN TẠI: {live_market_summary}
-                    DANH MỤC ĐẦU TƯ CỦA NGƯỜI DÙNG: {user_portfolio_summary}
-                    
-                    YÊU CẦU: Trả lời ngắn gọn, khách quan, bám sát số liệu thực tế được cung cấp. Cảnh báo rõ ràng nếu mã nào vi phạm ngưỡng cắt lỗ.
-                    """
+            from quants.ai_engine import _client
+            ai_cli = _client("Gemini")
+            
+            res_chat = ai_cli.models.generate_content(
+                model="gemini-3.8-flash",
+                contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user
+            )
+            bot_reply = res_chat.text
+        except Exception as chat_err:
+            bot_reply = f"⚠️ Lỗi kết nối AI: {chat_err}"
 
-                    from quants.ai_engine import _client
-                    ai_cli = _client("Gemini")
-                    
-                    # Gọi chuẩn model gemini-3.8-flash mới nhất
-                    res_chat = ai_cli.models.generate_content(
-                        model="gemini-3.8-flash",
-                        contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user
-                    )
-                    bot_reply = res_chat.text
-
-                    st.markdown(bot_reply)
-                    st.session_state.chat_messages.append({"role": "assistant", "content": bot_reply})
-                except Exception as chat_err:
-                    err_msg = f"⚠️ Lỗi kết nối AI: {chat_err}"
-                    st.error(err_msg)
-                    st.session_state.chat_messages.append({"role": "assistant", "content": err_msg})
+        st.session_state.chat_messages.append({"role": "assistant", "content": bot_reply})
+        st.rerun()
