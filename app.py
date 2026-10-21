@@ -568,13 +568,14 @@ with st.popover("💬 Trợ Lý AI Trực Tuyến"):
             YÊU CẦU: Trả lời ngắn gọn, khách quan, bám sát số liệu thực tế được cung cấp. Cảnh báo rõ ràng nếu mã nào vi phạm ngưỡng cắt lỗ.
             """
 
-            from quants.ai_engine import _client
-            ai_cli = _client("Gemini")
-            
-            res_chat = ai_cli.models.generate_content(
-                model="gemini-1.5-pro",
-                contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user
-            )
+            from quants.ai_engine import _client, _get_working_model
+                    ai_cli = _client("Gemini")
+                    active_model = _get_working_model(ai_cli)
+                    
+                    res_chat = ai_cli.models.generate_content(
+                        model=active_model,
+                        contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user
+                    )
             bot_reply = res_chat.text
         except Exception as chat_err:
             bot_reply = f"⚠️ Lỗi kết nối AI: {chat_err}"
