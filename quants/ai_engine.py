@@ -30,7 +30,6 @@ def _client(provider):
         return OpenAI(api_key=key, timeout=45.0, max_retries=0)
     
     if provider == 'Gemini':
-        # Sử dụng API Key của bạn trực tiếp
         key = _setting('GEMINI_API_KEY') or "AQ.Ab8RN6L_c58xIwPnMKJ-pBflJv1ZafmfL3nuvJUPmVyqD6KcOw"
         if not key:
             raise AIUnavailable('Thiếu GEMINI_API_KEY.')
@@ -50,7 +49,7 @@ def _generate(client, provider, model, prompt):
         )
         return response.choices[0].message.content or '{}'
     
-    # Sử dụng model gemini-2.5-flash theo đúng yêu cầu hệ thống Google mới nhất
+    # Sử dụng đúng tên chuẩn tích hợp trong Google GenAI SDK hiện hành
     try:
         response = client.models.generate_content(
             model='gemini-2.5-flash',
@@ -58,7 +57,6 @@ def _generate(client, provider, model, prompt):
         )
         return response.text or '{}'
     except Exception:
-        # Fallback tự động sang gemini-2.0-flash nếu model 2.5 chưa active trên key
         response = client.models.generate_content(
             model='gemini-2.0-flash',
             contents=prompt
