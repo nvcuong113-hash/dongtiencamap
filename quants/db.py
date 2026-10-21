@@ -9,7 +9,7 @@ SCHEMA = '''
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
 
--- BẢNG QUẢN LÝ NGƯỜI DÙNG
+-- 1. BẢNG QUẢN LÝ NGƯỜI DÙNG
 CREATE TABLE IF NOT EXISTS users(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE NOT NULL,
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS users(
     created_at TEXT
 );
 
--- BẢNG QUẢN LÝ DANH MỤC RIÊNG CỦA TỪNG USER
+-- 2. BẢNG QUẢN LÝ DANH MỤC RIÊNG CỦA TỪNG USER
 CREATE TABLE IF NOT EXISTS user_portfolios(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -64,7 +64,7 @@ def init_db():
     with connect() as c:
         c.executescript(SCHEMA)
         c.execute("INSERT OR IGNORE INTO stocks(symbol,sector) VALUES (?,?)", ('VNINDEX','Chỉ số thị trường'))
-        # Khởi tạo sẵn tài khoản quản trị mặc định (admin / admin123)
+        # Tạo tài khoản quản trị mặc định (admin / admin123) nếu chưa có
         default_admin_hash = hash_pw("admin123")
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         c.execute(
