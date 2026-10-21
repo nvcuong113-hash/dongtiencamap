@@ -108,7 +108,7 @@ if not st.session_state.authenticated_user:
     st.stop()
 
 # ============================================================================
-# HÀM ĐỊNH DẠNG SỐ & TÔ MÀU BẢNG GIÁ CHỨNG KHOÁN (XANH / ĐỎ / VÀNG)[cite: 5, 23]
+# HÀM ĐỊNH DẠNG SỐ & TÔ MÀU BẢNG GIÁ CHỨNG KHOÁN (XANH / ĐỎ / VÀNG)
 # ============================================================================
 def style_financial_table(df: pd.DataFrame):
     styler = df.style
@@ -120,11 +120,11 @@ def style_financial_table(df: pd.DataFrame):
             clean_str = str(val).replace("%", "").replace("T", "").replace("đ", "").replace("+", "").replace(",", "").strip()
             num = float(clean_str)
             if num > 0.0001:
-                return "color: #22c55e; font-weight: bold;"  # Tăng xanh
+                return "color: #22c55e; font-weight: bold;"
             elif num < -0.0001:
-                return "color: #ef4444; font-weight: bold;"  # Giảm đỏ
+                return "color: #ef4444; font-weight: bold;"
             else:
-                return "color: #eab308; font-weight: bold;"  # Tham chiếu vàng
+                return "color: #eab308; font-weight: bold;"
         except (ValueError, TypeError):
             return "color: #dbeafe;"
 
@@ -198,7 +198,7 @@ with st.expander("➕ Thêm Mã Cổ Phiếu Mới Vào Bảng Theo Dõi", expan
         new_tickers_input = st.text_input(
             "Danh sách mã (cách nhau bởi dấu phẩy):",
             value=", ".join(st.session_state.active_watchlist),
-            help="Ví dụ: MWG, VNM, VCB, GEX..."
+            help="Ví dụ: MWG, VNM, VCB, BSR..."
         )
     with col_w2:
         st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
@@ -549,7 +549,7 @@ with st.popover("💬 Trợ Lý AI Trực Tuyến"):
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    if prompt_user := st.chat_input("Nhập câu hỏi (Ví dụ: Đánh giá giúp tôi mã TCB)..."):
+    if prompt_user := st.chat_input("Nhập câu hỏi (Ví dụ: Đánh giá giúp tôi mã BSR)..."):
         st.session_state.chat_messages.append({"role": "user", "content": prompt_user})
         with st.chat_message("user"):
             st.markdown(prompt_user)
@@ -568,31 +568,20 @@ with st.popover("💬 Trợ Lý AI Trực Tuyến"):
                     YÊU CẦU: Trả lời ngắn gọn, khách quan, bám sát số liệu thực tế được cung cấp. Cảnh báo rõ ràng nếu mã nào vi phạm ngưỡng cắt lỗ.
                     """
 
-                    from quants.ai_engine import _client, _setting
-                    ai_prov = st.session_state.get("ai_provider_select", "Gemini")
-                    ai_cli = _client(ai_prov)
+                    from quants.ai_engine import _client
+                    ai_cli = _client("Gemini")
                     
-                    if ai_prov == "Gemini":
-                        from google.genai import types
-                        res_chat = ai_cli.models.generate_content(
-                            model="gemini-2.0-flash",
-                            contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user,
-                            config=types.GenerateContentConfig(temperature=0.2)
-                        )
-                        bot_reply = res_chat.text
-                    else:
-                        res_chat = ai_cli.chat.completions.create(
-                            model="gpt-4o-mini",
-                            messages=[
-                                {"role": "system", "content": system_context},
-                                {"role": "user", "content": prompt_user}
-                            ]
-                        )
-                        bot_reply = res_chat.choices[0].message.content
+                    from google.genai import types
+                    res_chat = ai_cli.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user,
+                        config=types.GenerateContentConfig(temperature=0.2)
+                    )
+                    bot_reply = res_chat.text
 
                     st.markdown(bot_reply)
                     st.session_state.chat_messages.append({"role": "assistant", "content": bot_reply})
                 except Exception as chat_err:
-                    err_msg = f"⚠️ Lỗi kết nối AI: {err_msg if 'err_msg' in locals() else chat_err}"
+                    err_msg = f"⚠️ Lỗi kết nối AI: {chat_err}"
                     st.error(err_msg)
                     st.session_state.chat_messages.append({"role": "assistant", "content": err_msg})
