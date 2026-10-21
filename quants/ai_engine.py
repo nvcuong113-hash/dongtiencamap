@@ -41,21 +41,6 @@ def _client(provider):
         
     raise AIUnavailable(f'Provider AI không hợp lệ: {provider!r}.')
 
-def _get_working_model(client):
-    """Tự động quét danh sách model khả dụng từ tài khoản API của bạn"""
-    try:
-        models = [m.name for m in client.models.list() if 'generateContent' in getattr(m, 'supported_generation_methods', [])]
-        # Ưu tiên tìm model flash hoặc pro
-        for keyword in ['flash', 'pro', 'gemini']:
-            for model_name in models:
-                if keyword in model_name.lower():
-                    # Loại bỏ tiền tố 'models/' nếu có
-                    return model_name.replace('models/', '')
-    except Exception:
-        pass
-    # Giá trị mặc định an toàn nếu không quét được
-    return 'gemini-2.0-flash'
-
 def _generate(client, provider, prompt):
     if provider == 'OpenAI':
         response = client.chat.completions.create(
@@ -64,28 +49,23 @@ def _generate(client, provider, prompt):
         )
         return response.choices[0].message.content or '{}'
     
-    # Tự động tìm model đang hoạt động trên key của bạn
-    working_model = _get_working_model(client)
-    
-    models_to_try = [working_model, 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
-    # Lọc danh sách trùng lặp nhưng giữ thứ tự
-    models_to_try = list(dict.fromkeys(models_to_try))
-    
+    # Sử dụng các model chuẩn tương thích với Google GenAI SDK hiện hành
+    models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
     last_error = None
+    
     for m in models_to_try:
-        for attempt in range(2):
-            try:
-                response = client.models.generate_content(
-                    model=m,
-                    contents=prompt
-                )
-                if response and response.text:
-                    return response.text
-            except Exception as e:
-                last_error = e
-                time.sleep(1)
+        try:
+            response = client.models.generate_content(
+                model=m,
+                contents=prompt
+            )
+            if response and response.text:
+                return response.text
+        except Exception as e:
+            last_error = e
+            time.sleep(.5)
 
-    raise RuntimeError(f"Không thể kết nối Gemini API. Lỗi chi tiết: {last_error}")
+    raise RuntimeError(f"Không thể kết nối Gemini API. Chi tiết lỗi: {last_error}")
 
 def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
     if provider not in ('OpenAI', 'Gemini'):
@@ -119,7 +99,7 @@ INPUT rows:
             if isinstance(obj, dict):
                 for r in batch:
                     if isinstance(obj.get(r['symbol']), dict):
-                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-dynamic', '_provider': provider}
+                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-flash', '_provider': provider}
         except Exception as e:
             event('WARN', 'ai_engine', f'Batch failed: {e}')
         time.sleep(.2)
