@@ -75,7 +75,6 @@ def render_login_screen():
                     user_data = authenticate_user(uname, pw)
                     if user_data:
                         st.session_state.authenticated_user = user_data
-                        # Tải số dư tiền mặt và danh mục riêng của người dùng
                         st.session_state.user_cash = float(user_data.get("cash_balance") or 0.0)
                         saved_port = get_user_portfolio(user_data["id"])
                         st.session_state.user_portfolio = saved_port if saved_port else [
@@ -85,7 +84,7 @@ def render_login_screen():
                         st.toast(f"Xin chào {user_data.get('full_name') or user_data['username']}!", icon="👋")
                         st.rerun()
                     else:
-                        st.error("Sai tên đăng nhập hoặc mật khẩu! (Tài khoản mặc định: admin / admin123)")
+                        st.error("Sai tên đăng nhập hoặc mật khẩu! (Tài khoản mẫu: admin / admin123)")
 
         with reg_tab:
             with st.form("form_register"):
@@ -106,13 +105,12 @@ def render_login_screen():
                         else:
                             st.error(msg)
 
-# CHẶN TOÀN BỘ NỘI DUNG NẾU CHƯA ĐĂNG NHẬP
 if not st.session_state.authenticated_user:
     render_login_screen()
     st.stop()
 
 # ============================================================================
-# HÀM ĐỊNH DẠNG SỐ & TÔ MÀU BẢNG GIÁ CHỨNG KHOÁN (XANH / ĐỎ / VÀNG)
+# HÀM ĐỊNH DẠNG SỐ & TÔ MÀU BẢNG GIÁ CHỨNG KHOÁN (XANH / ĐỎ / VÀNG)[cite: 5, 23]
 # ============================================================================
 def style_financial_table(df: pd.DataFrame):
     styler = df.style
@@ -297,12 +295,10 @@ with tabs[0]:
                         except Exception: pass
                 st.session_state.user_portfolio = new_port
                 st.session_state.user_cash = cash_input
-                # LƯU VÀO DATABASE SQLite THEO USER_ID
                 save_user_portfolio(cur_user["id"], new_port, cash_input)
                 st.success("Đã lưu danh mục thành công vào tài khoản!")
                 st.rerun()
 
-    # 1. TỰ ĐỘNG LẤY GIÁ THỊ TRƯỜNG THỰC TẾ
     current_market_map = {}
     if st.session_state.get("rows"):
         for r in st.session_state.rows:
@@ -331,7 +327,6 @@ with tabs[0]:
         except Exception: pass
 
     with col_pf_view:
-        # BƯỚC 1: TÍNH TỔNG GIÁ TRỊ TOÀN BỘ DANH MỤC TRƯỚC (FIX LỖI TRỌNG SỐ)
         temp_items = []
         total_cost = 0.0
         total_market_val = 0.0
@@ -365,7 +360,6 @@ with tabs[0]:
         total_pnl = total_market_val - total_cost
         total_pnl_pct = (total_pnl / total_cost) * 100 if total_cost > 0 else 0.0
 
-        # BƯỚC 2: TÍNH TRỌNG SỐ VÀ KHUYẾN NGHỊ HÀNH ĐỘNG
         portfolio_summary_rows = []
         for it in temp_items:
             sym = it["symbol"]
@@ -435,7 +429,7 @@ with tabs[0]:
             st.info("Chưa có mã cổ phiếu nào trong danh mục.")
 
 # ----------------------------------------------------------------------------
-# TAB 2: RADAR TÍN HIỆU ĐẦY ĐỦ 30 CỘT
+# TAB 2: RADAR TÍN HIỆU ĐẦY ĐỦ 30 CỘT[cite: 5]
 # ----------------------------------------------------------------------------
 with tabs[1]:
     st.markdown("### 🎯 Bảng Định Lượng Vi Cấu Trúc Toàn Diện (Chuẩn 30 Cột)")
@@ -511,7 +505,6 @@ with tabs[2]:
 
     mdf = recent_media(hours=48, limit=100)
     if not mdf.empty:
-        st.markdown("#### 📑 Danh sách tin tức bóc tách đa tầng")
         display_m = mdf[["published_at", "source", "title", "sentiment", "retail_buzz", "lai_intent", "warning"]]
         display_m.columns = ["Thời Gian", "Nguồn", "Tiêu Đề", "Chiều Hướng", "Tâm Lý Nhỏ Lẻ", "Ý Đồ Big Boys", "Cảnh Báo Quants"]
         st.dataframe(display_m, width="stretch", hide_index=True)
