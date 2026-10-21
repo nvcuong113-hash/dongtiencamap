@@ -22,7 +22,7 @@ def _client(provider):
     if provider == 'OpenAI':
         key = _setting('OPENAI_API_KEY')
         if not key:
-            raise AIUnavailable('Thiếu OPENAI_API_KEY trong Streamlit Secrets.')
+            raise AIUnavailable('Thiếu OPENAI_API_KEY.')
         try:
             from openai import OpenAI
         except ImportError as exc:
@@ -52,8 +52,8 @@ def _generate(client, provider, prompt):
         )
         return response.choices[0].message.content or '{}'
     
-    # Chỉ sử dụng model chuẩn gemini-2.0-flash mới nhất để tránh hoàn toàn lỗi 404
-    models_to_try = ['gemini-2.0-flash', 'gemini-2.5-flash']
+    # Cập nhật đúng tên model gemini-3.8-flash theo yêu cầu mới nhất từ Google API
+    models_to_try = ['gemini-3.8-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
     last_error = None
     
     for m in models_to_try:
@@ -68,10 +68,7 @@ def _generate(client, provider, prompt):
             last_error = e
             time.sleep(.3)
 
-    raise RuntimeError(
-        f"Lỗi kết nối Gemini API (404/Not Found). Nguyên nhân: Key của bạn có thể không hỗ trợ model này trên v1beta hoặc đã hết hạn. "
-        f"Gợi ý: Hãy chuyển sang dùng OpenAI (nhập OPENAI_API_KEY trong Secrets) hoặc tạo API Key Gemini mới tại aistudio.google.com. Chi tiết: {last_error}"
-    )
+    raise RuntimeError(f"Không thể kết nối Gemini API. Chi tiết lỗi: {last_error}")
 
 def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
     if provider not in ('OpenAI', 'Gemini'):
@@ -105,7 +102,7 @@ INPUT rows:
             if isinstance(obj, dict):
                 for r in batch:
                     if isinstance(obj.get(r['symbol']), dict):
-                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-2.0-flash', '_provider': provider}
+                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-3.8-flash', '_provider': provider}
         except Exception as e:
             event('WARN', 'ai_engine', f'Batch failed: {e}')
         time.sleep(.2)
