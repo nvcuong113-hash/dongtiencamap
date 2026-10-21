@@ -29,8 +29,6 @@ st.markdown("""
     .stApp { background: #07101c; color: #dbeafe; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     .metric-card { background: #0f1d30; border: 1px solid #1e3a5f; padding: 12px 16px; border-radius: 8px; }
     .portfolio-card { background: #0c1a2c; border: 1px solid #1f3554; border-radius: 8px; padding: 14px; margin-bottom: 12px; }
-    .badge-profit { background: #064e3b; color: #34d399; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
-    .badge-loss { background: #7f1d1d; color: #f87171; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
     div[data-testid="stMetric"] { background: #0f1d30; border: 1px solid #1e3a5f; padding: 10px 14px; border-radius: 8px; }
 </style>
 """, unsafe_allow_html=True)
@@ -47,6 +45,8 @@ if "user_portfolio" not in st.session_state:
     st.session_state.user_portfolio = []
 if "user_cash" not in st.session_state:
     st.session_state.user_cash = 0.0
+if "active_watchlist" not in st.session_state:
+    st.session_state.active_watchlist = list(DEFAULT_WATCHLIST)
 
 if "rows" not in st.session_state: st.session_state.rows = []
 if "last_run" not in st.session_state: st.session_state.last_run = None
@@ -66,7 +66,6 @@ def render_login_screen():
 
         with login_tab:
             with st.form("form_login"):
-                st.markdown("##### Đăng nhập vào phiên làm việc")
                 uname = st.text_input("Tên đăng nhập", placeholder="Nhập username...").strip().lower()
                 pw = st.text_input("Mật khẩu", type="password", placeholder="Nhập mật khẩu...")
                 btn_login = st.form_submit_button("Đăng Nhập Ngay", width="stretch")
@@ -88,7 +87,6 @@ def render_login_screen():
 
         with reg_tab:
             with st.form("form_register"):
-                st.markdown("##### Đăng ký tài khoản cá nhân mới")
                 new_uname = st.text_input("Tên đăng nhập mới", placeholder="Viết liền, không dấu...").strip().lower()
                 new_fname = st.text_input("Họ và tên hiển thị", placeholder="Ví dụ: Nguyễn Văn Cường")
                 new_pw = st.text_input("Mật khẩu", type="password", placeholder="Tối thiểu 6 ký tự...")
@@ -119,15 +117,7 @@ def style_financial_table(df: pd.DataFrame):
         if pd.isna(val) or str(val).strip() in ("", "---", "N/A", "KHÔNG DỰ BÁO", "Chưa có AI", "Chưa sync"):
             return "color: #94a3b8;"
         try:
-            clean_str = (
-                str(val)
-                .replace("%", "")
-                .replace("T", "")
-                .replace("đ", "")
-                .replace("+", "")
-                .replace(",", "")
-                .strip()
-            )
+            clean_str = str(val).replace("%", "").replace("T", "").replace("đ", "").replace("+", "").replace(",", "").strip()
             num = float(clean_str)
             if num > 0.0001:
                 return "color: #22c55e; font-weight: bold;"  # Tăng xanh
@@ -145,7 +135,7 @@ def style_financial_table(df: pd.DataFrame):
     ]
     target_color_cols = [c for c in color_cols if c in df.columns]
     if target_color_cols:
-        styler = styler.applymap(color_values, subset=target_color_cols)
+        styler = styler.map(color_values, subset=target_color_cols)
 
     format_dict = {}
     for col in df.columns:
@@ -164,7 +154,7 @@ def style_financial_table(df: pd.DataFrame):
     return styler
 
 # ============================================================================
-# HEADER: THÔNG TIN TÀI KHOẢN & BỐI CẢNH THỊ TRƯỜNG TOÀN CẢNH
+# HEADER: THÔNG TIN TÀI KHOẢN & THỊ TRƯỜNG TOÀN CẢNH
 # ============================================================================
 cur_user = st.session_state.authenticated_user
 top_u1, top_u2 = st.columns([4, 1.2])
@@ -201,7 +191,25 @@ with k4:
     gate_str = "🟢 Cho phép giải ngân theo Trigger" if vni_chg > -0.5 else "🔴 Chế độ phòng thủ (Ưu tiên tiền mặt)"
     st.info(f"**Pha thị trường**: {regime_str} | **Market Gate**: {gate_str}")
 
-# TRUNG TÂM CẢNH BÁO LỖI (DATA FEED & AI STATUS)
+# BẢNG ĐIỀU KHIỂN QUẢN LÝ MÃ THÊM MỚI (WATCHLIST MANAGER)
+with st.expander("➕ Quản lý danh sách mã theo dõi chung (Thêm mã mới)", expanded=False):
+    col_w1, col_w2 = st.columns([3, 1])
+    with col_w1:
+        new_tickers_input = st.text_input(
+            "Nhập thêm mã cổ phiếu (ngăn cách bằng dấu phẩy):",
+            value=", ".join(st.session_state.active_watchlist),
+            help="Ví dụ: MWG, VNM, VCB, GEX..."
+        )
+    with col_w2:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        if st.button("Cập Nhật Watchlist", width="stretch"):
+            parsed_list = [s.strip().upper() for s in new_tickers_input.replace(";", ",").split(",") if s.strip().isalpha() and len(s.strip()) <= 5]
+            if parsed_list:
+                st.session_state.active_watchlist = list(dict.fromkeys(parsed_list))
+                st.success(f"Đã cập nhật danh sách theo dõi gồm {len(st.session_state.active_watchlist)} mã!")
+                st.rerun()
+
+# TRUNG TÂM CẢNH BÁO LỖI
 error_list = []
 if index_errors:
     error_list.extend([f"⚠️ Nguồn VN-Index: {err}" for err in index_errors])
@@ -220,7 +228,7 @@ c_btn1, c_btn2, c_btn3 = st.columns([2, 1.5, 1.5])
 with c_btn1:
     if st.button("⚡ ĐỒNG BỘ TOÀN DIỆN (Dữ liệu + Lọc Quant + Chạy AI)", type="primary", width="stretch"):
         with st.spinner("Đang cập nhật bảng điện và chạy suy luận AI 2 tầng..."):
-            rows, errors = compute_quant(DEFAULT_WATCHLIST, index, datetime.now(TZ))
+            rows, errors = compute_quant(st.session_state.active_watchlist, index, datetime.now(TZ))
             st.session_state.rows = rows
             st.session_state.run_errors = errors
             st.session_state.last_run = datetime.now(TZ).strftime("%H:%M:%S %d/%m/%Y")
@@ -237,7 +245,7 @@ with c_btn1:
 with c_btn2:
     if st.button("📰 Quét Tin Media 48h", width="stretch"):
         with st.spinner("Đang quét dữ liệu báo chí và MXH 48h..."):
-            count, _ = crawl_media(DEFAULT_WATCHLIST, 48)
+            count, _ = crawl_media(st.session_state.active_watchlist, 48)
             st.toast(f"Đã cập nhật {count} tin tức mới!", icon="📰")
 
 with c_btn3:
@@ -249,11 +257,11 @@ with c_btn3:
 st.divider()
 
 # ============================================================================
-# CẤU TRÚC 4 TAB NGHIỆP VỤ CHÍNH
+# CẤU TRÚC TAB NGHIỆP VỤ CHÍNH
 # ============================================================================
 tabs = st.tabs([
     "💼 QUẢN TRỊ DANH MỤC CÁ NHÂN",
-    "🎯 RADAR TÍN HIỆU ĐẦY ĐỦ (30 CỘT)",
+    "🎯 RADAR TÍN HIỆU ĐẦY ĐỦ (30 CỘT)[cite: 5]",
     "📰 TÂM LÝ NHỎ LẺ & Ý ĐỒ LÁI 48H",
     "📊 HIỆU NĂNG AUDIT & CẤU HÌNH"
 ])
@@ -524,41 +532,31 @@ with tabs[3]:
         st.info("Chưa có đủ mẫu quyết toán để hiển thị ma trận hiệu năng.")
 
 st.caption(f"Hệ thống QUANTS PRO V16.2 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
-# Bổ sung tab thứ 5 vào danh sách tab:
-tabs = st.tabs([
-    "💼 QUẢN TRỊ DANH MỤC CÁ NHÂN",
-    "🎯 RADAR TÍN HIỆU ĐẦY ĐỦ (30 CỘT)",
-    "📰 TÂM LÝ NHỎ LẺ & Ý ĐỒ LÁI 48H",
-    "📊 HIỆU NĂNG AUDIT & CẤU HÌNH",
-    "🤖 TRỢ LÝ CHUYÊN GIA AI (Chat với dữ liệu)"
-])
 
-# Triển khai nội dung cho Tab số 5 (Chỉ số index là 4):
-with tabs[4]:
-    st.markdown("### 🤖 Trợ Lý Định Lượng AI — Hỏi Đáp Trực Tiếp Về Dữ Liệu Thị Trường")
-    st.markdown("Trợ lý AI được nạp sẵn toàn bộ bảng dữ liệu định lượng 30 cột, danh mục tài khoản và trạng thái dòng tiền hiện tại.")
+# ============================================================================
+# FLOATING WIDGET: TRỢ LÝ CHUYÊN GIA AI (GÓC DƯỚI BÊN PHẢI)
+# ============================================================================
+with st.popover("💬 Trợ Lý AI Trực Tuyến"):
+    st.markdown("#### 🤖 Trợ Lý Định Lượng AI (Chat với dữ liệu)")
+    st.markdown("Hỏi đáp trực tiếp về bảng điện và danh mục của bạn.")
 
-    # Khởi tạo lịch sử chat trong session
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = [
-            {"role": "assistant", "content": "Xin chào! Tôi đã đọc toàn bộ dữ liệu bảng điện và danh mục của bạn. Bạn muốn phân tích mã cổ phiếu nào hoặc cần tìm cơ hội giải ngân ở nhóm ngành nào?"}
+            {"role": "assistant", "content": "Xin chào! Tôi đã đọc dữ liệu thị trường và danh mục của bạn. Bạn muốn phân tích mã nào?"}
         ]
 
-    # Hiển thị lịch sử trò chuyện
     for msg in st.session_state.chat_messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # Ô nhập câu hỏi từ người dùng
-    if prompt_user := st.chat_input("Nhập câu hỏi của bạn (Ví dụ: Đánh giá giúp tôi mã TCB hoặc danh mục hiện tại)..."):
+    if prompt_user := st.chat_input("Nhập câu hỏi (Ví dụ: Đánh giá giúp tôi mã TCB)..."):
         st.session_state.chat_messages.append({"role": "user", "content": prompt_user})
         with st.chat_message("user"):
             st.markdown(prompt_user)
 
         with st.chat_message("assistant"):
-            with st.spinner("AI đang phân tích dữ liệu hệ thống..."):
+            with st.spinner("AI đang phân tích..."):
                 try:
-                    # Gói dữ liệu hiện tại làm ngữ cảnh (Context) cho AI
                     live_market_summary = pd.DataFrame(st.session_state.rows).to_json(orient="records", force_ascii=False) if st.session_state.rows else "Chưa có dữ liệu snapshot."
                     user_portfolio_summary = json.dumps(st.session_state.user_portfolio, ensure_ascii=False)
                     
@@ -567,10 +565,9 @@ with tabs[4]:
                     DỮ LIỆU BẢNG ĐIỆN QUANTS HIỆN TẠI: {live_market_summary}
                     DANH MỤC ĐẦU TƯ CỦA NGƯỜI DÙNG: {user_portfolio_summary}
                     
-                    YÊU CẦU: Trả lời ngắn gọn, khách quan, bám sát số liệu thực tế được cung cấp ở trên. Không bịa đặt số liệu. Cảnh báo rõ ràng nếu mã nào vi phạm ngưỡng cắt lỗ hoặc cạn thanh khoản.
+                    YÊU CẦU: Trả lời ngắn gọn, khách quan, bám sát số liệu thực tế được cung cấp. Cảnh báo rõ ràng nếu mã nào vi phạm ngưỡng cắt lỗ.
                     """
 
-                    # Gọi trực tiếp qua Gemini client đã cấu hình sẵn trong hệ thống
                     from quants.ai_engine import _client, _setting
                     ai_prov = st.session_state.get("ai_provider_select", "Gemini")
                     ai_cli = _client(ai_prov)
@@ -596,6 +593,6 @@ with tabs[4]:
                     st.markdown(bot_reply)
                     st.session_state.chat_messages.append({"role": "assistant", "content": bot_reply})
                 except Exception as chat_err:
-                    err_msg = f"⚠️ Không thể kết nối mô hình AI để trả lời: {chat_err}"
+                    err_msg = f"⚠️ Lỗi kết nối AI: {chat_err}"
                     st.error(err_msg)
                     st.session_state.chat_messages.append({"role": "assistant", "content": err_msg})
