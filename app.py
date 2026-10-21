@@ -571,12 +571,17 @@ with st.popover("💬 Trợ Lý AI Trực Tuyến"):
                     from quants.ai_engine import _client
                     ai_cli = _client("Gemini")
                     
-                    from google.genai import types
-                    # Sử dụng model gemini-1.5-flash để tương thích ngược 100% với Google GenAI SDK hiện hành
-                    res_chat = ai_cli.models.generate_content(
-                        model="gemini-1.5-flash",
-                        contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user
-                    )
+                    # Gọi trực tiếp đúng cú pháp SDK gemini-2.5-flash / gemini-2.0-flash
+                    try:
+                        res_chat = ai_cli.models.generate_content(
+                            model="gemini-2.5-flash",
+                            contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user
+                        )
+                    except Exception:
+                        res_chat = ai_cli.models.generate_content(
+                            model="gemini-2.0-flash",
+                            contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user
+                        )
                     bot_reply = res_chat.text
 
                     st.markdown(bot_reply)
