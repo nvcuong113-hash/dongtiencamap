@@ -12,26 +12,33 @@ from quants.ai_engine import run_ai, enforce_predictions, save_prediction_audit,
 from quants.media import crawl_media, recent_media, media_summary
 from quants.audit import settle_predictions, build_performance, adaptive_feedback
 
-st.set_page_config(page_title="QUANTS PRO - Trading Terminal", page_icon="📈", layout="wide", initial_sidebar_state="collapsed")
+# Cấu hình giao diện Streamlit Terminal chuyên nghiệp
+st.set_page_config(
+    page_title="QUANTS PRO V16.2 - Trading Terminal",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
 
 st.markdown("""
 <style>
     :root { color-scheme: dark; }
     .stApp { background: #07101c; color: #dbeafe; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     .metric-card { background: #0f1d30; border: 1px solid #1e3a5f; padding: 12px 16px; border-radius: 8px; }
-    .badge-buy { background: #064e3b; color: #34d399; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
-    .badge-sell { background: #7f1d1d; color: #f87171; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
-    .badge-hold { background: #1e293b; color: #94a3b8; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
+    .qp-banner { background: #010f1f; border: 1px solid #1e3a5f; padding: 14px 18px; border-radius: 8px; margin-bottom: 12px; }
+    .qp-title { font-size: 1.35rem; font-weight: 750; color: #adc6ff; letter-spacing: .02em; }
+    .qp-chip { display: inline-block; background: #122131; border: 1px solid #424754; border-radius: 4px; padding: 3px 8px; margin-right: 5px; font-size: .76rem; }
+    div[data-testid="stMetric"] { background: #0f1d30; border: 1px solid #1e3a5f; padding: 10px 14px; border-radius: 8px; }
 </style>
 """, unsafe_allow_html=True)
 
 init_db()
 
-# Khởi tạo trạng thái danh mục cá nhân trong session
+# Khởi tạo trạng thái danh mục cá nhân mặc định
 if "user_portfolio" not in st.session_state:
     st.session_state.user_portfolio = [
-        {"symbol": "IDC", "buy_price": 33440, "volume": 4100},
-        {"symbol": "FPT", "buy_price": 62980, "volume": 2200}
+        {"symbol": "IDC", "buy_price": 33440.0, "volume": 4500},
+        {"symbol": "FPT", "buy_price": 62980.0, "volume": 2000}
     ]
 if "user_cash" not in st.session_state:
     st.session_state.user_cash = 0.0
@@ -39,24 +46,34 @@ if "user_cash" not in st.session_state:
 if "rows" not in st.session_state: st.session_state.rows = []
 if "last_run" not in st.session_state: st.session_state.last_run = None
 
-# --- HÀM TÔ MÀU VÀ ĐỊNH DẠNG BẢNG TÍNH THEO CHUẨN CHỨNG KHOÁN ---
-def style_financial_table(df: pd.DataFrame) -> pd.io.formats.style.Styler:
+# ============================================================================
+# HÀM ĐỊNH DẠNG SỐ & TÔ MÀU CHUẨN BẢNG GIÁ CHỨNG KHOÁN (XANH / ĐỎ / VÀNG)
+# ============================================================================
+def style_financial_table(df: pd.DataFrame):
     styler = df.style
 
     def color_values(val):
-        if pd.isna(val) or str(val).strip() in ("", "---", "N/A", "KHÔNG DỰ BÁO", "Chưa có AI"):
-            return "color: #94a3b8"
+        if pd.isna(val) or str(val).strip() in ("", "---", "N/A", "KHÔNG DỰ BÁO", "Chưa có AI", "Chưa sync"):
+            return "color: #94a3b8;"
         try:
-            clean_str = str(val).replace("%", "").replace("T", "").replace("+", "").replace(",", "").strip()
+            clean_str = (
+                str(val)
+                .replace("%", "")
+                .replace("T", "")
+                .replace("đ", "")
+                .replace("+", "")
+                .replace(",", "")
+                .strip()
+            )
             num = float(clean_str)
             if num > 0.0001:
-                return "color: #22c55e; font-weight: bold;"  # Xanh lá
+                return "color: #22c55e; font-weight: bold;"  # Tăng xanh
             elif num < -0.0001:
-                return "color: #ef4444; font-weight: bold;"  # Đỏ
+                return "color: #ef4444; font-weight: bold;"  # Giảm đỏ
             else:
-                return "color: #eab308; font-weight: bold;"  # Vàng
+                return "color: #eab308; font-weight: bold;"  # Tham chiếu vàng
         except (ValueError, TypeError):
-            return "color: #dbeafe"
+            return "color: #dbeafe;"
 
     color_cols = [
         "Biến Động", "Lãi / Lỗ (%)", "Lãi / Lỗ (VND)", "Thay Đổi (%)", "RS vs VNI", 
@@ -73,6 +90,8 @@ def style_financial_table(df: pd.DataFrame) -> pd.io.formats.style.Styler:
             format_dict[col] = lambda x: f"{x:,.0f}" if isinstance(x, (int, float)) and pd.notna(x) else str(x)
         elif col in ["Thay Đổi (%)", "Lãi / Lỗ (%)", "Tỷ Lệ M/B", "Dự Báo T+2 (%)", "Dự Báo T+3 (%)", "Dự Báo T+7 (%)", "RS vs VNI", "RS vs Ngành"]:
             format_dict[col] = lambda x: f"{x:+.2f}%" if isinstance(x, (int, float)) and pd.notna(x) else str(x)
+        elif col == "Lãi / Lỗ (VND)":
+            format_dict[col] = lambda x: f"{x:+,.0f} đ" if isinstance(x, (int, float)) and pd.notna(x) else str(x)
         elif col in ["Ước tính Net Flow (Tỷ)", "Δ Flow vs Đầu Phiên"]:
             format_dict[col] = lambda x: f"{x:+.2f} Tỷ" if isinstance(x, (int, float)) and pd.notna(x) else str(x)
         elif col in ["Ngoại Net (CP)", "Ngoại 5P (CP)"]:
@@ -103,7 +122,7 @@ with k3:
 with k4:
     regime_str = "Bullish / Uptrend" if vni_chg >= 1.0 else ("Distribution / Áp lực bán" if vni_chg <= -1.0 else "Sideway Tích Lũy / Cạn Cung")
     gate_str = "🟢 Cho phép giải ngân theo Trigger" if vni_chg > -0.5 else "🔴 Chế độ phòng thủ (Ưu tiên tiền mặt)"
-    st.info(f"**Pha thị trường**: {regime_str}\n\n**Khuyến nghị vốn**: {gate_str}")
+    st.info(f"**Pha thị trường**: {regime_str} | **Market Gate**: {gate_str}")
 
 # --- 2. TRUNG TÂM BÁO CÁO SỰ CỐ VÀ ALERT LỖI ---
 error_list = []
@@ -112,14 +131,14 @@ if index_errors:
 if st.session_state.get("ai_error"):
     error_list.append(f"🚨 Lỗi Tầng AI: {st.session_state['ai_error']}")
 if st.session_state.get("run_errors"):
-    error_list.extend([f"⚠️ Nguồn dữ liệu cổ phiếu: {e}" for e in st.session_state["run_errors"][:4]])
+    error_list.extend([f"⚠️ Dữ liệu cổ phiếu: {e}" for e in st.session_state["run_errors"][:4]])
 
 if error_list:
     with st.expander(f"⚠️ TRUNG TÂM CẢNH BÁO LỖI HỆ THỐNG ({len(error_list)} mục)", expanded=False):
         for err in error_list:
             st.error(err)
 
-# --- 3. THANH ĐIỀU HÀNH TẬP TRUNG (ONE-CLICK) ---
+# --- 3. THANH ĐIỀU HÀNH TẬP TRUNG (ONE-CLICK ACTION) ---
 c_btn1, c_btn2, c_btn3 = st.columns([2, 1.5, 1.5])
 with c_btn1:
     if st.button("⚡ ĐỒNG BỘ TOÀN DIỆN (Dữ liệu + Lọc Quant + Chạy AI)", type="primary", width="stretch"):
@@ -171,12 +190,17 @@ with tabs[0]:
     with col_pf_in:
         st.markdown("#### ✏️ Cập nhật tài khoản")
         with st.form("form_portfolio"):
-            cash_input = st.number_input("Tiền mặt khả dụng (VNĐ)", value=float(st.session_state.user_cash), step=1000000.0, format="%.0f")
+            cash_input = st.number_input(
+                "Tiền mặt khả dụng (VNĐ)", 
+                value=float(st.session_state.user_cash), 
+                step=1000000.0, 
+                format="%.0f"
+            )
             port_text = st.text_area(
                 "Danh sách mã (Mã, Giá vốn, Khối lượng)",
                 value="\n".join([f"{item['symbol']}, {item['buy_price']}, {item['volume']}" for item in st.session_state.user_portfolio]),
                 height=130,
-                help="Ví dụ: IDC, 33440, 4100"
+                help="Mỗi mã 1 dòng. Ví dụ: IDC, 33440, 4500"
             )
             if st.form_submit_button("Lưu & Tính Toán Lại", width="stretch"):
                 new_port = []
@@ -184,73 +208,136 @@ with tabs[0]:
                     parts = [p.strip() for p in line.split(",") if p.strip()]
                     if len(parts) >= 3:
                         try:
-                            new_port.append({"symbol": parts[0].upper(), "buy_price": float(parts[1]), "volume": int(float(parts[2]))})
+                            new_port.append({
+                                "symbol": parts[0].upper(), 
+                                "buy_price": float(parts[1]), 
+                                "volume": int(float(parts[2]))
+                            })
                         except Exception: pass
                 st.session_state.user_portfolio = new_port
                 st.session_state.user_cash = cash_input
                 st.success("Đã cập nhật danh mục!")
                 st.rerun()
 
-    current_market_map = {r["symbol"]: r for r in st.session_state.rows}
+    # 1. TỰ ĐỘNG LẤY GIÁ THỊ TRƯỜNG THỰC TẾ
+    current_market_map = {}
+    if st.session_state.get("rows"):
+        for r in st.session_state.rows:
+            current_market_map[r["symbol"]] = r
+    else:
+        # Tự động nạp giá mới nhất từ DB SQLite nếu phiên chạy vừa restart
+        try:
+            db_snaps = query(
+                "SELECT symbol, price, change_pct, vwap_position, net_flow_billion, wyckoff_phase, p_win, metrics_json "
+                "FROM stock_snapshots WHERE id IN (SELECT MAX(id) FROM stock_snapshots GROUP BY symbol)"
+            )
+            if not db_snaps.empty:
+                for _, snap in db_snaps.iterrows():
+                    sym_db = snap["symbol"]
+                    met = {}
+                    try: met = json.loads(snap["metrics_json"] or "{}")
+                    except Exception: pass
+                    current_market_map[sym_db] = {
+                        "price": snap["price"],
+                        "change_pct": snap["change_pct"],
+                        "vwap_position": snap["vwap_position"],
+                        "net_flow_billion": snap["net_flow_billion"],
+                        "wyckoff": snap["wyckoff_phase"],
+                        "p_win": snap["p_win"],
+                        "key_levels": met.get("key_levels", {})
+                    }
+        except Exception: pass
 
     with col_pf_view:
+        # BƯỚC 1: TÍNH TỔNG GIÁ TRỊ TOÀN BỘ DANH MỤC TRƯỚC (FIX LỖI TRỌNG SỐ)
+        temp_items = []
         total_cost = 0.0
         total_market_val = 0.0
-        portfolio_summary_rows = []
 
         for item in st.session_state.user_portfolio:
             sym = item["symbol"]
-            buy_p = item["buy_price"]
-            vol = item["volume"]
+            buy_p = float(item["buy_price"])
+            vol = int(item["volume"])
             cost = buy_p * vol
             total_cost += cost
 
             live_info = current_market_map.get(sym, {})
-            curr_p = live_info.get("price") or buy_p
-            curr_val = curr_p * vol
+            curr_p = live_info.get("price")
+            is_live = (curr_p is not None and curr_p > 0)
+            eval_p = curr_p if is_live else buy_p
+            curr_val = eval_p * vol
             total_market_val += curr_val
+
+            temp_items.append({
+                "symbol": sym,
+                "buy_price": buy_p,
+                "volume": vol,
+                "cost": cost,
+                "curr_p": eval_p,
+                "curr_val": curr_val,
+                "is_live": is_live,
+                "live_info": live_info
+            })
+
+        total_assets = total_market_val + float(st.session_state.user_cash)
+        total_pnl = total_market_val - total_cost
+        total_pnl_pct = (total_pnl / total_cost) * 100 if total_cost > 0 else 0.0
+
+        # BƯỚC 2: TÍNH TRỌNG SỐ VÀ KHUYẾN NGHỊ HÀNH ĐỘNG
+        portfolio_summary_rows = []
+        for it in temp_items:
+            sym = it["symbol"]
+            buy_p = it["buy_price"]
+            vol = it["volume"]
+            cost = it["cost"]
+            eval_p = it["curr_p"]
+            curr_val = it["curr_val"]
+            live_info = it["live_info"]
+            is_live = it["is_live"]
 
             pnl = curr_val - cost
             pnl_pct = (pnl / cost) * 100 if cost > 0 else 0.0
+            weight_pct = (curr_val / total_assets * 100) if total_assets > 0 else 0.0
 
-            # KHUYẾN NGHỊ DỰA TRÊN VI CẤU TRÚC VÀ ĐIỂM RỦI RO
-            p_win = live_info.get("p_win", 50.0)
-            net_flow = live_info.get("net_flow_billion", 0.0)
-            vwap_pos = live_info.get("vwap_position", "")
-            sup = (live_info.get("key_levels") or {}).get("support", buy_p * 0.95)
-            res = (live_info.get("key_levels") or {}).get("resistance", buy_p * 1.08)
-
-            action_advice = "NẮM GIỮ THEO DÕI"
-            if pnl_pct <= -7.0:
-                if "Quá Bán" in str(live_info.get("wyckoff", "")):
-                    action_advice = f"🟢 ĐANG QUÁ BÁN — Cạn cung, không bán tháo tại HT {sup:,.0f} đ. Chờ nảy KT để cơ cấu."
-                else:
-                    action_advice = f"🔴 VI PHẠM NỀN — Thủng hỗ trợ. Cần hạ bớt 30-50% để tạo tiền mặt dự phòng."
-            elif pnl_pct >= 5.0:
-                if "Dưới VWAP" in vwap_pos or (net_flow is not None and net_flow < 0):
-                    action_advice = f"🟡 CHỐT LỜI CHỦ ĐỘNG — Dòng tiền suy yếu quanh KC {res:,.0f} đ. Chốt lời 1/2 vị thế."
-                else:
-                    action_advice = f"🔥 GỒNG LÃI — Cổ phiếu hút tiền trên VWAP, nâng chặn lãi (trailing) lên {curr_p*0.97:,.0f} đ."
+            if not is_live:
+                action_advice = "⚠️ BẤM 'ĐỒNG BỘ TOÀN DIỆN' để lấy giá & khuyến nghị live"
             else:
-                if "Trên VWAP" in vwap_pos and (net_flow is not None and net_flow > 0):
-                    action_advice = f"🟢 TÍCH LŨY TỐT — Dòng tiền ròng dương (+{net_flow:.1f}T). Tiếp tục nắm giữ."
+                p_win = live_info.get("p_win", 50.0)
+                net_flow = live_info.get("net_flow_billion")
+                vwap_pos = str(live_info.get("vwap_position", ""))
+                wyckoff_tag = str(live_info.get("wyckoff", ""))
+                lv = live_info.get("key_levels", {}) or {}
+                sup = lv.get("support") or (buy_p * 0.95)
+                res = lv.get("resistance") or (buy_p * 1.08)
+
+                if pnl_pct <= -7.0:
+                    if "Quá Bán" in wyckoff_tag or "Selling Climax" in wyckoff_tag or eval_p <= sup * 1.02:
+                        action_advice = f"🟢 ĐANG QUÁ BÁN / CẠN CUNG — Giữ chặt, không bán tháo tại HT {sup:,.0f} đ. Chờ nhịp nảy KT."
+                    else:
+                        action_advice = f"🔴 VI PHẠM NỀN — Thủng cản dưới. Cân nhắc hạ 30-50% để thu tiền mặt dự phòng."
+                elif pnl_pct >= 5.0:
+                    if "Dưới VWAP" in vwap_pos or (net_flow is not None and net_flow < 0):
+                        action_advice = f"🟡 CHỐT LỜI TỪNG PHẦN — Dòng tiền suy yếu quanh KC {res:,.0f} đ. Chốt 1/2 bảo toàn lãi."
+                    else:
+                        action_advice = f"🔥 GỒNG LÃI — Tiền lớn giữ giá trên VWAP, dời chặn lãi (trailing stop) lên {eval_p*0.97:,.0f} đ."
                 else:
-                    action_advice = f"⚪ GIẰNG CO — Quan sát lực đỡ quanh VWAP. Chưa mở mua gia tăng."
+                    if "Trên VWAP" in vwap_pos and (net_flow is not None and net_flow > 0):
+                        action_advice = f"🟢 TÍCH LŨY TỐT — Dòng tiền ròng dương (+{net_flow:.1f}T). Tiếp tục nắm giữ."
+                    elif "Dưới VWAP" in vwap_pos and (net_flow is not None and net_flow < -10):
+                        action_advice = f"⚠️ CẢNH BÁO XẢ HÀNG — Áp lực bán chủ động gia tăng ({net_flow:.1f}T), cẩn trọng bẫy gãy nền."
+                    else:
+                        action_advice = f"⚪ GIẰNG CO — Quan sát phản ứng quanh mốc VWAP ({eval_p:,.0f} đ). Chưa mở mua gia tăng."
 
             portfolio_summary_rows.append({
                 "Mã CP": sym,
                 "Khối Lượng": vol,
                 "Giá Vốn": buy_p,
-                "Giá Hiện Tại": curr_p,
-                "Lãi / Lỗ (%)": pnl_pct,
-                "Lãi / Lỗ (VND)": pnl,
-                "Trọng Số": f"{(curr_val / (total_market_val + st.session_state.user_cash) * 100):.1f}%" if (total_market_val + st.session_state.user_cash) > 0 else "0%",
+                "Giá Hiện Tại": eval_p if is_live else "Chưa sync",
+                "Lãi / Lỗ (%)": pnl_pct if is_live else 0.0,
+                "Lãi / Lỗ (VND)": pnl if is_live else 0,
+                "Trọng Số": f"{weight_pct:.1f}%",
                 "Khuyến Nghị Kế Hoạch": action_advice
             })
-
-        total_assets = total_market_val + st.session_state.user_cash
-        total_pnl = total_market_val - total_cost
-        total_pnl_pct = (total_pnl / total_cost) * 100 if total_cost > 0 else 0.0
 
         p1, p2, p3, p4 = st.columns(4)
         p1.metric("TỔNG TÀI SẢN", f"{total_assets:,.0f} đ")
@@ -361,4 +448,4 @@ with tabs[3]:
     else:
         st.info("Chưa có đủ mẫu quyết toán để hiển thị ma trận hiệu năng.")
 
-st.caption(f"Hệ thống QUANTS PRO V16.1 • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
+st.caption(f"Hệ thống QUANTS PRO V16.2 • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
