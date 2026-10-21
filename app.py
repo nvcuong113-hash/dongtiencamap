@@ -191,22 +191,22 @@ with k4:
     gate_str = "🟢 Cho phép giải ngân theo Trigger" if vni_chg > -0.5 else "🔴 Chế độ phòng thủ (Ưu tiên tiền mặt)"
     st.info(f"**Pha thị trường**: {regime_str} | **Market Gate**: {gate_str}")
 
-# BẢNG ĐIỀU KHIỂN QUẢN LÝ MÃ THÊM MỚI (WATCHLIST MANAGER)
-with st.expander("➕ Quản lý danh sách mã theo dõi chung (Thêm mã mới)", expanded=False):
+# BẢNG THÊM MÃ MỚI (WATCHLIST MANAGER)
+with st.expander("➕ Thêm Mã Cổ Phiếu Mới Vào Bảng Theo Dõi", expanded=False):
     col_w1, col_w2 = st.columns([3, 1])
     with col_w1:
         new_tickers_input = st.text_input(
-            "Nhập thêm mã cổ phiếu (ngăn cách bằng dấu phẩy):",
+            "Danh sách mã (cách nhau bởi dấu phẩy):",
             value=", ".join(st.session_state.active_watchlist),
             help="Ví dụ: MWG, VNM, VCB, GEX..."
         )
     with col_w2:
         st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
-        if st.button("Cập Nhật Watchlist", width="stretch"):
+        if st.button("Lưu & Cập Nhật", width="stretch"):
             parsed_list = [s.strip().upper() for s in new_tickers_input.replace(";", ",").split(",") if s.strip().isalpha() and len(s.strip()) <= 5]
             if parsed_list:
                 st.session_state.active_watchlist = list(dict.fromkeys(parsed_list))
-                st.success(f"Đã cập nhật danh sách theo dõi gồm {len(st.session_state.active_watchlist)} mã!")
+                st.success(f"Đã cập nhật danh sách gồm {len(st.session_state.active_watchlist)} mã!")
                 st.rerun()
 
 # TRUNG TÂM CẢNH BÁO LỖI
@@ -575,7 +575,7 @@ with st.popover("💬 Trợ Lý AI Trực Tuyến"):
                     if ai_prov == "Gemini":
                         from google.genai import types
                         res_chat = ai_cli.models.generate_content(
-                            model="gemini-2.5-flash",
+                            model="gemini-2.0-flash",
                             contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user,
                             config=types.GenerateContentConfig(temperature=0.2)
                         )
@@ -593,6 +593,6 @@ with st.popover("💬 Trợ Lý AI Trực Tuyến"):
                     st.markdown(bot_reply)
                     st.session_state.chat_messages.append({"role": "assistant", "content": bot_reply})
                 except Exception as chat_err:
-                    err_msg = f"⚠️ Lỗi kết nối AI: {chat_err}"
+                    err_msg = f"⚠️ Lỗi kết nối AI: {err_msg if 'err_msg' in locals() else chat_err}"
                     st.error(err_msg)
                     st.session_state.chat_messages.append({"role": "assistant", "content": err_msg})
