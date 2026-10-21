@@ -573,7 +573,7 @@ with st.popover("💬 Trợ Lý AI Trực Tuyến"):
                     
                     from google.genai import types
                     res_chat = ai_cli.models.generate_content(
-                        model="gemini-2.5-flash",
+                        model="gemini-1.5-flash",
                         contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user,
                         config=types.GenerateContentConfig(temperature=0.2)
                     )
