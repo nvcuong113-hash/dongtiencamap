@@ -49,8 +49,8 @@ def _generate(client, provider, prompt):
         )
         return response.choices[0].message.content or '{}'
     
-    # Danh sách dự phòng các model ổn định nhất của Gemini
-    models_to_try = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.5-flash']
+    # Cập nhật danh sách model chuẩn theo SDK google-genai mới nhất (tránh hoàn toàn lỗi 404)
+    models_to_try = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash']
     last_error = None
     
     for m in models_to_try:
