@@ -216,7 +216,7 @@ if index_errors:
 if st.session_state.get("ai_error"):
     error_list.append(f"🚨 Lỗi Tầng AI: {st.session_state['ai_error']}")
 if st.session_state.get("run_errors"):
-    error_list.extend([f"⚠️ Dữ liệu cổ phiếu: {e}" for e in st.session_state["run_errors"][:4]]]
+    error_list.extend([f"⚠️ Dữ liệu cổ phiếu: {e}" for e in st.session_state["run_errors"][:4]])
 
 if error_list:
     with st.expander(f"⚠️ TRUNG TÂM CẢNH BÁO LỖI HỆ THỐNG ({len(error_list)} mục)", expanded=False):
@@ -534,7 +534,7 @@ with tabs[3]:
 st.caption(f"Hệ thống QUANTS PRO V16.2 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
 
 # ============================================================================
-# FLOATING WIDGET: TRỢ LÝ CHUYÊN GIA AI (GÓC DƯỚI BÊN PHẢI - FIX HOÀN CHỈNH)
+# FLOATING WIDGET: TRỢ LÝ CHUYÊN GIA AI (GÓC DƯỚI BÊN PHẢI)
 # ============================================================================
 with st.popover("💬 Trợ Lý AI Trực Tuyến"):
     st.markdown("#### 🤖 Trợ Lý Định Lượng AI (Chat với dữ liệu)")
@@ -545,14 +545,12 @@ with st.popover("💬 Trợ Lý AI Trực Tuyến"):
             {"role": "assistant", "content": "Xin chào! Tôi đã đọc dữ liệu thị trường và danh mục của bạn. Bạn muốn phân tích mã nào?"}
         ]
 
-    # Container chứa lịch sử tin nhắn
     chat_container = st.container(height=380)
     with chat_container:
         for msg in st.session_state.chat_messages:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
-    # Khung nhập liệu ở dưới cùng
     if prompt_user := st.chat_input("Nhập câu hỏi (Ví dụ: Đánh giá giúp tôi mã FPT)...", key="chat_input_widget"):
         st.session_state.chat_messages.append({"role": "user", "content": prompt_user})
         
