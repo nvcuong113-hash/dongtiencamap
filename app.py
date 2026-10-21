@@ -549,7 +549,7 @@ with st.popover("💬 Trợ Lý AI Trực Tuyến"):
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    if prompt_user := st.chat_input("Nhập câu hỏi (Ví dụ: Đánh giá giúp tôi mã BSR)..."):
+    if prompt_user := st.chat_input("Nhập câu hỏi (Ví dụ: Đánh giá giúp tôi mã FPT)..."):
         st.session_state.chat_messages.append({"role": "user", "content": prompt_user})
         with st.chat_message("user"):
             st.markdown(prompt_user)
@@ -573,9 +573,8 @@ with st.popover("💬 Trợ Lý AI Trực Tuyến"):
                     
                     from google.genai import types
                     res_chat = ai_cli.models.generate_content(
-                        model="gemini-1.5-flash",
-                        contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user,
-                        config=types.GenerateContentConfig(temperature=0.2)
+                        model="gemini-2.5-flash",
+                        contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user
                     )
                     bot_reply = res_chat.text
 
