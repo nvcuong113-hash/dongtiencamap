@@ -26,7 +26,7 @@ def _client(provider):
         try:
             from openai import OpenAI
         except ImportError as exc:
-            raise AIUnavailable('Chưa cài thư viện openai. Kiểm tra requirements.txt và chờ app cài dependencies.') from exc
+            raise AIUnavailable('Chưa cài thư viện openai. Kiểm tra requirements.txt.') from exc
         try:
             return OpenAI(api_key=key, timeout=45.0, max_retries=0)
         except Exception as exc:
@@ -46,16 +46,21 @@ def _client(provider):
     raise AIUnavailable(f'Provider AI không hợp lệ: {provider!r}. Chỉ chấp nhận Gemini hoặc OpenAI.')
 
 def _generate(client, provider, model, prompt):
-    if provider=='OpenAI':
-        response=client.chat.completions.create(model=model,temperature=0,response_format={'type':'json_object'},messages=[{'role':'system','content':'You are a cautious quantitative analyst. Return valid JSON only.'},{'role':'user','content':prompt}])
+    if provider == 'OpenAI':
+        response = client.chat.completions.create(
+            model=model, temperature=0, response_format={'type':'json_object'},
+            messages=[{'role':'system','content':'You are a cautious quantitative analyst. Return valid JSON only.'},{'role':'user','content':prompt}]
+        )
         return response.choices[0].message.content or '{}'
     from google.genai import types
-    response=client.models.generate_content(model=model,contents=prompt,config=types.GenerateContentConfig(response_mime_type='application/json',temperature=0))
+    response = client.models.generate_content(
+        model=model, contents=prompt,
+        config=types.GenerateContentConfig(response_mime_type='application/json', temperature=0)
+    )
     return response.text or '{}'
 
-
 def _model_candidates(provider, client):
-    """Return models available to this API key; avoid stale hard-coded model IDs."""
+    """Tự động dò tìm danh sách model khả dụng của API Key, không hard-code model cũ."""
     if provider == 'OpenAI':
         return [_setting('OPENAI_MODEL', 'gpt-4o-mini')]
 
@@ -71,7 +76,6 @@ def _model_candidates(provider, client):
                 or []
             )
             actions = [str(action).lower() for action in actions]
-            # When the API reports capabilities, require generateContent explicitly.
             if actions and not any('generatecontent' in action for action in actions):
                 continue
             short_name = name.removeprefix('models/')
@@ -85,7 +89,6 @@ def _model_candidates(provider, client):
     except Exception as exc:
         list_error = exc
 
-    # Prefer lightweight/fast text models, but only among IDs returned by this API key.
     def rank(name):
         n = name.lower()
         if configured and n == configured.lower().removeprefix('models/'):
@@ -102,20 +105,17 @@ def _model_candidates(provider, client):
     if available:
         return available
 
-    # If model discovery is unavailable, use only conservative fallbacks; never
-    # hard-code known retired gemini-1.5 IDs.
     fallback = []
     for candidate in (configured, 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash'):
         candidate = str(candidate or '').strip().removeprefix('models/')
         if candidate and candidate not in fallback:
             fallback.append(candidate)
     if list_error:
-        event('WARN', 'ai.models', f'Gemini model discovery failed: {type(list_error).__name__}: {list_error}',
-              {'provider': provider})
+        event('WARN', 'ai.models', f'Gemini model discovery failed: {type(list_error).__name__}: {list_error}', {'provider': provider})
     return fallback
 
 def _feedback_text():
-    df=query("SELECT horizon,regime_group,sample_count,win_rate_pct,mae_pct,bias_pct FROM model_performance ORDER BY id DESC LIMIT 18")
+    df = query("SELECT horizon,regime_group,sample_count,win_rate_pct,mae_pct,bias_pct FROM model_performance ORDER BY id DESC LIMIT 18")
     if df.empty: return 'Chưa có mẫu backtest đã quyết toán.'
     return df.to_dict('records')
 
@@ -123,8 +123,7 @@ def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
     if provider not in ('OpenAI', 'Gemini'):
         raise AIUnavailable(f'Provider AI không hợp lệ: {provider!r}.')
 
-    # Gate on observed volume before initializing a provider client. This avoids
-    # API calls (and API-key errors) when every row is ineligible for AI inference.
+    # Cổng kiểm duyệt dữ liệu: Lọc bỏ các mã thiếu volume trước khi gọi API ra ngoài[cite: 31]
     valid_rows = []
     blocked_symbols = []
     for row in rows:
@@ -146,13 +145,13 @@ def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
 
     client = _client(provider)
     models = _model_candidates(provider, client)
-    result={}; failed_batches=[]; backtest_feedback=_feedback_text()
-    for offset in range(0,len(valid_rows),6):
-        batch=valid_rows[offset:offset+6]
-        payload=[]
+    result = {}; failed_batches = []; backtest_feedback = _feedback_text()
+    for offset in range(0, len(valid_rows), 6):
+        batch = valid_rows[offset:offset+6]
+        payload = []
         for r in batch:
             payload.append({k:r.get(k) for k in ['symbol','sector','price','change_pct','weekly_trend','vwap_position','vol_ratio','buy_ratio','net_flow_billion','delta_flow_open','rs_vni','rs_sector','quality_score','signal_score','agreement_pct','p_win','conviction','wyckoff','key_levels','source_label','is_real_deal','feed_warning']})
-        prompt=f'''QUANTS PRO V16.1 — guarded Stage 2 inference.
+        prompt = f'''QUANTS PRO V16.1 — guarded Stage 2 inference.
 Market regime: {regime}
 Macro: {json.dumps(macro,ensure_ascii=False,default=str)}
 Recent media intelligence: {json.dumps(media_context or [],ensure_ascii=False,default=str)}
@@ -176,7 +175,7 @@ Rules:
 
 INPUT rows:
 {json.dumps(payload,ensure_ascii=False,default=str)}'''
-        last_error=None
+        last_error = None
         for model in models:
             model_succeeded = False
             for attempt in range(2):
@@ -197,7 +196,6 @@ INPUT rows:
                 except Exception as e:
                     last_error = e
                     message = str(e).lower()
-                    # Quota/auth/model errors should immediately fall through to the next model.
                     permanent_or_quota = any(token in message for token in (
                         '401', '403', '429', 'quota', 'resource_exhausted', 'rate limit',
                         'invalid_api_key', 'model_not_found', 'not found', 'does not exist',
@@ -225,108 +223,107 @@ INPUT rows:
     return result
 
 def enforce_predictions(rows, ai):
-    """Hard rules are enforced in code after the model response."""
+    """Ràng buộc kỷ luật cứng: Giữ trạng thái CHỜ DỮ LIỆU khi mất volume, không bị ghi đè[cite: 31]."""
     for r in rows:
-        x=ai.get(r['symbol'],{})
-        r['ai_vsa']=str(x.get('vsa') or 'Chưa có nhận định AI')
-        r['ai_action']=str(x.get('action') or r.get('action','QUAN SÁT'))
-        r['position_size_suggestion']=str(x.get('position_size_suggestion') or 'Chưa đủ dữ liệu để đề xuất tỷ trọng')
-        r['trigger_condition']=str(x.get('trigger_condition') or 'Chưa đủ dữ liệu')
-        r['invalidation_level']=str(x.get('invalidation_level') or 'Chưa đủ dữ liệu')
-        r['ai_rationale']=str(x.get('rationale') or '')
-        r['ai_provider']=x.get('_provider'); r['ai_model']=x.get('_model')
-        climax=('Quá Bán' in str(r.get('wyckoff','')) or 'Chờ Nảy KT' in str(r.get('wyckoff','')))
+        x = ai.get(r['symbol'], {})
+        r['ai_vsa'] = str(x.get('vsa') or 'Chưa có nhận định AI')
+        r['ai_action'] = str(x.get('action') or r.get('action', 'QUAN SÁT'))
+        r['position_size_suggestion'] = str(x.get('position_size_suggestion') or 'Chưa đủ dữ liệu để đề xuất tỷ trọng')
+        r['trigger_condition'] = str(x.get('trigger_condition') or 'Chưa đủ dữ liệu')
+        r['invalidation_level'] = str(x.get('invalidation_level') or 'Chưa đủ dữ liệu')
+        r['ai_rationale'] = str(x.get('rationale') or '')
+        r['ai_provider'] = x.get('_provider'); r['ai_model'] = x.get('_model')
+        climax = ('Quá Bán' in str(r.get('wyckoff', '')) or 'Chờ Nảy KT' in str(r.get('wyckoff', '')))
         missing_volume = (not bool(r.get('volume_available', True))) or (r.get('action') == 'CHỜ DỮ LIỆU')
         p_win = r.get('p_win', 50)
-        selective=(not r.get('conviction') or (p_win is not None and 42<=p_win<=64))
-        def val(key,lo,hi):
-            z=x.get(key)
+        selective = (not r.get('conviction') or (p_win is not None and 42 <= p_win <= 64))
+
+        def val(key, lo, hi):
+            z = x.get(key)
             if z is None: return None
-            try: return max(lo,min(hi,float(z)))
-            except (ValueError,TypeError): return None
-        t2=val('pred_t2_pct',-2.5,2.5); t3=val('pred_t3_pct',-2.5,2.5); t7=val('pred_t7_pct',-4,4)
+            try: return max(lo, min(hi, float(z)))
+            except (ValueError, TypeError): return None
+
+        t2 = val('pred_t2_pct', -2.5, 2.5); t3 = val('pred_t3_pct', -2.5, 2.5); t7 = val('pred_t7_pct', -4, 4)
         if missing_volume:
-            # Data-quality gate takes precedence over AI/model heuristics.
-            t2=t3=t7=None
-            r['ai_action']='CHỜ DỮ LIỆU'
-            r['prediction_status']='CHỜ DỮ LIỆU'
+            t2 = t3 = t7 = None
+            r['ai_action'] = 'CHỜ DỮ LIỆU'
+            r['prediction_status'] = 'CHỜ DỮ LIỆU'
         elif selective:
-            t2=t3=None; r['ai_action']='QUAN SÁT'; r['prediction_status']='KHÔNG DỰ BÁO (Nhiễu)'
+            t2 = t3 = None; r['ai_action'] = 'QUAN SÁT'; r['prediction_status'] = 'KHÔNG DỰ BÁO (Nhiễu)'
         else:
-            r['prediction_status']='DỰ BÁO CÓ ĐIỀU KIỆN'
-            if r.get('p_win',50)>=65:
-                if t2 is not None: t2=max(.8,min(2.0,t2))
-                if t3 is not None: t3=max(.8,min(2.0,t3))
-            elif r.get('p_win',50)<=40 and not climax:
-                if t2 is not None: t2=min(-.8,max(-2.2,t2))
-                if t3 is not None: t3=min(-.8,max(-2.2,t3))
+            r['prediction_status'] = 'DỰ BÁO CÓ ĐIỀU KIỆN'
+            if r.get('p_win', 50) >= 65:
+                if t2 is not None: t2 = max(.8, min(2.0, t2))
+                if t3 is not None: t3 = max(.8, min(2.0, t3))
+            elif r.get('p_win', 50) <= 40 and not climax:
+                if t2 is not None: t2 = min(-.8, max(-2.2, t2))
+                if t3 is not None: t3 = min(-.8, max(-2.2, t3))
         if climax and not missing_volume:
-            if 'BÁN' in r['ai_action'].upper() or 'HẠ TỶ' in r['ai_action'].upper(): r['ai_action']='QUAN SÁT — bảo vệ Selling Climax'
-            if t2 is not None and t2<0: t2=.5
-            if t3 is not None and t3<0: t3=.8
-            r['prediction_status']='OVERSOLD PROTECTION — chờ xác nhận'
-        r['pred_t2']=t2; r['pred_t3']=t3; r['pred_t7']=t7
-        r['key_levels_ai']=x.get('key_levels') or r.get('key_levels')
+            if 'BÁN' in r['ai_action'].upper() or 'HẠ TỶ' in r['ai_action'].upper(): r['ai_action'] = 'QUAN SÁT — bảo vệ Selling Climax'
+            if t2 is not None and t2 < 0: t2 = .5
+            if t3 is not None and t3 < 0: t3 = .8
+            r['prediction_status'] = 'OVERSOLD PROTECTION — chờ xác nhận'
+        r['pred_t2'] = t2; r['pred_t3'] = t3; r['pred_t7'] = t7
+        r['key_levels_ai'] = x.get('key_levels') or r.get('key_levels')
     return rows
 
 def save_prediction_audit(rows, regime):
     from datetime import datetime
     from .config import TZ
     from .calendar_vn import add_trading_days
-    now=datetime.now(TZ); day=now.date().isoformat(); inserted=0
+    now = datetime.now(TZ); day = now.date().isoformat(); inserted = 0
     with connect() as c:
         for r in rows:
-            # Save even no-prediction rows to measure coverage and selective prediction honestly.
             c.execute('''INSERT OR IGNORE INTO predictions(created_at,session_date,symbol,base_price,regime,provider,p_win,signal_score,quality,agreement,conviction,prediction_status,pred_t2,target_t2,pred_t3,target_t3,pred_t7,target_t7,ai_provider,ai_model,ai_vsa,ai_action,key_levels,input_json,model_version) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
             (now.isoformat(timespec='seconds'),day,r['symbol'],r['price'],regime,r.get('source_label'),r.get('p_win'),r.get('signal_score'),r.get('quality_score'),r.get('agreement_pct'),int(bool(r.get('conviction'))),r.get('prediction_status','CHƯA CHẠY AI'),r.get('pred_t2'),add_trading_days(now,2).isoformat(),r.get('pred_t3'),add_trading_days(now,3).isoformat(),r.get('pred_t7'),add_trading_days(now,7).isoformat(),r.get('ai_provider'),r.get('ai_model'),r.get('ai_vsa'),r.get('ai_action'),json.dumps(r.get('key_levels_ai') or r.get('key_levels'),ensure_ascii=False,default=str),json.dumps(r,ensure_ascii=False,default=str),'V16.1-streamlit-1.0'))
-            inserted+=c.execute('SELECT changes()').fetchone()[0]
+            inserted += c.execute('SELECT changes()').fetchone()[0]
     return inserted
 
 def analyze_media(provider='Gemini', hours=48, limit=30):
-    """LLM extraction for recent headlines; keeps model output as hypotheses, not facts."""
     from .db import query, connect
     from datetime import datetime, timezone
-    client=_client(provider)
-    articles=query("SELECT id,title,summary,source,symbols_json FROM media_articles WHERE datetime(published_at)>=datetime('now',?) ORDER BY published_at DESC LIMIT ?",(f'-{hours} hours',limit))
+    client = _client(provider)
+    articles = query("SELECT id,title,summary,source,symbols_json FROM media_articles WHERE datetime(published_at)>=datetime('now',?) ORDER BY published_at DESC LIMIT ?", (f'-{hours} hours', limit))
     if articles.empty: return 0
     models = _model_candidates(provider, client)
-    updated=0
-    for start in range(0,len(articles),6):
-        batch=articles.iloc[start:start+6].to_dict('records')
-        prompt=f'''Analyze Vietnamese financial headlines cautiously. Return JSON object keyed by article id as a string. Each value: sentiment (Tích cực/Trung tính/Tiêu cực), pr_level (Đột biến/Cao/Trung bình/Thấp), retail_buzz (F0 hưng phấn/F0 hoảng loạn/Cân bằng/Chưa đủ dữ liệu), lai_intent (candidate hypothesis only, never claim manipulation as fact), warning (max 20 Vietnamese words). Use only supplied text; if evidence is weak say Chưa đủ bằng chứng. Articles: {json.dumps(batch,ensure_ascii=False,default=str)}'''
+    updated = 0
+    for start in range(0, len(articles), 6):
+        batch = articles.iloc[start:start+6].to_dict('records')
+        prompt = f'''Analyze Vietnamese financial headlines cautiously. Return JSON object keyed by article id as a string. Each value: sentiment (Tích cực/Trung tính/Tiêu cực), pr_level (Đột biến/Cao/Trung bình/Thấp), retail_buzz (F0 hưng phấn/F0 hoảng loạn/Cân bằng/Chưa đủ dữ liệu), lai_intent (candidate hypothesis only, never claim manipulation as fact), warning (max 20 Vietnamese words). Use only supplied text; if evidence is weak say Chưa đủ bằng chứng. Articles: {json.dumps(batch,ensure_ascii=False,default=str)}'''
         for model in models:
             try:
-                raw=_generate(client,provider,model,prompt); obj=json.loads(raw)
+                raw = _generate(client, provider, model, prompt); obj = json.loads(raw)
                 with connect() as c:
                     for a in batch:
-                        x=obj.get(str(a['id']),obj.get(a['id']))
-                        if not isinstance(x,dict): continue
-                        c.execute('UPDATE media_articles SET sentiment=?,pr_level=?,retail_buzz=?,lai_intent=?,warning=? WHERE id=?',(str(x.get('sentiment','Trung tính'))[:50],str(x.get('pr_level','Thấp'))[:50],str(x.get('retail_buzz','Chưa đủ dữ liệu'))[:100],str(x.get('lai_intent','Chưa đủ bằng chứng'))[:150],str(x.get('warning','Cần kiểm chứng'))[:255],a['id']))
-                        updated+=c.execute('SELECT changes()').fetchone()[0]
+                        x = obj.get(str(a['id']), obj.get(a['id']))
+                        if not isinstance(x, dict): continue
+                        c.execute('UPDATE media_articles SET sentiment=?,pr_level=?,retail_buzz=?,lai_intent=?,warning=? WHERE id=?', (str(x.get('sentiment','Trung tính'))[:50], str(x.get('pr_level','Thấp'))[:50], str(x.get('retail_buzz','Chưa đủ dữ liệu'))[:100], str(x.get('lai_intent','Chưa đủ bằng chứng'))[:150], str(x.get('warning','Cần kiểm chứng'))[:255], a['id']))
+                        updated += c.execute('SELECT changes()').fetchone()[0]
                 break
             except Exception as exc:
-                event('WARN','ai.media',f'Media AI batch failed: {exc}',{'provider':provider}); continue
+                event('WARN', 'ai.media', f'Media AI batch failed: {exc}', {'provider': provider}); continue
     return updated
 
 def analyze_macro(provider='Gemini', macro=None):
-    macro=macro or []
-    client=_client(provider)
+    macro = macro or []
+    client = _client(provider)
     models = _model_candidates(provider, client)
-    prompt=f'''Analyze the provided global macro snapshot for Vietnam equities. Return JSON array with factor, impact, confidence, affected_sectors, rationale. Only analyze observed values; never invent missing values. Factors may include DXY, US10Y, USDVND, BRENT. Clearly label unknown domestic factors as unavailable. Snapshot: {json.dumps(macro,ensure_ascii=False,default=str)}'''
-    last=None
+    prompt = f'''Analyze the provided global macro snapshot for Vietnam equities. Return JSON array with factor, impact, confidence, affected_sectors, rationale. Only analyze observed values; never invent missing values. Factors may include DXY, US10Y, USDVND, BRENT. Clearly label unknown domestic factors as unavailable. Snapshot: {json.dumps(macro,ensure_ascii=False,default=str)}'''
+    last = None
     for model in models:
         try:
-            raw=_generate(client,provider,model,prompt)
-            parsed=json.loads(raw)
-            if isinstance(parsed,dict): parsed=parsed.get('factors',[])
-            if not isinstance(parsed,list): raise ValueError('Expected JSON array')
+            raw = _generate(client, provider, model, prompt)
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict): parsed = parsed.get('factors', [])
+            if not isinstance(parsed, list): raise ValueError('Expected JSON array')
             from datetime import datetime
             from .config import TZ
             with connect() as c:
                 for item in parsed:
-                    if not isinstance(item,dict): continue
-                    factor=str(item.get('factor','UNKNOWN')).upper()
-                    c.execute('INSERT INTO macro_snapshots(recorded_at,factor,value,source,impact,confidence,details_json) VALUES(?,?,?,?,?,?,?)',(datetime.now(TZ).isoformat(timespec='seconds'),factor,next((x.get('value') for x in macro if x.get('factor')==factor),None),provider,str(item.get('impact','Chưa đủ dữ liệu')),str(item.get('confidence','low')),json.dumps(item,ensure_ascii=False,default=str)))
+                    if not isinstance(item, dict): continue
+                    factor = str(item.get('factor','UNKNOWN')).upper()
+                    c.execute('INSERT INTO macro_snapshots(recorded_at,factor,value,source,impact,confidence,details_json) VALUES(?,?,?,?,?,?,?)', (datetime.now(TZ).isoformat(timespec='seconds'), factor, next((x.get('value') for x in macro if x.get('factor')==factor), None), provider, str(item.get('impact','Chưa đủ dữ liệu')), str(item.get('confidence','low')), json.dumps(item, ensure_ascii=False, default=str)))
             return len(parsed)
-        except Exception as exc: last=exc
+        except Exception as exc: last = exc
     raise AIUnavailable(f'Macro AI failed: {last}')
