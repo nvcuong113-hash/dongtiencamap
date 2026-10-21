@@ -22,7 +22,7 @@ def _client(provider):
     if provider == 'OpenAI':
         key = _setting('OPENAI_API_KEY')
         if not key:
-            raise AIUnavailable('Thiếu OPENAI_API_KEY.')
+            raise AIUnavailable('Thiếu OPENAI_API_KEY trong Streamlit Secrets.')
         try:
             from openai import OpenAI
         except ImportError as exc:
@@ -32,7 +32,7 @@ def _client(provider):
     if provider == 'Gemini':
         key = _setting('GEMINI_API_KEY')
         if not key:
-            raise AIUnavailable('Thiếu GEMINI_API_KEY trong Streamlit Secrets hoặc biến môi trường.')
+            raise AIUnavailable('Thiếu GEMINI_API_KEY trong Streamlit Secrets.')
         try:
             from google import genai
         except ImportError as exc:
@@ -41,33 +41,21 @@ def _client(provider):
         
     raise AIUnavailable(f'Provider AI không hợp lệ: {provider!r}.')
 
-def _get_working_gemini_model(client):
-    """Tự động truy vấn danh sách model từ Google API để tìm model hỗ trợ generateContent"""
-    candidates = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-flash', 'gemini-pro']
-    try:
-        available = [m.name for m in client.models.list() if 'generateContent' in getattr(m, 'supported_generation_methods', [])]
-        for c in candidates:
-            match = next((m for m in available if c in m), None)
-            if match:
-                return match.replace('models/', '')
-    except Exception:
-        pass
-    return 'gemini-2.0-flash'
-
 def _generate(client, provider, prompt):
     if provider == 'OpenAI':
         response = client.chat.completions.create(
             model='gpt-4o-mini', temperature=0, response_format={'type':'json_object'},
-            messages=[{'role':'system','content':'You are a cautious quantitative analyst. Return valid JSON only.'},{'role':'user','content':prompt}]
+            messages=[
+                {'role':'system','content':'You are a cautious quantitative analyst. Return valid JSON only.'},
+                {'role':'user','content':prompt}
+            ]
         )
         return response.choices[0].message.content or '{}'
     
-    # Lấy tên model đang hoạt động thực tế từ tài khoản
-    active_model = _get_working_gemini_model(client)
-    models_to_try = [active_model, 'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash']
-    models_to_try = list(dict.fromkeys(models_to_try))
-    
+    # Chỉ sử dụng model chuẩn gemini-2.0-flash mới nhất để tránh hoàn toàn lỗi 404
+    models_to_try = ['gemini-2.0-flash', 'gemini-2.5-flash']
     last_error = None
+    
     for m in models_to_try:
         try:
             response = client.models.generate_content(
@@ -80,7 +68,10 @@ def _generate(client, provider, prompt):
             last_error = e
             time.sleep(.3)
 
-    raise RuntimeError(f"Không thể kết nối Gemini API. Chi tiết: {last_error}")
+    raise RuntimeError(
+        f"Lỗi kết nối Gemini API (404/Not Found). Nguyên nhân: Key của bạn có thể không hỗ trợ model này trên v1beta hoặc đã hết hạn. "
+        f"Gợi ý: Hãy chuyển sang dùng OpenAI (nhập OPENAI_API_KEY trong Secrets) hoặc tạo API Key Gemini mới tại aistudio.google.com. Chi tiết: {last_error}"
+    )
 
 def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
     if provider not in ('OpenAI', 'Gemini'):
@@ -114,7 +105,7 @@ INPUT rows:
             if isinstance(obj, dict):
                 for r in batch:
                     if isinstance(obj.get(r['symbol']), dict):
-                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-active', '_provider': provider}
+                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-2.0-flash', '_provider': provider}
         except Exception as e:
             event('WARN', 'ai_engine', f'Batch failed: {e}')
         time.sleep(.2)
