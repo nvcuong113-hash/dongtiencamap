@@ -568,7 +568,10 @@ with st.popover("💬 Trợ Lý AI Trực Tuyến"):
                     YÊU CẦU: Trả lời ngắn gọn, khách quan, bám sát số liệu thực tế được cung cấp. Cảnh báo rõ ràng nếu mã nào vi phạm ngưỡng cắt lỗ.
                     """
 
-                    from google.genai import types
+                    from quants.ai_engine import _client
+                    ai_cli = _client("Gemini")
+                    
+                    # Gọi chuẩn model gemini-3.8-flash mới nhất
                     res_chat = ai_cli.models.generate_content(
                         model="gemini-3.8-flash",
                         contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user
