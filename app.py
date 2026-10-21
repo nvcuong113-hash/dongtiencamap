@@ -534,7 +534,7 @@ with tabs[3]:
 st.caption(f"Hệ thống QUANTS PRO V16.2 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
 
 # ============================================================================
-# FLOATING WIDGET: TRỢ LÝ CHUYÊN GIA AI (GÓC DƯỚI BÊN PHẢI - SỬA LỖI UI/UX Ô CHAT)
+# FLOATING WIDGET: TRỢ LÝ CHUYÊN GIA AI (GÓC DƯỚI BÊN PHẢI - FIX LỖI 404 & UI/UX)
 # ============================================================================
 with st.popover("💬 Trợ Lý AI Trực Tuyến"):
     st.markdown("#### 🤖 Trợ Lý Định Lượng AI (Chat với dữ liệu)")
@@ -568,15 +568,31 @@ with st.popover("💬 Trợ Lý AI Trực Tuyến"):
             YÊU CẦU: Trả lời ngắn gọn, khách quan, bám sát số liệu thực tế được cung cấp. Cảnh báo rõ ràng nếu mã nào vi phạm ngưỡng cắt lỗ.
             """
 
-            from quants.ai_engine import _client, _get_working_model
-                    ai_cli = _client("Gemini")
-                    active_model = _get_working_model(ai_cli)
-                    
+            from quants.ai_engine import _client
+            ai_cli = _client("Gemini")
+            
+            # Sử dụng danh sách model chuẩn không cần hàm quét rườm rà
+            chat_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash"]
+            res_chat = None
+            last_err = None
+            
+            for mdl in chat_models:
+                try:
                     res_chat = ai_cli.models.generate_content(
-                        model=active_model,
+                        model=mdl,
                         contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user
                     )
-            bot_reply = res_chat.text
+                    if res_chat and res_chat.text:
+                        break
+                except Exception as ex:
+                    last_err = ex
+                    continue
+            
+            if res_chat and res_chat.text:
+                bot_reply = res_chat.text
+            else:
+                raise RuntimeError(f"Không thể gọi model chat. Chi tiết: {last_err}")
+
         except Exception as chat_err:
             bot_reply = f"⚠️ Lỗi kết nối AI: {chat_err}"
 
