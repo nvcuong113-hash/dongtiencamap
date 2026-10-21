@@ -60,58 +60,16 @@ def _generate(client, provider, model, prompt):
     return response.text or '{}'
 
 def _model_candidates(provider, client):
-    """Tự động dò tìm danh sách model khả dụng của API Key, không hard-code model cũ."""
+    """Danh sách model Gemini chuẩn ổn định, tránh lỗi 404 mô hình cũ."""
     if provider == 'OpenAI':
         return [_setting('OPENAI_MODEL', 'gpt-4o-mini')]
 
     configured = _setting('GEMINI_MODEL', '')
-    discovered = []
-    list_error = None
-    try:
-        for model_info in client.models.list():
-            name = str(getattr(model_info, 'name', '') or '').strip()
-            actions = (
-                getattr(model_info, 'supported_actions', None)
-                or getattr(model_info, 'supported_generation_methods', None)
-                or []
-            )
-            actions = [str(action).lower() for action in actions]
-            if actions and not any('generatecontent' in action for action in actions):
-                continue
-            short_name = name.removeprefix('models/')
-            lower_name = short_name.lower()
-            if not name or 'gemini' not in lower_name:
-                continue
-            if any(term in lower_name for term in ('embedding', 'aqa', 'tts', 'image', 'robotics')):
-                continue
-            if 'flash' in lower_name or 'pro' in lower_name:
-                discovered.append(short_name)
-    except Exception as exc:
-        list_error = exc
-
-    def rank(name):
-        n = name.lower()
-        if configured and n == configured.lower().removeprefix('models/'):
-            return (-1, n)
-        if 'flash-lite' in n: return (0, n)
-        if '2.5-flash' in n: return (1, n)
-        if '3' in n and 'flash' in n: return (2, n)
-        if '2.0-flash' in n: return (3, n)
-        if 'flash' in n: return (4, n)
-        if 'pro' in n: return (5, n)
-        return (9, n)
-
-    available = sorted(set(discovered), key=rank)
-    if available:
-        return available
-
     fallback = []
-    for candidate in (configured, 'gemini-2.5-flash-lite', 'gemini-2.5-flash', 'gemini-2.0-flash'):
+    for candidate in (configured, 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-flash-lite-latest'):
         candidate = str(candidate or '').strip().removeprefix('models/')
         if candidate and candidate not in fallback:
             fallback.append(candidate)
-    if list_error:
-        event('WARN', 'ai.models', f'Gemini model discovery failed: {type(list_error).__name__}: {list_error}', {'provider': provider})
     return fallback
 
 def _feedback_text():
@@ -123,7 +81,6 @@ def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
     if provider not in ('OpenAI', 'Gemini'):
         raise AIUnavailable(f'Provider AI không hợp lệ: {provider!r}.')
 
-    # Cổng kiểm duyệt dữ liệu: Lọc bỏ các mã thiếu volume trước khi gọi API ra ngoài[cite: 31]
     valid_rows = []
     blocked_symbols = []
     for row in rows:
@@ -151,7 +108,7 @@ def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
         payload = []
         for r in batch:
             payload.append({k:r.get(k) for k in ['symbol','sector','price','change_pct','weekly_trend','vwap_position','vol_ratio','buy_ratio','net_flow_billion','delta_flow_open','rs_vni','rs_sector','quality_score','signal_score','agreement_pct','p_win','conviction','wyckoff','key_levels','source_label','is_real_deal','feed_warning']})
-        prompt = f'''QUANTS PRO V16.1 — guarded Stage 2 inference.
+        prompt = f'''QUANTS PRO V16.1 - guarded Stage 2 inference.
 Market regime: {regime}
 Macro: {json.dumps(macro,ensure_ascii=False,default=str)}
 Recent media intelligence: {json.dumps(media_context or [],ensure_ascii=False,default=str)}
@@ -223,7 +180,6 @@ INPUT rows:
     return result
 
 def enforce_predictions(rows, ai):
-    """Ràng buộc kỷ luật cứng: Giữ trạng thái CHỜ DỮ LIỆU khi mất volume, không bị ghi đè[cite: 31]."""
     for r in rows:
         x = ai.get(r['symbol'], {})
         r['ai_vsa'] = str(x.get('vsa') or 'Chưa có nhận định AI')
