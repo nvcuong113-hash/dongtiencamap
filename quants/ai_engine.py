@@ -49,8 +49,8 @@ def _generate(client, provider, prompt):
         )
         return response.choices[0].message.content or '{}'
     
-    # Cập nhật danh sách model chuẩn theo SDK google-genai mới nhất (tránh hoàn toàn lỗi 404)
-    models_to_try = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash']
+    # Sử dụng đúng định danh model chuẩn hiện hành của google-genai SDK
+    models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
     last_error = None
     
     for m in models_to_try:
@@ -99,7 +99,7 @@ INPUT rows:
             if isinstance(obj, dict):
                 for r in batch:
                     if isinstance(obj.get(r['symbol']), dict):
-                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-stable', '_provider': provider}
+                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-2.5-flash', '_provider': provider}
         except Exception as e:
             event('WARN', 'ai_engine', f'Batch failed: {e}')
         time.sleep(.2)
