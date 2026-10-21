@@ -49,8 +49,8 @@ def _generate(client, provider, prompt):
         )
         return response.choices[0].message.content or '{}'
     
-    # Sử dụng các model chuẩn tương thích với Google GenAI SDK hiện hành
-    models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+    # Danh sách dự phòng các model ổn định nhất của Gemini
+    models_to_try = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.5-flash']
     last_error = None
     
     for m in models_to_try:
@@ -63,9 +63,9 @@ def _generate(client, provider, prompt):
                 return response.text
         except Exception as e:
             last_error = e
-            time.sleep(.5)
+            time.sleep(.3)
 
-    raise RuntimeError(f"Không thể kết nối Gemini API. Chi tiết lỗi: {last_error}")
+    raise RuntimeError(f"Không thể kết nối Gemini API. Chi tiết: {last_error}")
 
 def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
     if provider not in ('OpenAI', 'Gemini'):
@@ -99,7 +99,7 @@ INPUT rows:
             if isinstance(obj, dict):
                 for r in batch:
                     if isinstance(obj.get(r['symbol']), dict):
-                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-flash', '_provider': provider}
+                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-stable', '_provider': provider}
         except Exception as e:
             event('WARN', 'ai_engine', f'Batch failed: {e}')
         time.sleep(.2)
