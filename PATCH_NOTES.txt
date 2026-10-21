@@ -1,0 +1,17 @@
+QUANTS PRO V24 PATCH
+
+Files to replace:
+- app.py (repository root)
+- quants/ai_engine.py
+
+Fixes:
+1. enforce_predictions preserves CHỜ DỮ LIỆU when volume is unavailable or the engine action is CHỜ DỮ LIỆU; T+2/T+3/T+7 remain null.
+2. run_ai filters rows with missing/unavailable/non-positive volume before creating an AI provider client. If all rows are blocked, it returns diagnostics without checking API keys or making network calls.
+3. Mixed batches analyze only eligible rows and report blocked symbols in _ai_diagnostics.blocked_missing_volume.
+4. Build stamp updated to DATA-GATE-GEMINI-FIX-V24.
+
+Validation performed locally against the uploaded repository baseline:
+- Python AST parse: app.py and quants/ai_engine.py passed.
+- unittest discover -s tests -v: 11 tests passed.
+
+This does not verify live Gemini API access or Streamlit Cloud deployment. No API keys are included. __pycache__ files are not included in this patch.
