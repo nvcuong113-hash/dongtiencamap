@@ -42,7 +42,8 @@ def _client(provider):
     raise AIUnavailable(f'Provider AI không hợp lệ: {provider!r}.')
 
 def _get_working_gemini_model(client):
-    candidates = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-flash']
+    """Tự động truy vấn danh sách model từ Google API để tìm model hỗ trợ generateContent"""
+    candidates = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-flash', 'gemini-pro']
     try:
         available = [m.name for m in client.models.list() if 'generateContent' in getattr(m, 'supported_generation_methods', [])]
         for c in candidates:
@@ -61,8 +62,9 @@ def _generate(client, provider, prompt):
         )
         return response.choices[0].message.content or '{}'
     
-    model_name = _get_working_gemini_model(client)
-    models_to_try = [model_name, 'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash']
+    # Lấy tên model đang hoạt động thực tế từ tài khoản
+    active_model = _get_working_gemini_model(client)
+    models_to_try = [active_model, 'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash']
     models_to_try = list(dict.fromkeys(models_to_try))
     
     last_error = None
