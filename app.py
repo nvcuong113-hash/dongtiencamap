@@ -216,7 +216,7 @@ if index_errors:
 if st.session_state.get("ai_error"):
     error_list.append(f"🚨 Lỗi Tầng AI: {st.session_state['ai_error']}")
 if st.session_state.get("run_errors"):
-    error_list.extend([f"⚠️ Dữ liệu cổ phiếu: {e}" for e in st.session_state["run_errors"][:4]])
+    error_list.extend([f"⚠️ Dữ liệu cổ phiếu: {e}" for e in st.session_state["run_errors"][:4]]]
 
 if error_list:
     with st.expander(f"⚠️ TRUNG TÂM CẢNH BÁO LỖI HỆ THỐNG ({len(error_list)} mục)", expanded=False):
@@ -534,7 +534,7 @@ with tabs[3]:
 st.caption(f"Hệ thống QUANTS PRO V16.2 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
 
 # ============================================================================
-# FLOATING WIDGET: TRỢ LÝ CHUYÊN GIA AI (GÓC DƯỚI BÊN PHẢI - FIX LỖI 404 & UI/UX)
+# FLOATING WIDGET: TRỢ LÝ CHUYÊN GIA AI (GÓC DƯỚI BÊN PHẢI - FIX HOÀN CHỈNH)
 # ============================================================================
 with st.popover("💬 Trợ Lý AI Trực Tuyến"):
     st.markdown("#### 🤖 Trợ Lý Định Lượng AI (Chat với dữ liệu)")
@@ -545,14 +545,14 @@ with st.popover("💬 Trợ Lý AI Trực Tuyến"):
             {"role": "assistant", "content": "Xin chào! Tôi đã đọc dữ liệu thị trường và danh mục của bạn. Bạn muốn phân tích mã nào?"}
         ]
 
-    # Container chứa toàn bộ lịch sử tin nhắn để cuộn và hiển thị ở trên
+    # Container chứa lịch sử tin nhắn
     chat_container = st.container(height=380)
     with chat_container:
         for msg in st.session_state.chat_messages:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
-    # Khung nhập liệu đặt ở dưới cùng của popover
+    # Khung nhập liệu ở dưới cùng
     if prompt_user := st.chat_input("Nhập câu hỏi (Ví dụ: Đánh giá giúp tôi mã FPT)...", key="chat_input_widget"):
         st.session_state.chat_messages.append({"role": "user", "content": prompt_user})
         
@@ -568,30 +568,11 @@ with st.popover("💬 Trợ Lý AI Trực Tuyến"):
             YÊU CẦU: Trả lời ngắn gọn, khách quan, bám sát số liệu thực tế được cung cấp. Cảnh báo rõ ràng nếu mã nào vi phạm ngưỡng cắt lỗ.
             """
 
-            from quants.ai_engine import _client
+            from quants.ai_engine import _client, _generate
             ai_cli = _client("Gemini")
             
-            # Sử dụng danh sách model chuẩn không cần hàm quét rườm rà
-            chat_models = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash"]
-            res_chat = None
-            last_err = None
-            
-            for mdl in chat_models:
-                try:
-                    res_chat = ai_cli.models.generate_content(
-                        model=mdl,
-                        contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user
-                    )
-                    if res_chat and res_chat.text:
-                        break
-                except Exception as ex:
-                    last_err = ex
-                    continue
-            
-            if res_chat and res_chat.text:
-                bot_reply = res_chat.text
-            else:
-                raise RuntimeError(f"Không thể gọi model chat. Chi tiết: {last_err}")
+            full_prompt = system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user
+            bot_reply = _generate(ai_cli, "Gemini", full_prompt)
 
         except Exception as chat_err:
             bot_reply = f"⚠️ Lỗi kết nối AI: {chat_err}"
