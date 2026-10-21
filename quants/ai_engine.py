@@ -30,7 +30,6 @@ def _client(provider):
         return OpenAI(api_key=key, timeout=45.0, max_retries=0)
     
     if provider == 'Gemini':
-        # Sử dụng trực tiếp API Key bạn cung cấp hoặc qua Streamlit Secrets
         key = _setting('GEMINI_API_KEY') or "AQ.Ab8RN6L_c58xIwPnMKJ-pBflJv1ZafmfL3nuvJUPmVyqD6KcOw"
         if not key:
             raise AIUnavailable('Thiếu GEMINI_API_KEY.')
@@ -50,23 +49,12 @@ def _generate(client, provider, model, prompt):
         )
         return response.choices[0].message.content or '{}'
     
-    from google.genai import types
-    # Sử dụng chuẩn model gemini-1.5-flash hoặc gemini-2.5-flash ổn định nhất cho SDK mới
+    # Dùng đúng chuẩn SDK mới của google-genai cho phép truyền trực tiếp tên model
     response = client.models.generate_content(
-        model=model, contents=prompt,
-        config=types.GenerateContentConfig(response_mime_type='application/json', temperature=0)
+        model='gemini-2.5-flash',
+        contents=prompt
     )
     return response.text or '{}'
-
-def _model_candidates(provider, client):
-    if provider == 'OpenAI':
-        return [_setting('OPENAI_MODEL', 'gpt-4o-mini')]
-    return ['gemini-1.5-flash', 'gemini-2.5-flash']
-
-def _feedback_text():
-    df = query("SELECT horizon,regime_group,sample_count,win_rate_pct,mae_pct,bias_pct FROM model_performance ORDER BY id DESC LIMIT 18")
-    if df.empty: return 'Chưa có mẫu backtest đã quyết toán.'
-    return df.to_dict('records')
 
 def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
     if provider not in ('OpenAI', 'Gemini'):
@@ -77,8 +65,7 @@ def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
         return {'_ai_diagnostics': {'failed_batches': [], 'blocked_missing_volume': [r.get('symbol') for r in rows]}}
 
     client = _client(provider)
-    models = _model_candidates(provider, client)
-    result = {}; failed_batches = []; backtest_feedback = _feedback_text()
+    result = {}
     
     for offset in range(0, len(valid_rows), 6):
         batch = valid_rows[offset:offset+6]
@@ -87,7 +74,6 @@ def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
         prompt = f'''QUANTS PRO V16.1 - guarded Stage 2 inference.
 Market regime: {regime}
 Macro: {json.dumps(macro,ensure_ascii=False,default=str)}
-Backtest feedback: {json.dumps(backtest_feedback,ensure_ascii=False,default=str)}
 
 Rules:
 - Return one JSON object keyed by ticker symbol, each value is an object.
@@ -96,30 +82,17 @@ Rules:
 INPUT rows:
 {json.dumps(payload,ensure_ascii=False,default=str)}'''
 
-        last_error = None
-        for model in models:
-            success = False
-            for _ in range(2):
-                try:
-                    raw = _generate(client, provider, model, prompt)
-                    obj = json.loads(raw)
-                    if isinstance(obj, dict):
-                        for r in batch:
-                            if isinstance(obj.get(r['symbol']), dict):
-                                result[r['symbol']] = {**obj[r['symbol']], '_model': model, '_provider': provider}
-                        if batch[0]['symbol'] in result:
-                            success = True
-                            break
-                    raise ValueError('JSON không chứa mã hợp lệ')
-                except Exception as e:
-                    last_error = e
-            if success:
-                break
-        if not any(r['symbol'] in result for r in batch):
-            failed_batches.append({'symbols': [r['symbol'] for r in batch], 'error': str(last_error)})
+        try:
+            raw = _generate(client, provider, 'gemini-2.5-flash', prompt)
+            obj = json.loads(raw)
+            if isinstance(obj, dict):
+                for r in batch:
+                    if isinstance(obj.get(r['symbol']), dict):
+                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-2.5-flash', '_provider': provider}
+        except Exception as e:
+            event('WARN', 'ai_engine', f'Batch failed: {e}')
         time.sleep(.1)
 
-    result['_ai_diagnostics'] = {'failed_batches': failed_batches}
     return result
 
 def enforce_predictions(rows, ai):
