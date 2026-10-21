@@ -35,9 +35,6 @@ st.markdown("""
 
 init_db()
 
-# ============================================================================
-# MODULE QUẢN LÝ PHIÊN ĐĂNG NHẬP (USER AUTHENTICATION)
-# ============================================================================
 if "authenticated_user" not in st.session_state:
     st.session_state.authenticated_user = None
 
@@ -107,9 +104,6 @@ if not st.session_state.authenticated_user:
     render_login_screen()
     st.stop()
 
-# ============================================================================
-# HÀM ĐỊNH DẠNG SỐ & TÔ MÀU BẢNG GIÁ CHỨNG KHOÁN (XANH / ĐỎ / VÀNG)
-# ============================================================================
 def style_financial_table(df: pd.DataFrame):
     styler = df.style
 
@@ -153,9 +147,6 @@ def style_financial_table(df: pd.DataFrame):
     styler = styler.format(format_dict, na_rep="---")
     return styler
 
-# ============================================================================
-# HEADER: THÔNG TIN TÀI KHOẢN & THỊ TRƯỜNG TOÀN CẢNH
-# ============================================================================
 cur_user = st.session_state.authenticated_user
 top_u1, top_u2 = st.columns([4, 1.2])
 with top_u1:
@@ -191,7 +182,6 @@ with k4:
     gate_str = "🟢 Cho phép giải ngân theo Trigger" if vni_chg > -0.5 else "🔴 Chế độ phòng thủ (Ưu tiên tiền mặt)"
     st.info(f"**Pha thị trường**: {regime_str} | **Market Gate**: {gate_str}")
 
-# BẢNG THÊM MÃ MỚI (WATCHLIST MANAGER)
 with st.expander("➕ Thêm Mã Cổ Phiếu Mới Vào Bảng Theo Dõi", expanded=False):
     col_w1, col_w2 = st.columns([3, 1])
     with col_w1:
@@ -209,21 +199,21 @@ with st.expander("➕ Thêm Mã Cổ Phiếu Mới Vào Bảng Theo Dõi", expan
                 st.success(f"Đã cập nhật danh sách gồm {len(st.session_state.active_watchlist)} mã!")
                 st.rerun()
 
-# TRUNG TÂM CẢNH BÁO LỖI
 error_list = []
 if index_errors:
     error_list.extend([f"⚠️ Nguồn VN-Index: {err}" for err in index_errors])
 if st.session_state.get("ai_error"):
     error_list.append(f"🚨 Lỗi Tầng AI: {st.session_state['ai_error']}")
 if st.session_state.get("run_errors"):
-    error_list.extend([f"⚠️ Dữ liệu cổ phiếu: {e}" for e in st.session_state["run_errors"][:4]])
+    run_errs = st.session_state["run_errors"]
+    if isinstance(run_errs, list):
+        error_list.extend([f"⚠️ Dữ liệu cổ phiếu: {e}" for e in run_errs[:4]])
 
 if error_list:
     with st.expander(f"⚠️ TRUNG TÂM CẢNH BÁO LỖI HỆ THỐNG ({len(error_list)} mục)", expanded=False):
         for err in error_list:
             st.error(err)
 
-# THANH NÚT ĐIỀU HÀNH TẬP TRUNG (ONE-CLICK)
 c_btn1, c_btn2, c_btn3 = st.columns([2, 1.5, 1.5])
 with c_btn1:
     if st.button("⚡ ĐỒNG BỘ TOÀN DIỆN (Dữ liệu + Lọc Quant + Chạy AI)", type="primary", width="stretch"):
@@ -256,19 +246,13 @@ with c_btn3:
 
 st.divider()
 
-# ============================================================================
-# CẤU TRÚC TAB NGHIỆP VỤ CHÍNH
-# ============================================================================
 tabs = st.tabs([
     "💼 QUẢN TRỊ DANH MỤC CÁ NHÂN",
-    "🎯 RADAR TÍN HIỆU ĐẦY ĐỦ (30 CỘT)[cite: 5]",
+    "🎯 RADAR TÍN HIỆU ĐẦY ĐỦ",
     "📰 TÂM LÝ NHỎ LẺ & Ý ĐỒ LÁI 48H",
     "📊 HIỆU NĂNG AUDIT & CẤU HÌNH"
 ])
 
-# ----------------------------------------------------------------------------
-# TAB 1: QUẢN TRỊ DANH MỤC CÁ NHÂN THEO USER
-# ----------------------------------------------------------------------------
 with tabs[0]:
     st.markdown("### 💼 Vị Thế Tài Khoản Thực Tế & Khuyến Nghị Từng Mã")
     
@@ -436,11 +420,8 @@ with tabs[0]:
         else:
             st.info("Chưa có mã cổ phiếu nào trong danh mục.")
 
-# ----------------------------------------------------------------------------
-# TAB 2: RADAR TÍN HIỆU ĐẦY ĐỦ 30 CỘT[cite: 5]
-# ----------------------------------------------------------------------------
 with tabs[1]:
-    st.markdown("### 🎯 Bảng Định Lượng Vi Cấu Trúc Toàn Diện (Chuẩn 30 Cột)")
+    st.markdown("### 🎯 Bảng Định Lượng Vi Cấu Trúc Toàn Diện")
     if st.session_state.rows:
         def build_full_30_cols(raw_list):
             out = []
@@ -497,13 +478,10 @@ with tabs[1]:
         if search_str: view_df = view_df[view_df["Mã CP"].str.contains(search_str, na=False)]
 
         st.dataframe(style_financial_table(view_df), width="stretch", height=550, hide_index=True)
-        st.download_button("⬇️ Xuất dữ liệu CSV (Đầy đủ 30 cột)", view_df.to_csv(index=False).encode("utf-8-sig"), "quants_radar_full.csv", "text/csv")
+        st.download_button("⬇️ Xuất dữ liệu CSV", view_df.to_csv(index=False).encode("utf-8-sig"), "quants_radar_full.csv", "text/csv")
     else:
         st.info("Chưa có dữ liệu snapshot. Vui lòng bấm nút **⚡ ĐỒNG BỘ TOÀN DIỆN** ở trên.")
 
-# ----------------------------------------------------------------------------
-# TAB 3: TÂM LÝ NHỎ LẺ & MEDIA 48H
-# ----------------------------------------------------------------------------
 with tabs[2]:
     st.markdown("### 📰 Tâm Lý Thị Trường & Cảnh Báo Ý Đồ Lái (48 Giờ Qua)")
     msum = media_summary()
@@ -519,9 +497,6 @@ with tabs[2]:
     else:
         st.info("Chưa có tin tức trong 48h qua. Hãy bấm 'Quét Tin Media 48h'.")
 
-# ----------------------------------------------------------------------------
-# TAB 4: KIỂM TOÁN HIỆU NĂNG & BACKTEST
-# ----------------------------------------------------------------------------
 with tabs[3]:
     st.markdown("### 📊 Kiểm Toán Lịch Sử Quyết Toán Lệnh (Realtime Audit)")
     perf = query("SELECT horizon, regime_group, sample_count, win_rate_pct, mae_pct, avg_return_pct, bias_pct FROM model_performance ORDER BY id DESC LIMIT 30")
@@ -533,9 +508,6 @@ with tabs[3]:
 
 st.caption(f"Hệ thống QUANTS PRO V16.2 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
 
-# ============================================================================
-# FLOATING WIDGET: TRỢ LÝ CHUYÊN GIA AI (GÓC DƯỚI BÊN PHẢI)
-# ============================================================================
 with st.popover("💬 Trợ Lý AI Trực Tuyến"):
     st.markdown("#### 🤖 Trợ Lý Định Lượng AI (Chat với dữ liệu)")
     st.markdown("Hỏi đáp trực tiếp về bảng điện và danh mục của bạn.")
