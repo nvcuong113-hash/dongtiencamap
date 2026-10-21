@@ -49,12 +49,12 @@ def _generate(client, provider, prompt):
         )
         return response.choices[0].message.content or '{}'
     
-    # Danh sách các model dự phòng để tự động chuyển đổi khi gặp lỗi 503 quá tải
-    models_to_try = ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+    # Ưu tiên sử dụng dòng Pro (gemini-1.5-pro) cực kỳ ổn định, không bị nghẽn 503 như dòng Flash
+    models_to_try = ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-2.5-flash']
     last_error = None
 
     for m in models_to_try:
-        for attempt in range(2): # Thử lại tối đa 2 lần cho mỗi model
+        for attempt in range(2):
             try:
                 response = client.models.generate_content(
                     model=m,
@@ -64,9 +64,9 @@ def _generate(client, provider, prompt):
                     return response.text
             except Exception as e:
                 last_error = e
-                time.sleep(1) # Chờ 1 giây trước khi thử lại
+                time.sleep(1)
 
-    raise RuntimeError(f"Tất cả các model Gemini đều đang quá tải hoặc không khả dụng. Lỗi chi tiết: {last_error}")
+    raise RuntimeError(f"Hệ thống AI đang bận. Chi tiết lỗi: {last_error}")
 
 def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
     if provider not in ('OpenAI', 'Gemini'):
@@ -100,7 +100,7 @@ INPUT rows:
             if isinstance(obj, dict):
                 for r in batch:
                     if isinstance(obj.get(r['symbol']), dict):
-                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-3.8-flash', '_provider': provider}
+                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-1.5-pro', '_provider': provider}
         except Exception as e:
             event('WARN', 'ai_engine', f'Batch failed: {e}')
         time.sleep(.2)
