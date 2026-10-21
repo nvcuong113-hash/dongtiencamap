@@ -572,8 +572,9 @@ with st.popover("💬 Trợ Lý AI Trực Tuyến"):
                     ai_cli = _client("Gemini")
                     
                     from google.genai import types
+                    # Sử dụng model gemini-1.5-flash để tương thích ngược 100% với Google GenAI SDK hiện hành
                     res_chat = ai_cli.models.generate_content(
-                        model="gemini-2.5-flash",
+                        model="gemini-1.5-flash",
                         contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user
                     )
                     bot_reply = res_chat.text
