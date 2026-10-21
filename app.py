@@ -571,17 +571,11 @@ with st.popover("💬 Trợ Lý AI Trực Tuyến"):
                     from quants.ai_engine import _client
                     ai_cli = _client("Gemini")
                     
-                    # Gọi trực tiếp đúng cú pháp SDK gemini-2.5-flash / gemini-2.0-flash
-                    try:
-                        res_chat = ai_cli.models.generate_content(
-                            model="gemini-2.5-flash",
-                            contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user
-                        )
-                    except Exception:
-                        res_chat = ai_cli.models.generate_content(
-                            model="gemini-2.0-flash",
-                            contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user
-                        )
+                    # Gọi trực tiếp đúng model chuẩn gemini-2.5-flash
+                    res_chat = ai_cli.models.generate_content(
+                        model="gemini-2.5-flash",
+                        contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user
+                    )
                     bot_reply = res_chat.text
 
                     st.markdown(bot_reply)
