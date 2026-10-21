@@ -30,9 +30,9 @@ def _client(provider):
         return OpenAI(api_key=key, timeout=45.0, max_retries=0)
     
     if provider == 'Gemini':
-        key = _setting('GEMINI_API_KEY') or "AQ.Ab8RN6L_c58xIwPnMKJ-pBflJv1ZafmfL3nuvJUPmVyqD6KcOw"
+        key = _setting('GEMINI_API_KEY')
         if not key:
-            raise AIUnavailable('Thiếu GEMINI_API_KEY.')
+            raise AIUnavailable('Thiếu GEMINI_API_KEY trong Streamlit Secrets hoặc biến môi trường.')
         try:
             from google import genai
         except ImportError as exc:
@@ -40,6 +40,18 @@ def _client(provider):
         return genai.Client(api_key=key, http_options={'timeout': 45000})
         
     raise AIUnavailable(f'Provider AI không hợp lệ: {provider!r}.')
+
+def _get_working_gemini_model(client):
+    candidates = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-flash']
+    try:
+        available = [m.name for m in client.models.list() if 'generateContent' in getattr(m, 'supported_generation_methods', [])]
+        for c in candidates:
+            match = next((m for m in available if c in m), None)
+            if match:
+                return match.replace('models/', '')
+    except Exception:
+        pass
+    return 'gemini-2.0-flash'
 
 def _generate(client, provider, prompt):
     if provider == 'OpenAI':
@@ -49,10 +61,11 @@ def _generate(client, provider, prompt):
         )
         return response.choices[0].message.content or '{}'
     
-    # Sử dụng đúng định danh model chuẩn hiện hành của google-genai SDK
-    models_to_try = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
-    last_error = None
+    model_name = _get_working_gemini_model(client)
+    models_to_try = [model_name, 'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash']
+    models_to_try = list(dict.fromkeys(models_to_try))
     
+    last_error = None
     for m in models_to_try:
         try:
             response = client.models.generate_content(
@@ -82,7 +95,7 @@ def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
         batch = valid_rows[offset:offset+6]
         payload = [{k:r.get(k) for k in ['symbol','sector','price','change_pct','weekly_trend','vwap_position','vol_ratio','buy_ratio','net_flow_billion','delta_flow_open','rs_vni','rs_sector','quality_score','signal_score','agreement_pct','p_win','conviction','wyckoff','key_levels','source_label','is_real_deal']} for r in batch]
         
-        prompt = f'''QUANTS PRO V16.1 - guarded Stage 2 inference.
+        prompt = f"""QUANTS PRO V16.1 - guarded Stage 2 inference.
 Market regime: {regime}
 Macro: {json.dumps(macro,ensure_ascii=False,default=str)}
 
@@ -91,7 +104,7 @@ Rules:
 - Required keys: vsa, action, position_size_suggestion, trigger_condition, invalidation_level, key_levels, pred_t2_pct, pred_t3_pct, pred_t7_pct, rationale.
 
 INPUT rows:
-{json.dumps(payload,ensure_ascii=False,default=str)}'''
+{json.dumps(payload,ensure_ascii=False,default=str)}"""
 
         try:
             raw = _generate(client, provider, prompt)
@@ -99,7 +112,7 @@ INPUT rows:
             if isinstance(obj, dict):
                 for r in batch:
                     if isinstance(obj.get(r['symbol']), dict):
-                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-2.5-flash', '_provider': provider}
+                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-active', '_provider': provider}
         except Exception as e:
             event('WARN', 'ai_engine', f'Batch failed: {e}')
         time.sleep(.2)
