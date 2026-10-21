@@ -5,14 +5,17 @@ import pandas as pd
 import streamlit as st
 
 from quants.config import APP_NAME, DEFAULT_WATCHLIST, SECTORS, TZ
-from quants.db import init_db, query, connect, event
+from quants.db import (
+    init_db, query, connect, event,
+    register_user, authenticate_user,
+    get_user_portfolio, save_user_portfolio
+)
 from quants.providers import fetch_vnindex, fetch_macro
 from quants.engine import compute_quant
 from quants.ai_engine import run_ai, enforce_predictions, save_prediction_audit, analyze_media, analyze_macro
 from quants.media import crawl_media, recent_media, media_summary
 from quants.audit import settle_predictions, build_performance, adaptive_feedback
 
-# Cấu hình giao diện Streamlit Terminal chuyên nghiệp
 st.set_page_config(
     page_title="QUANTS PRO V16.2 - Trading Terminal",
     page_icon="📈",
@@ -25,29 +28,91 @@ st.markdown("""
     :root { color-scheme: dark; }
     .stApp { background: #07101c; color: #dbeafe; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     .metric-card { background: #0f1d30; border: 1px solid #1e3a5f; padding: 12px 16px; border-radius: 8px; }
-    .qp-banner { background: #010f1f; border: 1px solid #1e3a5f; padding: 14px 18px; border-radius: 8px; margin-bottom: 12px; }
-    .qp-title { font-size: 1.35rem; font-weight: 750; color: #adc6ff; letter-spacing: .02em; }
-    .qp-chip { display: inline-block; background: #122131; border: 1px solid #424754; border-radius: 4px; padding: 3px 8px; margin-right: 5px; font-size: .76rem; }
+    .portfolio-card { background: #0c1a2c; border: 1px solid #1f3554; border-radius: 8px; padding: 14px; margin-bottom: 12px; }
+    .badge-profit { background: #064e3b; color: #34d399; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
+    .badge-loss { background: #7f1d1d; color: #f87171; font-weight: 700; padding: 2px 8px; border-radius: 4px; }
     div[data-testid="stMetric"] { background: #0f1d30; border: 1px solid #1e3a5f; padding: 10px 14px; border-radius: 8px; }
 </style>
 """, unsafe_allow_html=True)
 
 init_db()
 
-# Khởi tạo trạng thái danh mục cá nhân mặc định
+# ============================================================================
+# MODULE QUẢN LÝ PHIÊN ĐĂNG NHẬP (USER AUTHENTICATION)
+# ============================================================================
+if "authenticated_user" not in st.session_state:
+    st.session_state.authenticated_user = None
+
 if "user_portfolio" not in st.session_state:
-    st.session_state.user_portfolio = [
-        {"symbol": "IDC", "buy_price": 33440.0, "volume": 4500},
-        {"symbol": "FPT", "buy_price": 62980.0, "volume": 2000}
-    ]
+    st.session_state.user_portfolio = []
 if "user_cash" not in st.session_state:
     st.session_state.user_cash = 0.0
 
 if "rows" not in st.session_state: st.session_state.rows = []
 if "last_run" not in st.session_state: st.session_state.last_run = None
 
+def render_login_screen():
+    col_l1, col_l2, col_l3 = st.columns([1, 1.6, 1])
+    with col_l2:
+        st.markdown(
+            "<div style='text-align: center; margin-top: 50px; margin-bottom: 25px;'>"
+            "<h2 style='color:#adc6ff; margin-bottom: 4px;'>🔒 QUANTS PRO V16.2 TERMINAL</h2>"
+            "<p style='color:#94a3b8; font-size: 0.95rem;'>Hệ thống giao dịch định lượng & bóc tách dòng tiền Big Boys</p>"
+            "</div>",
+            unsafe_allow_html=True
+        )
+
+        login_tab, reg_tab = st.tabs(["🔑 Đăng Nhập", "📝 Đăng Ký Tài Khoản Mới"])
+
+        with login_tab:
+            with st.form("form_login"):
+                st.markdown("##### Đăng nhập vào phiên làm việc")
+                uname = st.text_input("Tên đăng nhập", placeholder="Nhập username...").strip().lower()
+                pw = st.text_input("Mật khẩu", type="password", placeholder="Nhập mật khẩu...")
+                btn_login = st.form_submit_button("Đăng Nhập Ngay", width="stretch")
+
+                if btn_login:
+                    user_data = authenticate_user(uname, pw)
+                    if user_data:
+                        st.session_state.authenticated_user = user_data
+                        # Tải số dư tiền mặt và danh mục riêng của người dùng
+                        st.session_state.user_cash = float(user_data.get("cash_balance") or 0.0)
+                        saved_port = get_user_portfolio(user_data["id"])
+                        st.session_state.user_portfolio = saved_port if saved_port else [
+                            {"symbol": "IDC", "buy_price": 33440.0, "volume": 4500},
+                            {"symbol": "FPT", "buy_price": 62980.0, "volume": 2000}
+                        ]
+                        st.toast(f"Xin chào {user_data.get('full_name') or user_data['username']}!", icon="👋")
+                        st.rerun()
+                    else:
+                        st.error("Sai tên đăng nhập hoặc mật khẩu! (Tài khoản mặc định: admin / admin123)")
+
+        with reg_tab:
+            with st.form("form_register"):
+                st.markdown("##### Đăng ký tài khoản cá nhân mới")
+                new_uname = st.text_input("Tên đăng nhập mới", placeholder="Viết liền, không dấu...").strip().lower()
+                new_fname = st.text_input("Họ và tên hiển thị", placeholder="Ví dụ: Nguyễn Văn Cường")
+                new_pw = st.text_input("Mật khẩu", type="password", placeholder="Tối thiểu 6 ký tự...")
+                new_pw_cf = st.text_input("Xác nhận mật khẩu", type="password", placeholder="Nhập lại mật khẩu...")
+                btn_reg = st.form_submit_button("Tạo Tài Khoản", width="stretch")
+
+                if btn_reg:
+                    if new_pw != new_pw_cf:
+                        st.error("Mật khẩu xác nhận không khớp!")
+                    else:
+                        ok, msg = register_user(new_uname, new_pw, new_fname)
+                        if ok:
+                            st.success(msg + " Vui lòng chuyển sang tab 'Đăng Nhập'.")
+                        else:
+                            st.error(msg)
+
+# CHẶN TOÀN BỘ NỘI DUNG NẾU CHƯA ĐĂNG NHẬP
+if not st.session_state.authenticated_user:
+    render_login_screen()
+    st.stop()
+
 # ============================================================================
-# HÀM ĐỊNH DẠNG SỐ & TÔ MÀU CHUẨN BẢNG GIÁ CHỨNG KHOÁN (XANH / ĐỎ / VÀNG)
+# HÀM ĐỊNH DẠNG SỐ & TÔ MÀU BẢNG GIÁ CHỨNG KHOÁN (XANH / ĐỎ / VÀNG)
 # ============================================================================
 def style_financial_table(df: pd.DataFrame):
     styler = df.style
@@ -100,7 +165,21 @@ def style_financial_table(df: pd.DataFrame):
     styler = styler.format(format_dict, na_rep="---")
     return styler
 
-# --- 1. LẤY BỐI CẢNH THỊ TRƯỜNG & VĨ MÔ ---
+# ============================================================================
+# HEADER: THÔNG TIN TÀI KHOẢN & BỐI CẢNH THỊ TRƯỜNG TOÀN CẢNH
+# ============================================================================
+cur_user = st.session_state.authenticated_user
+top_u1, top_u2 = st.columns([4, 1.2])
+with top_u1:
+    role_badge = "👑 Quản Trị Viên" if cur_user.get("role") == "ADMIN" else "💼 Nhà Đầu Tư"
+    st.markdown(f"**Tài khoản:** `{cur_user.get('username')}` ({cur_user.get('full_name') or ''}) | **Phân quyền:** {role_badge}")
+with top_u2:
+    if st.button("🚪 Đăng Xuất", width="stretch"):
+        st.session_state.authenticated_user = None
+        st.session_state.user_portfolio = []
+        st.session_state.user_cash = 0.0
+        st.rerun()
+
 try:
     _market_res = fetch_vnindex()
     index, index_errors = _market_res if isinstance(_market_res, tuple) else (_market_res, [])
@@ -124,7 +203,7 @@ with k4:
     gate_str = "🟢 Cho phép giải ngân theo Trigger" if vni_chg > -0.5 else "🔴 Chế độ phòng thủ (Ưu tiên tiền mặt)"
     st.info(f"**Pha thị trường**: {regime_str} | **Market Gate**: {gate_str}")
 
-# --- 2. TRUNG TÂM BÁO CÁO SỰ CỐ VÀ ALERT LỖI ---
+# TRUNG TÂM CẢNH BÁO LỖI (DATA FEED & AI STATUS)
 error_list = []
 if index_errors:
     error_list.extend([f"⚠️ Nguồn VN-Index: {err}" for err in index_errors])
@@ -138,7 +217,7 @@ if error_list:
         for err in error_list:
             st.error(err)
 
-# --- 3. THANH ĐIỀU HÀNH TẬP TRUNG (ONE-CLICK ACTION) ---
+# THANH NÚT ĐIỀU HÀNH TẬP TRUNG (ONE-CLICK)
 c_btn1, c_btn2, c_btn3 = st.columns([2, 1.5, 1.5])
 with c_btn1:
     if st.button("⚡ ĐỒNG BỘ TOÀN DIỆN (Dữ liệu + Lọc Quant + Chạy AI)", type="primary", width="stretch"):
@@ -171,7 +250,9 @@ with c_btn3:
 
 st.divider()
 
-# --- 4. TỔ CHỨC CÁC TAB NGHIỆP VỤ ---
+# ============================================================================
+# CẤU TRÚC 4 TAB NGHIỆP VỤ CHÍNH
+# ============================================================================
 tabs = st.tabs([
     "💼 QUẢN TRỊ DANH MỤC CÁ NHÂN",
     "🎯 RADAR TÍN HIỆU ĐẦY ĐỦ (30 CỘT)",
@@ -179,16 +260,16 @@ tabs = st.tabs([
     "📊 HIỆU NĂNG AUDIT & CẤU HÌNH"
 ])
 
-# ============================================================================
-# TAB 1: QUẢN TRỊ DANH MỤC CÁ NHÂN & KHUYẾN NGHỊ HÀNH ĐỘNG
-# ============================================================================
+# ----------------------------------------------------------------------------
+# TAB 1: QUẢN TRỊ DANH MỤC CÁ NHÂN THEO USER
+# ----------------------------------------------------------------------------
 with tabs[0]:
     st.markdown("### 💼 Vị Thế Tài Khoản Thực Tế & Khuyến Nghị Từng Mã")
     
     col_pf_in, col_pf_view = st.columns([1.2, 2.8])
     
     with col_pf_in:
-        st.markdown("#### ✏️ Cập nhật tài khoản")
+        st.markdown(f"#### ✏️ Cập nhật danh mục (`{cur_user['username']}`)")
         with st.form("form_portfolio"):
             cash_input = st.number_input(
                 "Tiền mặt khả dụng (VNĐ)", 
@@ -202,7 +283,7 @@ with tabs[0]:
                 height=130,
                 help="Mỗi mã 1 dòng. Ví dụ: IDC, 33440, 4500"
             )
-            if st.form_submit_button("Lưu & Tính Toán Lại", width="stretch"):
+            if st.form_submit_button("Lưu Vào Database Của Tôi", width="stretch"):
                 new_port = []
                 for line in port_text.strip().split("\n"):
                     parts = [p.strip() for p in line.split(",") if p.strip()]
@@ -216,7 +297,9 @@ with tabs[0]:
                         except Exception: pass
                 st.session_state.user_portfolio = new_port
                 st.session_state.user_cash = cash_input
-                st.success("Đã cập nhật danh mục!")
+                # LƯU VÀO DATABASE SQLite THEO USER_ID
+                save_user_portfolio(cur_user["id"], new_port, cash_input)
+                st.success("Đã lưu danh mục thành công vào tài khoản!")
                 st.rerun()
 
     # 1. TỰ ĐỘNG LẤY GIÁ THỊ TRƯỜNG THỰC TẾ
@@ -225,7 +308,6 @@ with tabs[0]:
         for r in st.session_state.rows:
             current_market_map[r["symbol"]] = r
     else:
-        # Tự động nạp giá mới nhất từ DB SQLite nếu phiên chạy vừa restart
         try:
             db_snaps = query(
                 "SELECT symbol, price, change_pct, vwap_position, net_flow_billion, wyckoff_phase, p_win, metrics_json "
@@ -352,9 +434,9 @@ with tabs[0]:
         else:
             st.info("Chưa có mã cổ phiếu nào trong danh mục.")
 
-# ============================================================================
+# ----------------------------------------------------------------------------
 # TAB 2: RADAR TÍN HIỆU ĐẦY ĐỦ 30 CỘT
-# ============================================================================
+# ----------------------------------------------------------------------------
 with tabs[1]:
     st.markdown("### 🎯 Bảng Định Lượng Vi Cấu Trúc Toàn Diện (Chuẩn 30 Cột)")
     if st.session_state.rows:
@@ -417,9 +499,9 @@ with tabs[1]:
     else:
         st.info("Chưa có dữ liệu snapshot. Vui lòng bấm nút **⚡ ĐỒNG BỘ TOÀN DIỆN** ở trên.")
 
-# ============================================================================
+# ----------------------------------------------------------------------------
 # TAB 3: TÂM LÝ NHỎ LẺ & MEDIA 48H
-# ============================================================================
+# ----------------------------------------------------------------------------
 with tabs[2]:
     st.markdown("### 📰 Tâm Lý Thị Trường & Cảnh Báo Ý Đồ Lái (48 Giờ Qua)")
     msum = media_summary()
@@ -436,9 +518,9 @@ with tabs[2]:
     else:
         st.info("Chưa có tin tức trong 48h qua. Hãy bấm 'Quét Tin Media 48h'.")
 
-# ============================================================================
+# ----------------------------------------------------------------------------
 # TAB 4: KIỂM TOÁN HIỆU NĂNG & BACKTEST
-# ============================================================================
+# ----------------------------------------------------------------------------
 with tabs[3]:
     st.markdown("### 📊 Kiểm Toán Lịch Sử Quyết Toán Lệnh (Realtime Audit)")
     perf = query("SELECT horizon, regime_group, sample_count, win_rate_pct, mae_pct, avg_return_pct, bias_pct FROM model_performance ORDER BY id DESC LIMIT 30")
@@ -448,4 +530,4 @@ with tabs[3]:
     else:
         st.info("Chưa có đủ mẫu quyết toán để hiển thị ma trận hiệu năng.")
 
-st.caption(f"Hệ thống QUANTS PRO V16.2 • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
+st.caption(f"Hệ thống QUANTS PRO V16.2 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
