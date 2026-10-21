@@ -41,27 +41,20 @@ def _client(provider):
         
     raise AIUnavailable(f'Provider AI không hợp lệ: {provider!r}.')
 
-def _generate(client, provider, model, prompt):
+def _generate(client, provider, prompt):
     if provider == 'OpenAI':
         response = client.chat.completions.create(
-            model=model, temperature=0, response_format={'type':'json_object'},
+            model='gpt-4o-mini', temperature=0, response_format={'type':'json_object'},
             messages=[{'role':'system','content':'You are a cautious quantitative analyst. Return valid JSON only.'},{'role':'user','content':prompt}]
         )
         return response.choices[0].message.content or '{}'
     
-    # Sử dụng đúng tên chuẩn tích hợp trong Google GenAI SDK hiện hành
-    try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt
-        )
-        return response.text or '{}'
-    except Exception:
-        response = client.models.generate_content(
-            model='gemini-2.0-flash',
-            contents=prompt
-        )
-        return response.text or '{}'
+    # Sử dụng chuẩn model gemini-2.5-flash mới nhất hiện tại của Google
+    response = client.models.generate_content(
+        model='gemini-2.5-flash',
+        contents=prompt
+    )
+    return response.text or '{}'
 
 def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
     if provider not in ('OpenAI', 'Gemini'):
@@ -90,7 +83,7 @@ INPUT rows:
 {json.dumps(payload,ensure_ascii=False,default=str)}'''
 
         try:
-            raw = _generate(client, provider, 'gemini-2.5-flash', prompt)
+            raw = _generate(client, provider, prompt)
             obj = json.loads(raw)
             if isinstance(obj, dict):
                 for r in batch:
