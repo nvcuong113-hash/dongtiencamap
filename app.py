@@ -524,3 +524,78 @@ with tabs[3]:
         st.info("Chưa có đủ mẫu quyết toán để hiển thị ma trận hiệu năng.")
 
 st.caption(f"Hệ thống QUANTS PRO V16.2 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
+# Bổ sung tab thứ 5 vào danh sách tab:
+tabs = st.tabs([
+    "💼 QUẢN TRỊ DANH MỤC CÁ NHÂN",
+    "🎯 RADAR TÍN HIỆU ĐẦY ĐỦ (30 CỘT)",
+    "📰 TÂM LÝ NHỎ LẺ & Ý ĐỒ LÁI 48H",
+    "📊 HIỆU NĂNG AUDIT & CẤU HÌNH",
+    "🤖 TRỢ LÝ CHUYÊN GIA AI (Chat với dữ liệu)"
+])
+
+# Triển khai nội dung cho Tab số 5 (Chỉ số index là 4):
+with tabs[4]:
+    st.markdown("### 🤖 Trợ Lý Định Lượng AI — Hỏi Đáp Trực Tiếp Về Dữ Liệu Thị Trường")
+    st.markdown("Trợ lý AI được nạp sẵn toàn bộ bảng dữ liệu định lượng 30 cột, danh mục tài khoản và trạng thái dòng tiền hiện tại.")
+
+    # Khởi tạo lịch sử chat trong session
+    if "chat_messages" not in st.session_state:
+        st.session_state.chat_messages = [
+            {"role": "assistant", "content": "Xin chào! Tôi đã đọc toàn bộ dữ liệu bảng điện và danh mục của bạn. Bạn muốn phân tích mã cổ phiếu nào hoặc cần tìm cơ hội giải ngân ở nhóm ngành nào?"}
+        ]
+
+    # Hiển thị lịch sử trò chuyện
+    for msg in st.session_state.chat_messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # Ô nhập câu hỏi từ người dùng
+    if prompt_user := st.chat_input("Nhập câu hỏi của bạn (Ví dụ: Đánh giá giúp tôi mã TCB hoặc danh mục hiện tại)..."):
+        st.session_state.chat_messages.append({"role": "user", "content": prompt_user})
+        with st.chat_message("user"):
+            st.markdown(prompt_user)
+
+        with st.chat_message("assistant"):
+            with st.spinner("AI đang phân tích dữ liệu hệ thống..."):
+                try:
+                    # Gói dữ liệu hiện tại làm ngữ cảnh (Context) cho AI
+                    live_market_summary = pd.DataFrame(st.session_state.rows).to_json(orient="records", force_ascii=False) if st.session_state.rows else "Chưa có dữ liệu snapshot."
+                    user_portfolio_summary = json.dumps(st.session_state.user_portfolio, ensure_ascii=False)
+                    
+                    system_context = f"""
+                    Bạn là Trợ lý Quản lý Quỹ Định Lượng tại TTCK Việt Nam.
+                    DỮ LIỆU BẢNG ĐIỆN QUANTS HIỆN TẠI: {live_market_summary}
+                    DANH MỤC ĐẦU TƯ CỦA NGƯỜI DÙNG: {user_portfolio_summary}
+                    
+                    YÊU CẦU: Trả lời ngắn gọn, khách quan, bám sát số liệu thực tế được cung cấp ở trên. Không bịa đặt số liệu. Cảnh báo rõ ràng nếu mã nào vi phạm ngưỡng cắt lỗ hoặc cạn thanh khoản.
+                    """
+
+                    # Gọi trực tiếp qua Gemini client đã cấu hình sẵn trong hệ thống
+                    from quants.ai_engine import _client, _setting
+                    ai_prov = st.session_state.get("ai_provider_select", "Gemini")
+                    ai_cli = _client(ai_prov)
+                    
+                    if ai_prov == "Gemini":
+                        from google.genai import types
+                        res_chat = ai_cli.models.generate_content(
+                            model="gemini-2.5-flash",
+                            contents=system_context + "\n\nCâu hỏi của nhà đầu tư: " + prompt_user,
+                            config=types.GenerateContentConfig(temperature=0.2)
+                        )
+                        bot_reply = res_chat.text
+                    else:
+                        res_chat = ai_cli.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[
+                                {"role": "system", "content": system_context},
+                                {"role": "user", "content": prompt_user}
+                            ]
+                        )
+                        bot_reply = res_chat.choices[0].message.content
+
+                    st.markdown(bot_reply)
+                    st.session_state.chat_messages.append({"role": "assistant", "content": bot_reply})
+                except Exception as chat_err:
+                    err_msg = f"⚠️ Không thể kết nối mô hình AI để trả lời: {chat_err}"
+                    st.error(err_msg)
+                    st.session_state.chat_messages.append({"role": "assistant", "content": err_msg})
