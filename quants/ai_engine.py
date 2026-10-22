@@ -48,8 +48,8 @@ def _generate(client, provider, prompt):
         )
         return response.choices[0].message.content or '{}'
     else:
-        # Danh sách model dự phòng theo chuẩn Colab mới nhất để chống hoàn toàn lỗi 404
-        DANH_SACH_MODELS = ["gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-lite-latest", "gemini-1.5-flash"]
+        # Sử dụng danh sách model chuẩn theo tài liệu Google GenAI API mới nhất
+        DANH_SACH_MODELS = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-flash-latest"]
         last_error = None
         for m_name in DANH_SACH_MODELS:
             try:
@@ -61,7 +61,7 @@ def _generate(client, provider, prompt):
                     return response.text
             except Exception as e:
                 last_error = e
-                time.sleep(0.2)
+                time.sleep(0.3)
         raise RuntimeError(f"Không thể kết nối Gemini API. Chi tiết: {last_error}")
 
 def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
@@ -97,7 +97,7 @@ INPUT rows:
             if isinstance(obj, dict):
                 for r in batch:
                     if isinstance(obj.get(r['symbol']), dict):
-                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-active', '_provider': provider}
+                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-3.8-flash', '_provider': provider}
         except Exception as e:
             event('WARN', 'ai_engine', f'Batch failed: {e}')
         time.sleep(.2)
@@ -114,7 +114,7 @@ def enforce_predictions(rows, ai):
         r['invalidation_level'] = str(x.get('invalidation_level') or 'Chưa đủ dữ liệu')
         r['ai_rationale'] = str(x.get('rationale') or '')
         r['ai_provider'] = x.get('_provider', 'Gemini')
-        r['ai_model'] = x.get('_model', 'gemini-active')
+        r['ai_model'] = x.get('_model', 'gemini-3.8-flash')
         r['pred_t2'] = x.get('pred_t2_pct')
         r['pred_t3'] = x.get('pred_t3_pct')
         r['pred_t7'] = x.get('pred_t7_pct')
