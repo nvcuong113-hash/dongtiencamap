@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from .config import ticker_sector
-from .calendar_vn import u_shape_ratio, market_Dest_status
+from .calendar_vn import u_shape_ratio
 from .db import connect, query, event
 from .providers import fetch_stock_feeds, fetch_history, fetch_deal_flow
 
@@ -37,7 +37,6 @@ def _weekly_and_structure_features(bars):
     ma20_vol = sum(vols[-20:]) / min(20, len(vols)) if vols else None
     ret5 = (closes[-1] / closes[-6] - 1) * 100 if len(closes) >= 6 and closes[-6] > 0 else 0.0
 
-    # Cụm hỗ trợ/kháng cự ngắn hạn (20 phiên - quan trọng cho phát hiện đáy NKG/đỉnh LPB) & trung hạn (60 phiên)
     recent_20 = bars[-20:]
     recent_60 = bars[-60:] if len(bars) >= 60 else bars
     pivot_sup_20 = min(b['low'] for b in recent_20)
@@ -45,7 +44,6 @@ def _weekly_and_structure_features(bars):
     sup_60 = min(b['low'] for b in recent_60)
     res_60 = max(b['high'] for b in recent_60)
 
-    # Đếm số lần kiểm định vùng đáy ngắn hạn (Retest) & độ suy giảm volume bán (Supply Decay)
     retest_bars = [b for b in recent_20 if b['low'] <= pivot_sup_20 * 1.025]
     retest_count = len(retest_bars)
     supply_decay_score = 50.0
@@ -56,7 +54,6 @@ def _weekly_and_structure_features(bars):
             decay_ratio = (first_vol - last_vol) / first_vol
             supply_decay_score = _clamp(50.0 + decay_ratio * 45.0, 10.0, 95.0)
 
-    # Đo hiệu quả tăng/giảm (Effort vs Result) trong 10 phiên gần nhất
     down_effs, up_effs = [], []
     for i in range(max(1, len(bars) - 10), len(bars)):
         prev_c = bars[i - 1]['close']
@@ -98,10 +95,6 @@ def _weekly_and_structure_features(bars):
     }
 
 def compute_bottom_top_detectors(r):
-    """
-    Bộ phát hiện Tạo Đáy Sớm (Bottom Detector - mẫu hình NKG)
-    & Tạo Đỉnh Sớm (Top Detector - mẫu hình LPB) hoạt động độc lập.
-    """
     if not r.get('volume_available') or (r.get('volume') or 0) <= 0:
         return 0.0, 0.0, 'Thiếu dữ liệu volume', 50.0
 
@@ -118,53 +111,39 @@ def compute_bottom_top_detectors(r):
     decay_sc = float(r.get('supply_decay_score') or 50.0)
 
     spread = max(hi - lo, p * 0.003)
-    close_pos = (p - lo) / spread  # 0.0 = đóng thấp nhất phiên, 1.0 = đóng cao nhất phiên
+    close_pos = (p - lo) / spread
     dist_to_sup_pct = ((p - sup) / sup * 100) if sup > 0 else 5.0
     dist_to_res_pct = ((res - p) / p * 100) if p > 0 else 5.0
 
-    # Đo sự bất tương xứng Nỗ lực (Volume) vs Kết quả (Giá) trong phiên
-    # Nếu Vol lớn nhưng giá không giảm (ở vùng đáy) -> Hấp thụ tốt
     effort_result_score = 50.0
     if vr >= 1.15 and abs(chg) <= 1.2 and close_pos >= 0.55:
-        effort_result_score = 82.0  # Nỗ lực đè giá lớn nhưng rút chân (Hấp thụ)
+        effort_result_score = 82.0
     elif vr >= 1.25 and chg > 0 and close_pos <= 0.35:
-        effort_result_score = 22.0  # Nỗ lực kéo lớn nhưng bị xả cụt đầu (Phân phối)
+        effort_result_score = 22.0
 
-    # 1. TÍNH ĐIỂM TẠO ĐÁY SỚM (BOTTOM SCORE: 0 - 100)
     bottom_score = 15.0
-    # Đang ở gần vùng hỗ trợ 20 phiên (trong biên độ -2% đến +4.5%)
     if -2.0 <= dist_to_sup_pct <= 4.5:
         bottom_score += 22.0
-    # Tín hiệu cạn cung (No Supply / Test cung tại đáy)
     if vr < 0.78 and abs(chg) <= 1.5 and close_pos >= 0.5:
         bottom_score += 20.0
-    # Tín hiệu hấp thụ cung / Spring (Rút chân mạnh từ đáy phiên)
     if close_pos >= 0.65 and (lo <= sup * 1.015 or chg >= -0.5):
         bottom_score += 18.0
-    # Nhiều lần kiểm định đáy thành công với áp lực bán suy giảm (Supply Decay - Use case NKG)
     if retest_cnt >= 2 and decay_sc >= 55.0:
         bottom_score += 15.0
-    # Sức mạnh tương đối RS bắt đầu phân kỳ dương so với VN-Index
     if (r.get('rs_vni') or 0) > 0.3:
         bottom_score += 10.0
-    # Xác nhận thêm từ dòng tiền thực (Observed Flow)
     if is_real_flow and br >= 55.0:
         bottom_score += 10.0
 
     bottom_score = round(_clamp(bottom_score, 0.0, 99.0), 1)
 
-    # 2. TÍNH ĐIỂM RỦI RO TẠO ĐỈNH SỚM (TOP SCORE: 0 - 100)
     top_score = 10.0
-    # Đang tiệm cận kháng cự 20 phiên
     if -1.5 <= dist_to_res_pct <= 3.0:
         top_score += 20.0
-    # Bị bán dội ngược từ đỉnh phiên (Upthrust / Cụt đầu)
     if hi > p * 1.018 and close_pos <= 0.38:
         top_score += 24.0
-    # Volume đột biến cao nhưng giá không tăng tương xứng hoặc đỏ dưới VWAP (Use case LPB)
     if vr >= 1.25 and (chg <= 0.5 or r.get('vwap_position') == 'Dưới VWAP'):
         top_score += 22.0
-    # Suy yếu so với ngành & thị trường
     if (r.get('rs_vni') or 0) < -0.8:
         top_score += 12.0
     if is_real_flow and br <= 44.0:
@@ -172,7 +151,6 @@ def compute_bottom_top_detectors(r):
 
     top_score = round(_clamp(top_score, 0.0, 99.0), 1)
 
-    # Gán nhãn trạng thái cảnh báo sớm
     if bottom_score >= 72 and bottom_score > top_score + 15:
         if close_pos >= 0.7 and vr >= 1.0:
             early_tag = "🟢 Xác Nhận Tạo Đáy (Spring/Hấp Thụ)"
@@ -219,7 +197,6 @@ def classify_wyckoff(r):
 def _score(r):
     has_vol = bool(r.get('volume_available')) and (r.get('volume') or 0) > 0
     is_real = bool(r.get('is_real_deal'))
-    # Tách bạch độ tin cậy dòng tiền: Dòng tiền ước tính chỉ được tính trọng số thấp
     flow_weight = 1.0 if is_real else 0.45
 
     q = 20
@@ -237,7 +214,6 @@ def _score(r):
     s += _clamp((r.get('rs_vni') or 0) * 2.2, -12, 12)
     s += _clamp(((r.get('vol_ratio') or 1) - 1) * 14, -8, 12)
     s += _clamp(((r.get('buy_ratio') or 50) - 50) * 0.42 * flow_weight, -10, 10)
-    # Cộng hưởng từ Bottom/Top Detector
     s += _clamp(((r.get('bottom_score') or 50) - 50) * 0.18, -8, 10)
     s -= _clamp(((r.get('top_score') or 30) - 50) * 0.20, 0, 12)
     if (r.get('foreign_net_today') or 0) > 0:
@@ -250,8 +226,7 @@ def _score(r):
         s -= 6
     signal = round(_clamp(s, 5, 98), 1)
 
-    # Tính độ đồng thuận từ các biến ĐỘC LẬP (Giá/VWAP, RS, Xu hướng tuần, Khối ngoại, Cấu trúc đáy)
-     independent_votes = [
+    independent_votes = [
         r['vwap_position'] == 'Trên VWAP',
         (r.get('rs_vni') or 0) > 0,
         r['weekly_trend'] in ('Uptrend Tuần', 'Pullback Trên MA20W'),
