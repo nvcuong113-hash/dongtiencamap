@@ -1,13 +1,40 @@
 from __future__ import annotations
 import json
 from datetime import datetime
-from .config import ticker_sector
-from .calendar_vn import u_shape_ratio
+from .config import SECTORS
 from .db import connect, query, event
 from .providers import fetch_stock_feeds, fetch_history, fetch_deal_flow
 
+try:
+    from .calendar_vn import u_shape_ratio
+except ImportError:
+    def u_shape_ratio(now: datetime):
+        h = now.hour + now.minute / 60.0
+        if h < 9.25:
+            return "Trước giờ GD", 1.0
+        if h <= 11.5:
+            return "Phiên Sáng", max(0.18, min(0.55, (h - 9.0) / 4.5))
+        if h < 13.0:
+            return "Nghỉ Trưa", 0.55
+        if h <= 14.75:
+            return "Phiên Chiều", max(0.55, min(1.0, 0.55 + (h - 13.0) / 3.9))
+        return "Đóng Cửa", 1.0
+
+
+def _get_sector(symbol: str) -> str:
+    sym = str(symbol or "").strip().upper()
+    if isinstance(SECTORS, dict):
+        if sym in SECTORS and isinstance(SECTORS[sym], str):
+            return SECTORS[sym]
+        for sec_name, tickers in SECTORS.items():
+            if isinstance(tickers, (list, tuple, set)) and sym in tickers:
+                return str(sec_name)
+    return "Khác"
+
+
 def _clamp(v, lo, hi):
     return max(lo, min(hi, v))
+
 
 def _proxy_flow(q):
     vol = int(q.get('volume') or 0)
@@ -22,6 +49,7 @@ def _proxy_flow(q):
     sell = max(0, vol - buy)
     net_b = ((buy - sell) * p) / 1e9
     return buy, sell, buy_ratio * 100, net_b, 'Flow Ước Tính (Từ giá & VWAP)'
+
 
 def _weekly_and_structure_features(bars):
     if len(bars) < 20:
@@ -93,6 +121,7 @@ def _weekly_and_structure_features(bars):
         'retest_count': retest_count, 'supply_decay_score': round(supply_decay_score, 1),
         'downside_eff': round(downside_eff, 2), 'upside_eff': round(upside_eff, 2)
     }
+
 
 def compute_bottom_top_detectors(r):
     if not r.get('volume_available') or (r.get('volume') or 0) <= 0:
@@ -167,6 +196,7 @@ def compute_bottom_top_detectors(r):
 
     return bottom_score, top_score, early_tag, round(effort_result_score, 1)
 
+
 def classify_wyckoff(r):
     if not r.get('volume_available') or (r.get('volume') or 0) <= 0:
         return 'Thiếu dữ liệu volume/flow'
@@ -193,6 +223,7 @@ def classify_wyckoff(r):
     if chg <= -2.0 and vr >= 1.2 and br < 45 and vwap_pos == 'Dưới VWAP':
         return 'Markdown / Xả Hàng'
     return 'Sideway / Tích lũy'
+
 
 def _score(r):
     has_vol = bool(r.get('volume_available')) and (r.get('volume') or 0) > 0
@@ -253,6 +284,7 @@ def _score(r):
 
     return quality, signal, agree, p_win, conv, action
 
+
 def _delta_open_flow(trade_date, symbol, current_net):
     if current_net is None:
         return None
@@ -260,6 +292,7 @@ def _delta_open_flow(trade_date, symbol, current_net):
     if df.empty or df.iloc[0]['net_flow_billion'] is None:
         return 0.0
     return float(current_net) - float(df.iloc[0]['net_flow_billion'])
+
 
 def _foreign_5d(symbol, today_net):
     df = query('SELECT trade_date, foreign_net_today FROM stock_snapshots WHERE symbol=? AND foreign_net_today IS NOT NULL ORDER BY id DESC LIMIT 30', (symbol,))
@@ -271,9 +304,11 @@ def _foreign_5d(symbol, today_net):
         vals = [int(today_net)] + vals
     return sum(vals) if vals else today_net
 
+
 def compute_quant(symbols, index_quote, now: datetime):
     feeds, errors = fetch_stock_feeds(symbols)
-    _, ratio = u_shape_ratio(now)
+    u_res = u_shape_ratio(now)
+    ratio = float(u_res[1] if isinstance(u_res, (tuple, list)) and len(u_res) > 1 else (u_res if isinstance(u_res, (int, float)) else 1.0))
     trade_date = now.date().isoformat()
     vni_change = float(index_quote.get('change_pct') or 0.0) if index_quote.get('valid') else 0.0
     rows = []
@@ -316,7 +351,7 @@ def compute_quant(symbols, index_quote, now: datetime):
         f_5d = _foreign_5d(sym, f_today)
 
         r = {
-            'symbol': sym, 'sector': ticker_sector(sym),
+            'symbol': sym, 'sector': _get_sector(sym),
             'price': q['price'], 'ref_price': q['ref_price'], 'change_pct': round(q['change_pct'], 2),
             'high': q['high'], 'low': q['low'],
             'volume': vol if vol_ok else None, 'volume_available': vol_ok,
@@ -371,6 +406,7 @@ def compute_quant(symbols, index_quote, now: datetime):
 
     _persist(rows, now)
     return sorted(rows, key=lambda x: (x.get('volume_available', False), x['bottom_score'], x['signal_score']), reverse=True), errors
+
 
 def _persist(rows, now: datetime):
     ts = now.isoformat(); trade_date = now.date().isoformat()
