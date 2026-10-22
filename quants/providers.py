@@ -107,11 +107,10 @@ def _quote_from_raw(x, provider):
             'provider':provider,'raw':x}
 
 def fetch_stock_feeds(symbols):
-    """Cơ chế Waterfall Failover đa nguồn: VPS -> TCBS -> VNDirect để triệt tiêu hoàn toàn lỗi mất quote."""
+    """Cơ chế Waterfall Failover: VPS -> TCBS -> VNDirect để triệt tiêu lỗi mất quote."""
     symbols=list(dict.fromkeys(str(s).strip().upper() for s in symbols if str(s).strip()))
     result={}; errors=[]
     
-    # 1. Thử lấy từ VPS trước
     try:
         url='https://bgapidatafeed.vps.com.vn/getliststockdata/'+','.join(symbols)
         payload=get_json(url, timeout=6)
@@ -124,10 +123,8 @@ def fetch_stock_feeds(symbols):
     except Exception as e:
         errors.append(f'VPS quotes: {type(e).__name__}: {e}')
 
-    # 2. Các mã còn thiếu sẽ được quét dự phòng tự động qua TCBS Overview & VNDirect
     missing=[sym for sym in symbols if sym not in result]
     for sym in missing:
-        # Thử qua TCBS API dự phòng
         try:
             d = get_json(f'https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{sym}/overview', timeout=5)
             p = price(d.get('price') or d.get('close'))
@@ -145,7 +142,6 @@ def fetch_stock_feeds(symbols):
         except Exception:
             pass
 
-        # Thử qua VNDirect DChart dự phòng tiếp theo
         try:
             now_ts = int(time.time())
             d = get_json(f'https://dchart-api.vndirect.com.vn/dchart/history?resolution=D&symbol={sym}&from={now_ts-86400*3}&to={now_ts}', timeout=5)
