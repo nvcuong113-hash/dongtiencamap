@@ -48,8 +48,8 @@ def _generate(client, provider, prompt):
         )
         return response.choices[0].message.content or '{}'
     else:
-        # Đồng bộ danh sách model dự phòng chuẩn theo Colab/Script mới nhất
-        DANH_SACH_MODELS = ["gemini-3.8-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-lite-latest"]
+        # Đồng bộ danh sách model dự phòng mới nhất giống như trong Google Colab
+        DANH_SACH_MODELS = ["gemini-3.8-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-lite-latest", "gemini-1.5-flash"]
         last_error = None
         for m_name in DANH_SACH_MODELS:
             try:
