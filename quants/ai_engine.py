@@ -48,8 +48,8 @@ def _generate(client, provider, prompt):
         )
         return response.choices[0].message.content or '{}'
     else:
-        # Đồng bộ danh sách model dự phòng mới nhất giống như trong Google Colab
-        DANH_SACH_MODELS = ["gemini-3.8-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-lite-latest", "gemini-1.5-flash"]
+        # Danh sách model dự phòng theo chuẩn Colab mới nhất để chống hoàn toàn lỗi 404
+        DANH_SACH_MODELS = ["gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-lite-latest", "gemini-1.5-flash"]
         last_error = None
         for m_name in DANH_SACH_MODELS:
             try:
@@ -61,8 +61,8 @@ def _generate(client, provider, prompt):
                     return response.text
             except Exception as e:
                 last_error = e
-                time.sleep(0.3)
-        raise RuntimeError(f"Không thể kết nối Gemini API với mọi model. Chi tiết: {last_error}")
+                time.sleep(0.2)
+        raise RuntimeError(f"Không thể kết nối Gemini API. Chi tiết: {last_error}")
 
 def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
     valid_rows = [r for r in rows if float(r.get('volume') or 0) > 0 and bool(r.get('volume_available', True))]
