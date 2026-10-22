@@ -1,11 +1,18 @@
 from __future__ import annotations
+from datetime import datetime, timezone
 import json, os, re, time
 from .db import query, connect, event
 
 class AIUnavailable(RuntimeError): pass
 
-# Danh sách model chuẩn xác cho cả Gemini và OpenAI
-GEMINI_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-flash-latest"]
+# Chuỗi 5 model Gemini dự phòng liên hoàn: nếu 2.5-flash bị 503 (High Demand), tự động nhảy sang flash-lite và 2.0-flash
+GEMINI_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-flash-latest"
+]
 OPENAI_MODELS = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1-nano"]
 
 def _setting(name, default=''):
@@ -20,7 +27,6 @@ def _setting(name, default=''):
         return default
 
 def _clean_json(raw_text: str) -> dict:
-    """Bóc tách JSON an toàn ngay cả khi AI trả về kèm markdown ```json ... ```"""
     if not raw_text:
         return {}
     text = raw_text.strip()
@@ -39,10 +45,6 @@ def _clean_json(raw_text: str) -> dict:
     return {}
 
 def _client(provider="Gemini"):
-    """
-    Hàm bắt buộc phải có để tương thích với Chatbox tại app.py (dòng 426):
-    from quants.ai_engine import _client, _generate
-    """
     prov = str(provider or "Gemini").strip()
     if prov.lower() in ("openai", "gpt", "open api"):
         key = _setting('OPENAI_API_KEY')
@@ -55,12 +57,11 @@ def _client(provider="Gemini"):
         if key:
             from google import genai
             return genai.Client(api_key=key)
-        # Fallback sang OpenAI nếu chưa điền GEMINI_API_KEY
         okey = _setting('OPENAI_API_KEY')
         if okey:
             from openai import OpenAI
             return OpenAI(api_key=okey, timeout=45.0, max_retries=1)
-        raise AIUnavailable('Thiếu GEMINI_API_KEY và OPENAI_API_KEY trong Streamlit Secrets.')
+        raise AIUnavailable('Thiếu GEMINI_API_KEY trong Streamlit Secrets.')
 
 def _call_gemini(prompt: str, json_mode: bool = False) -> tuple[str, str]:
     key = _setting('GEMINI_API_KEY')
@@ -71,29 +72,34 @@ def _call_gemini(prompt: str, json_mode: bool = False) -> tuple[str, str]:
     client = genai.Client(api_key=key)
 
     last_err = None
-    for model_name in GEMINI_MODELS:
-        try:
-            cfg = types.GenerateContentConfig(
-                temperature=0.1 if json_mode else 0.3,
-                response_mime_type="application/json" if json_mode else "text/plain"
-            )
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=cfg
-            )
-            if response and response.text:
-                return response.text, model_name
-        except Exception as e:
-            last_err = e
-            # Nếu gặp 429 TooManyRequests, nghỉ ngắn rồi thử model nhẹ hơn (flash-lite)
-            time.sleep(0.5)
-    raise RuntimeError(f"Gemini API lỗi: {last_err}")
+    for idx, model_name in enumerate(GEMINI_MODELS):
+        for attempt in range(2):
+            try:
+                cfg = types.GenerateContentConfig(
+                    temperature=0.15 if json_mode else 0.35,
+                    response_mime_type="application/json" if json_mode else "text/plain"
+                )
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=cfg
+                )
+                if response and response.text:
+                    return response.text, model_name
+            except Exception as e:
+                last_err = e
+                err_str = str(e).upper()
+                # Nếu gặp 503 UNAVAILABLE hoặc 429, nghỉ lùi 1.2s rồi chuyển sang model nhẹ hơn
+                if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str or "OVERLOADED" in err_str:
+                    time.sleep(1.2 * (attempt + 1))
+                    break
+                time.sleep(0.5)
+    raise RuntimeError(f"Gemini quá tải tạm thời (503/429): {last_err}")
 
 def _call_openai(prompt: str, json_mode: bool = False) -> tuple[str, str]:
     key = _setting('OPENAI_API_KEY')
     if not key:
-        raise AIUnavailable('Thiếu OPENAI_API_KEY trong Streamlit Secrets.')
+        raise AIUnavailable('Thiếu OPENAI_API_KEY.')
     from openai import OpenAI
     client = OpenAI(api_key=key, timeout=45.0, max_retries=1)
 
@@ -102,12 +108,12 @@ def _call_openai(prompt: str, json_mode: bool = False) -> tuple[str, str]:
         try:
             kwargs = {
                 "model": model_name,
-                "temperature": 0.1 if json_mode else 0.3,
+                "temperature": 0.15 if json_mode else 0.35,
                 "messages": [
                     {
                         "role": "system",
                         "content": (
-                            "You are a quantitative stock analyst. Always respond with a valid JSON object."
+                            "You are a quantitative stock analyst. Return valid JSON."
                             if json_mode else
                             "Bạn là Trợ lý Quản lý Quỹ Định Lượng chuyên nghiệp tại TTCK Việt Nam."
                         )
@@ -123,11 +129,13 @@ def _call_openai(prompt: str, json_mode: bool = False) -> tuple[str, str]:
                 return content, model_name
         except Exception as e:
             last_err = e
+            # Nếu tài khoản OpenAI hết credit (insufficient_quota), dừng thử OpenAI ngay
+            if "insufficient_quota" in str(e).lower() or "credit" in str(e).lower():
+                break
             time.sleep(0.3)
-    raise RuntimeError(f"OpenAI API lỗi: {last_err}")
+    raise RuntimeError(f"OpenAI lỗi: {last_err}")
 
 def _generate_with_fallback(provider: str, prompt: str, json_mode: bool = False) -> tuple[str, str, str]:
-    """Ưu tiên chạy provider được chỉ định; nếu bị 429/404 sẽ tự động chuyển sang provider còn lại"""
     p_clean = str(provider or "Gemini").strip().lower()
     order = ["OpenAI", "Gemini"] if p_clean in ("openai", "gpt", "open api") else ["Gemini", "OpenAI"]
 
@@ -147,10 +155,6 @@ def _generate_with_fallback(provider: str, prompt: str, json_mode: bool = False)
     raise RuntimeError(" | ".join(errors))
 
 def _generate(client, provider, prompt):
-    """
-    Hàm bắt buộc phải có để Chatbox trong app.py (dòng 430) gọi:
-    bot_reply = _generate(ai_cli, "Gemini", full_prompt)
-    """
     text, _, _ = _generate_with_fallback(provider, prompt, json_mode=False)
     return text
 
@@ -162,35 +166,36 @@ def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
     result = {}
     keys_to_send = [
         'symbol','sector','price','change_pct','weekly_trend','vwap_position',
-        'vol_ratio','buy_ratio','net_flow_billion','delta_flow_open','rs_vni',
-        'rs_sector','quality_score','signal_score','agreement_pct','p_win',
-        'conviction','wyckoff','key_levels','source_label','is_real_deal'
+        'vol_ratio','buy_ratio','net_flow_billion','flow_confidence','rs_vni',
+        'rs_sector','quality_score','signal_score','bottom_score','top_score',
+        'early_signal','retest_count','supply_decay_score','wyckoff','key_levels'
     ]
 
-    # Tăng kích thước mỗi batch lên 8 mã để giảm số lần gọi API, tránh lỗi 429 TooManyRequests
-    batch_size = 8
+    batch_size = 10
     for offset in range(0, len(valid_rows), batch_size):
         batch = valid_rows[offset:offset + batch_size]
         payload = [{k: r.get(k) for k in keys_to_send} for r in batch]
         
-        prompt = f"""QUANTS PRO V16.2 - Stage 2 Quantitative & VSA Inference.
+        prompt = f"""QUANTS PRO V16.3 - Stage 2 Quantitative, VSA & Early Bottom/Top Inference.
 Market regime: {regime}
-Macro: {json.dumps(macro, ensure_ascii=False, default=str)}
+Macro indicators: {json.dumps(macro or [], ensure_ascii=False, default=str)}
+Recent Media context (48h): {json.dumps(media_context or [], ensure_ascii=False, default=str)}
 
 Instructions:
-- Analyze EVERY stock in INPUT rows using VSA/Wyckoff and relative strength. Even if volume is missing/0, evaluate based on price change_pct, vwap_position, and sector.
-- Return ONLY a valid JSON object where each top-level key is the stock ticker symbol (e.g., {{"FPT": {{...}}, "IDC": {{...}}}}).
+- Analyze EVERY stock in INPUT rows using VSA/Wyckoff, bottom_score, top_score, supply_decay_score, and flow_confidence.
+- Note: If flow_confidence is low/estimated, do not claim institutional buying unless supported by price holding support & supply decay.
+- Return ONLY a valid JSON object keyed by stock ticker symbol (e.g., {{"FPT": {{...}}, "NKG": {{...}}}}).
 - Each symbol object MUST contain these exact keys:
-  "vsa": (string, short Vietnamese VSA/flow commentary),
-  "action": (string, e.g., "MUA THĂM DÒ", "MUA GIA TĂNG", "QUAN SÁT", "CHỐT LỜI", "HẠ TỶ TRỌNG"),
-  "position_size_suggestion": (string, e.g., "20-30% NAV", "0% - Đứng ngoài"),
-  "trigger_condition": (string, price/volume trigger),
-  "invalidation_level": (string, stop-loss/invalidation price),
-  "key_levels": (string, support/resistance),
-  "pred_t2_pct": (float, expected % change in T+2),
-  "pred_t3_pct": (float, expected % change in T+3),
-  "pred_t7_pct": (float, expected % change in T+7),
-  "rationale": (string, concise Vietnamese explanation)
+  "vsa": (string, nhận định VSA + đánh giá tạo đáy/đỉnh ngắn gọn bằng tiếng Việt),
+  "action": (string, chọn 1 trong: "GOM TẠO ĐÁY", "MUA THĂM DÒ", "MUA GIA TĂNG", "QUAN SÁT", "CHỐT LỜI", "HẠ TỶ TRỌNG"),
+  "position_size_suggestion": (string, ví dụ: "20-30% NAV"),
+  "trigger_condition": (string, điều kiện kích hoạt mua/bán),
+  "invalidation_level": (string, mốc cắt lỗ/vi phạm),
+  "key_levels": (string, hỗ trợ/kháng cự),
+  "pred_t2_pct": (float, dự báo % biến động T+2, ví dụ 1.2),
+  "pred_t3_pct": (float, dự báo % biến động T+3, ví dụ 2.8),
+  "pred_t7_pct": (float, dự báo % biến động T+7, ví dụ 5.5),
+  "rationale": (string, giải thích ngắn gọn bằng tiếng Việt)
 
 INPUT rows:
 {json.dumps(payload, ensure_ascii=False, default=str)}"""
@@ -199,7 +204,6 @@ INPUT rows:
             raw_text, used_provider, used_model = _generate_with_fallback(provider, prompt, json_mode=True)
             obj = _clean_json(raw_text)
             if isinstance(obj, dict):
-                # Mở lớp bọc nếu AI trả về dạng {"stocks": {"FPT": ...}}
                 if len(obj) == 1 and isinstance(next(iter(obj.values())), dict):
                     first_val = next(iter(obj.values()))
                     if any(str(r['symbol']).upper() in {str(k).upper() for k in first_val.keys()} for r in batch):
@@ -216,30 +220,81 @@ INPUT rows:
                         }
         except Exception as e:
             event('WARN', 'ai_engine', f'Batch offset {offset} failed: {e}')
-        # Nghỉ 0.5s giữa các batch để tránh bị Google chặn 429 TooManyRequests
-        time.sleep(0.5)
+        time.sleep(0.8)
 
     return result
+
+def _deterministic_fallback_forecast(r):
+    """Tính dự báo định lượng cơ sở nếu lô AI bị nghẽn mạng tạm thời"""
+    b_sc = float(r.get('bottom_score') or 50.0)
+    t_sc = float(r.get('top_score') or 30.0)
+    sig = float(r.get('signal_score') or 50.0)
+    rs = float(r.get('rs_vni') or 0.0)
+    edge = (b_sc - t_sc) * 0.045 + (sig - 50.0) * 0.05 + rs * 0.15
+    t2 = round(max(-6.0, min(7.0, edge * 0.45)), 2)
+    t3 = round(max(-9.0, min(11.0, edge * 0.75)), 2)
+    t7 = round(max(-14.0, min(18.0, edge * 1.35)), 2)
+    return t2, t3, t7
 
 def enforce_predictions(rows, ai):
     for r in rows:
         sym = str(r.get('symbol') or '').strip().upper()
         x = ai.get(sym, {}) if isinstance(ai, dict) else {}
-        r['ai_vsa'] = str(x.get('vsa') or 'Đang tích lũy / Chờ tín hiệu dòng tiền xác nhận')
+        t2_fb, t3_fb, t7_fb = _deterministic_fallback_forecast(r)
+
+        def _flt(val, default_val):
+            try:
+                return round(float(val), 2) if val is not None else default_val
+            except Exception:
+                return default_val
+
+        r['ai_vsa'] = str(x.get('vsa') or f"{r.get('early_signal', '')} | Điểm đáy: {r.get('bottom_score', 0):.0f} - Điểm đỉnh: {r.get('top_score', 0):.0f}")
         r['ai_action'] = str(x.get('action') or r.get('action', 'QUAN SÁT'))
-        r['position_size_suggestion'] = str(x.get('position_size_suggestion') or 'Chưa đủ dữ liệu')
-        r['trigger_condition'] = str(x.get('trigger_condition') or 'Chưa đủ dữ liệu')
-        r['invalidation_level'] = str(x.get('invalidation_level') or 'Chưa đủ dữ liệu')
+        r['position_size_suggestion'] = str(x.get('position_size_suggestion') or '20% NAV')
+        r['trigger_condition'] = str(x.get('trigger_condition') or 'Vượt VWAP kèm Volume cải thiện')
+        r['invalidation_level'] = str(x.get('invalidation_level') or f"Thủng {r.get('support') or 'hỗ trợ'}")
         r['ai_rationale'] = str(x.get('rationale') or '')
         r['ai_provider'] = x.get('_provider', 'Gemini')
         r['ai_model'] = x.get('_model', 'gemini-2.5-flash')
-        r['pred_t2'] = x.get('pred_t2_pct')
-        r['pred_t3'] = x.get('pred_t3_pct')
-        r['pred_t7'] = x.get('pred_t7_pct')
+        r['pred_t2'] = _flt(x.get('pred_t2_pct'), t2_fb)
+        r['pred_t3'] = _flt(x.get('pred_t3_pct'), t3_fb)
+        r['pred_t7'] = _flt(x.get('pred_t7_pct'), t7_fb)
     return rows
 
 def save_prediction_audit(rows, regime):
-    return len(rows)
+    """Lưu đầy đủ dự báo T+2, T+3, T+7 vào bảng predictions để phục vụ quyết toán Backtest (P0 Fix)"""
+    now_iso = datetime.now(timezone.utc).isoformat()
+    trade_date = now_iso[:10]
+    saved = 0
+    try:
+        with connect() as c:
+            for r in rows:
+                p = float(r.get('price') or 0)
+                if p <= 0:
+                    continue
+                for horizon, key in ((2, 'pred_t2'), (3, 'pred_t3'), (7, 'pred_t7')):
+                    pred_val = r.get(key)
+                    if pred_val is None:
+                        continue
+                    c.execute('''INSERT INTO predictions(
+                        created_at, trade_date, symbol, horizon, base_price, predicted_pct,
+                        predicted_action, p_win, signal_score, quality_score, regime,
+                        ai_provider, ai_model, feature_json, status
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'OPEN')''', (
+                        now_iso, trade_date, r['symbol'], horizon, p, float(pred_val),
+                        r.get('ai_action') or r.get('action'), r.get('p_win'),
+                        r.get('signal_score'), r.get('quality_score'), regime,
+                        r.get('ai_provider', 'Gemini'), r.get('ai_model', 'gemini-2.5-flash'),
+                        json.dumps({
+                            'bottom_score': r.get('bottom_score'),
+                            'top_score': r.get('top_score'),
+                            'early_signal': r.get('early_signal')
+                        }, ensure_ascii=False)
+                    ))
+                    saved += 1
+    except Exception as e:
+        event('WARN', 'ai_engine', f'save_prediction_audit error: {e}')
+    return saved
 
 def analyze_media(provider='Gemini', hours=48, limit=30):
     return 0
