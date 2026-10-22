@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import pandas as pd
 from .config import DB_PATH
 
- SCHEMA = '''
+SCHEMA = '''
 PRAGMA journal_mode=WAL;
 CREATE TABLE IF NOT EXISTS stock_snapshots(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,7 +90,6 @@ def connect():
 def init_db():
     with connect() as c:
         c.executescript(SCHEMA)
-        # Đảm bảo cột status tồn tại trên database cũ (Migration an toàn)
         cols = [r["name"] for r in c.execute("PRAGMA table_info(users)").fetchall()]
         if "status" not in cols:
             c.execute("ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'APPROVED'")
@@ -126,7 +125,6 @@ def register_user(username: str, password: str, full_name: str = "") -> tuple[bo
             if exists:
                 return False, "Tên đăng nhập này đã tồn tại."
             now_str = datetime.now(timezone.utc).isoformat()
-            # Tài khoản mới đăng ký sẽ ở trạng thái PENDING chờ Admin duyệt
             c.execute(
                 "INSERT INTO users(username, password_hash, full_name, role, status, cash_balance, created_at) VALUES (?,?,?,?,?,?,?)",
                 (username, _hash_pw(password), full_name.strip() or username, "USER", "PENDING", 0.0, now_str)
