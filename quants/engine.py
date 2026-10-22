@@ -1,212 +1,417 @@
 from __future__ import annotations
-from datetime import datetime
 import json
-from .config import SECTORS, TZ
+from datetime import datetime
+from .config import ticker_sector
+from .calendar_vn import u_shape_ratio, market_Dest_status
+from .db import connect, query, event
 from .providers import fetch_stock_feeds, fetch_history, fetch_deal_flow
-from .db import connect, event
 
-def u_shape_ratio(now=None):
-    now=now or datetime.now(TZ); t=now.hour*60+now.minute
-    if t<540 or t>=885: return 1.0
-    if t<630: return .15+.25*(t-540)/90
-    if t<=690: return .40+.15*(t-630)/60
-    if t<780: return .55
-    if t<855: return .55+.25*(t-780)/75
-    return .80+.20*(t-855)/30
+def _clamp(v, lo, hi):
+    return max(lo, min(hi, v))
 
-def _weekly_features(bars):
-    if not bars: return {'trend':'Thiếu dữ liệu','ma10w':None,'ma20w':None,'support':None,'resistance':None,'bias':'NEUTRAL','drop_from_peak':None}
-    # Approximate weekly close using last available daily close in each ISO week.
-    weeks={}
-    for b in bars: weeks[b['date'][:7]+'-'+str(__import__('datetime').date.fromisoformat(b['date']).isocalendar().week)]=b
-    wb=list(weeks.values()); closes=[x['close'] for x in wb]
-    ma10=sum(closes[-10:])/10 if len(closes)>=10 else None
-    ma20=sum(closes[-20:])/20 if len(closes)>=20 else None
-    recent=bars[-100:]
-    sup=min(x['low'] for x in recent) if recent else None
-    res=max(x['high'] for x in recent) if recent else None
-    last=bars[-1]['close']
-    if ma10 and ma20 and last>ma10>ma20: trend='Tăng (MA10W > MA20W)'; bias='BULLISH'
-    elif ma10 and ma20 and last<ma10<ma20: trend='Giảm (MA10W < MA20W)'; bias='BEARISH'
-    elif ma20 and last<ma20: trend='Phục hồi từ đáy / dưới MA20W'; bias='BEARISH'
-    elif ma10 and last>ma10: trend='Cải thiện / trên MA10W'; bias='NEUTRAL'
-    else: trend='Tích lũy / chưa xác nhận'; bias='NEUTRAL'
-    return {'trend':trend,'ma10w':ma10,'ma20w':ma20,'support':sup,'resistance':res,'bias':bias,'drop_from_peak':(res-last)/res if res else None}
+def _proxy_flow(q):
+    vol = int(q.get('volume') or 0)
+    p = float(q.get('price') or 0)
+    vwap = float(q.get('vwap') or p)
+    if vol <= 0 or p <= 0:
+        return None, None, None, None, 'Unavailable: thiếu volume'
+    edge = ((p - vwap) / vwap) if vwap > 0 else 0.0
+    chg = float(q.get('change_pct') or 0) / 100.0
+    buy_ratio = _clamp(0.5 + edge * 3.2 + chg * 1.6, 0.12, 0.88)
+    buy = int(round(vol * buy_ratio))
+    sell = max(0, vol - buy)
+    net_b = ((buy - sell) * p) / 1e9
+    return buy, sell, buy_ratio * 100, net_b, 'Flow Ước Tính (Từ giá & VWAP)'
 
-def _proxy_flow(row):
-    span=max(row['high']-row['low'],0.000001)
-    buy_ratio=max(.20,min(.80,.50+((row['price']-row['vwap'])/span)*.35))
-    buy=round(row['volume']*buy_ratio); sell=max(0,row['volume']-buy)
-    return buy,sell
+def _weekly_and_structure_features(bars):
+    if len(bars) < 20:
+        return {
+            'ma20_vol': None, 'ret5': 0.0, 'weekly_trend': 'Chưa đủ lịch sử',
+            'ma10w': None, 'ma20w': None, 'support': None, 'resistance': None,
+            'pivot_sup_20': None, 'pivot_res_20': None,
+            'retest_count': 0, 'supply_decay_score': 50.0,
+            'downside_eff': 1.0, 'upside_eff': 1.0
+        }
+    closes = [b['close'] for b in bars]
+    vols = [b['volume'] for b in bars if b.get('volume', 0) > 0]
+    ma20_vol = sum(vols[-20:]) / min(20, len(vols)) if vols else None
+    ret5 = (closes[-1] / closes[-6] - 1) * 100 if len(closes) >= 6 and closes[-6] > 0 else 0.0
+
+    # Cụm hỗ trợ/kháng cự ngắn hạn (20 phiên - quan trọng cho phát hiện đáy NKG/đỉnh LPB) & trung hạn (60 phiên)
+    recent_20 = bars[-20:]
+    recent_60 = bars[-60:] if len(bars) >= 60 else bars
+    pivot_sup_20 = min(b['low'] for b in recent_20)
+    pivot_res_20 = max(b['high'] for b in recent_20)
+    sup_60 = min(b['low'] for b in recent_60)
+    res_60 = max(b['high'] for b in recent_60)
+
+    # Đếm số lần kiểm định vùng đáy ngắn hạn (Retest) & độ suy giảm volume bán (Supply Decay)
+    retest_bars = [b for b in recent_20 if b['low'] <= pivot_sup_20 * 1.025]
+    retest_count = len(retest_bars)
+    supply_decay_score = 50.0
+    if len(retest_bars) >= 2 and ma20_vol and ma20_vol > 0:
+        first_vol = retest_bars[0].get('volume') or ma20_vol
+        last_vol = retest_bars[-1].get('volume') or ma20_vol
+        if first_vol > 0:
+            decay_ratio = (first_vol - last_vol) / first_vol
+            supply_decay_score = _clamp(50.0 + decay_ratio * 45.0, 10.0, 95.0)
+
+    # Đo hiệu quả tăng/giảm (Effort vs Result) trong 10 phiên gần nhất
+    down_effs, up_effs = [], []
+    for i in range(max(1, len(bars) - 10), len(bars)):
+        prev_c = bars[i - 1]['close']
+        cur_c = bars[i]['close']
+        v_r = (bars[i]['volume'] / ma20_vol) if (ma20_vol and ma20_vol > 0) else 1.0
+        if prev_c > 0 and v_r > 0.2:
+            pct = (cur_c / prev_c - 1) * 100
+            if pct < 0:
+                down_effs.append(abs(pct) / v_r)
+            elif pct > 0:
+                up_effs.append(pct / v_r)
+
+    downside_eff = sum(down_effs) / len(down_effs) if down_effs else 1.0
+    upside_eff = sum(up_effs) / len(up_effs) if up_effs else 1.0
+
+    weekly = [closes[i] for i in range(len(closes) - 1, -1, -5)][::-1]
+    ma10w = sum(weekly[-10:]) / len(weekly[-10:]) if len(weekly) >= 6 else None
+    ma20w = sum(weekly[-20:]) / len(weekly[-20:]) if len(weekly) >= 12 else None
+    last = closes[-1]
+    if ma10w and ma20w:
+        if last >= ma10w >= ma20w:
+            trend = 'Uptrend Tuần'
+        elif last < ma10w and last >= ma20w:
+            trend = 'Pullback Trên MA20W'
+        elif last < ma20w:
+            trend = 'Dưới MA20W'
+        else:
+            trend = 'Tích Lũy Tuần'
+    else:
+        trend = 'Tích Lũy Tuần'
+
+    return {
+        'ma20_vol': ma20_vol, 'ret5': ret5, 'weekly_trend': trend,
+        'ma10w': ma10w, 'ma20w': ma20w,
+        'support': pivot_sup_20, 'resistance': pivot_res_20,
+        'sup_60': sup_60, 'res_60': res_60,
+        'retest_count': retest_count, 'supply_decay_score': round(supply_decay_score, 1),
+        'downside_eff': round(downside_eff, 2), 'upside_eff': round(upside_eff, 2)
+    }
+
+def compute_bottom_top_detectors(r):
+    """
+    Bộ phát hiện Tạo Đáy Sớm (Bottom Detector - mẫu hình NKG)
+    & Tạo Đỉnh Sớm (Top Detector - mẫu hình LPB) hoạt động độc lập.
+    """
+    if not r.get('volume_available') or (r.get('volume') or 0) <= 0:
+        return 0.0, 0.0, 'Thiếu dữ liệu volume', 50.0
+
+    p = float(r.get('price') or 0)
+    hi = float(r.get('high') or p)
+    lo = float(r.get('low') or p)
+    chg = float(r.get('change_pct') or 0)
+    vr = float(r.get('vol_ratio') or 0)
+    br = float(r.get('buy_ratio') or 50.0)
+    is_real_flow = bool(r.get('is_real_deal'))
+    sup = float(r.get('support') or p * 0.95)
+    res = float(r.get('resistance') or p * 1.05)
+    retest_cnt = int(r.get('retest_count') or 0)
+    decay_sc = float(r.get('supply_decay_score') or 50.0)
+
+    spread = max(hi - lo, p * 0.003)
+    close_pos = (p - lo) / spread  # 0.0 = đóng thấp nhất phiên, 1.0 = đóng cao nhất phiên
+    dist_to_sup_pct = ((p - sup) / sup * 100) if sup > 0 else 5.0
+    dist_to_res_pct = ((res - p) / p * 100) if p > 0 else 5.0
+
+    # Đo sự bất tương xứng Nỗ lực (Volume) vs Kết quả (Giá) trong phiên
+    # Nếu Vol lớn nhưng giá không giảm (ở vùng đáy) -> Hấp thụ tốt
+    effort_result_score = 50.0
+    if vr >= 1.15 and abs(chg) <= 1.2 and close_pos >= 0.55:
+        effort_result_score = 82.0  # Nỗ lực đè giá lớn nhưng rút chân (Hấp thụ)
+    elif vr >= 1.25 and chg > 0 and close_pos <= 0.35:
+        effort_result_score = 22.0  # Nỗ lực kéo lớn nhưng bị xả cụt đầu (Phân phối)
+
+    # 1. TÍNH ĐIỂM TẠO ĐÁY SỚM (BOTTOM SCORE: 0 - 100)
+    bottom_score = 15.0
+    # Đang ở gần vùng hỗ trợ 20 phiên (trong biên độ -2% đến +4.5%)
+    if -2.0 <= dist_to_sup_pct <= 4.5:
+        bottom_score += 22.0
+    # Tín hiệu cạn cung (No Supply / Test cung tại đáy)
+    if vr < 0.78 and abs(chg) <= 1.5 and close_pos >= 0.5:
+        bottom_score += 20.0
+    # Tín hiệu hấp thụ cung / Spring (Rút chân mạnh từ đáy phiên)
+    if close_pos >= 0.65 and (lo <= sup * 1.015 or chg >= -0.5):
+        bottom_score += 18.0
+    # Nhiều lần kiểm định đáy thành công với áp lực bán suy giảm (Supply Decay - Use case NKG)
+    if retest_cnt >= 2 and decay_sc >= 55.0:
+        bottom_score += 15.0
+    # Sức mạnh tương đối RS bắt đầu phân kỳ dương so với VN-Index
+    if (r.get('rs_vni') or 0) > 0.3:
+        bottom_score += 10.0
+    # Xác nhận thêm từ dòng tiền thực (Observed Flow)
+    if is_real_flow and br >= 55.0:
+        bottom_score += 10.0
+
+    bottom_score = round(_clamp(bottom_score, 0.0, 99.0), 1)
+
+    # 2. TÍNH ĐIỂM RỦI RO TẠO ĐỈNH SỚM (TOP SCORE: 0 - 100)
+    top_score = 10.0
+    # Đang tiệm cận kháng cự 20 phiên
+    if -1.5 <= dist_to_res_pct <= 3.0:
+        top_score += 20.0
+    # Bị bán dội ngược từ đỉnh phiên (Upthrust / Cụt đầu)
+    if hi > p * 1.018 and close_pos <= 0.38:
+        top_score += 24.0
+    # Volume đột biến cao nhưng giá không tăng tương xứng hoặc đỏ dưới VWAP (Use case LPB)
+    if vr >= 1.25 and (chg <= 0.5 or r.get('vwap_position') == 'Dưới VWAP'):
+        top_score += 22.0
+    # Suy yếu so với ngành & thị trường
+    if (r.get('rs_vni') or 0) < -0.8:
+        top_score += 12.0
+    if is_real_flow and br <= 44.0:
+        top_score += 12.0
+
+    top_score = round(_clamp(top_score, 0.0, 99.0), 1)
+
+    # Gán nhãn trạng thái cảnh báo sớm
+    if bottom_score >= 72 and bottom_score > top_score + 15:
+        if close_pos >= 0.7 and vr >= 1.0:
+            early_tag = "🟢 Xác Nhận Tạo Đáy (Spring/Hấp Thụ)"
+        else:
+            early_tag = "🟢 Tạo Đáy Sớm (Cạn Cung/Giữ Nền)"
+    elif bottom_score >= 58 and bottom_score > top_score:
+        early_tag = "🟡 Nghi Ngờ Tạo Đáy (Đang Test Cung)"
+    elif top_score >= 70 and top_score > bottom_score + 15:
+        early_tag = "🔴 Cảnh Báo Tạo Đỉnh / Phân Phối"
+    elif top_score >= 58 and top_score > bottom_score:
+        early_tag = "🟠 Suy Yếu Tại Vùng Cao (Cẩn Trọng)"
+    else:
+        early_tag = "⚪ Trung Tính / Chờ Tín Hiệu"
+
+    return bottom_score, top_score, early_tag, round(effort_result_score, 1)
 
 def classify_wyckoff(r):
-    ch=r['change_pct']; vr=r['vol_ratio'] or 0; buy_ratio=r['buy_ratio']; bounce=r['bounce']; p=r['price']; sup=r['weekly']['support']; res=r['weekly']['resistance']; drop=r['weekly']['drop_from_peak']; value_billion=r['trading_value_billion']
-    if not r.get('volume_available'): return 'Thiếu dữ liệu volume/flow'
-    if value_billion is not None and value_billion<3 and (r['ma20_vol'] or 0)<200000: return 'GTGD thấp / thiếu thanh khoản'
-    if drop is not None and drop>=.12 and sup and p<=1.025*sup: return 'Quá Bán / Chờ Nảy KT'
-    if ch<=-2.5 or (ch<=-1.8 and buy_ratio<.40): return 'Markdown Candidate'
-    if ((r['high']-p)/r['high']>=.02 if r['high'] else False) and vr>=1.15 and p<r['vwap']: return 'UTAD Candidate'
-    if ch>=2 and buy_ratio>=.58 and vr>=1 and p>=r['vwap'] and bounce>=.80: return 'Markup Candidate'
-    if bounce>=.70 and buy_ratio>=.52 and vr<.90 and ch<=.5: return 'Spring Candidate'
-    if vr<.80 and abs(ch)<=.8 and r.get('net_flow_billion') is not None and r['net_flow_billion']>=0: return 'Absorption Setup'
+    if not r.get('volume_available') or (r.get('volume') or 0) <= 0:
+        return 'Thiếu dữ liệu volume/flow'
+    p = r['price']; hi = r['high']; lo = r['low']
+    vr = r.get('vol_ratio') or 0.0
+    br = r.get('buy_ratio') or 50.0
+    chg = r['change_pct']
+    vwap_pos = r['vwap_position']
+    b_score = r.get('bottom_score') or 0.0
+    t_score = r.get('top_score') or 0.0
+    spread = max(hi - lo, p * 0.005)
+    close_pos = (p - lo) / spread
+
+    if chg <= -2.5 and vr >= 1.35 and close_pos >= 0.45:
+        return 'Selling Climax / Quá Bán'
+    if b_score >= 72 and close_pos >= 0.65 and vr < 1.1:
+        return 'Spring Candidate (Test Đáy)'
+    if b_score >= 68 and vr >= 1.05 and close_pos >= 0.6:
+        return 'Absorption Setup (Hấp Thụ Cung)'
+    if chg >= 1.8 and vr >= 1.25 and br >= 56 and vwap_pos == 'Trên VWAP':
+        return 'SOS / Breakout'
+    if t_score >= 70 or (hi > p * 1.02 and vr >= 1.25 and vwap_pos == 'Dưới VWAP'):
+        return 'UTAD / Phân Phối Đỉnh'
+    if chg <= -2.0 and vr >= 1.2 and br < 45 and vwap_pos == 'Dưới VWAP':
+        return 'Markdown / Xả Hàng'
     return 'Sideway / Tích lũy'
 
 def _score(r):
-    real=r['is_real_deal']; squeeze=(r['vol_ratio'] is not None and r['vol_ratio']<.8)
-    # SRS weights: flow 35/20 real, 15 estimated; VWAP 15/25; volume 20/10 or 25; trend 15; base 5.
-    flow_weight=(20 if squeeze else 35) if real else 15
-    vwap_weight=15 if real else 25
-    volume_weight=(10 if squeeze else 20) if real else 25
-    # Each factor is normalized to its own maximum and may be negative where applicable.
-    buy_ratio=r.get('buy_ratio')
-    if not r.get('volume_available') or buy_ratio is None: return 0
-    flow_score=flow_weight*max(0,min(1,(buy_ratio-.2)/.6))
-    vwap_score=vwap_weight*(1 if r['vwap_position']=='Trên VWAP' else -0.25 if r['vwap_position']=='Dưới VWAP' else .5)
-    vol_ratio=r['vol_ratio']
-    vol_score=volume_weight*(max(0,min(1,(vol_ratio or 0)/1.5)))
-    trend_score=15 if r['weekly']['bias']=='BULLISH' else -5 if r['weekly']['bias']=='BEARISH' else 10
-    return max(10,min(99,round(flow_score+vwap_score+vol_score+trend_score+5,1)))
+    has_vol = bool(r.get('volume_available')) and (r.get('volume') or 0) > 0
+    is_real = bool(r.get('is_real_deal'))
+    # Tách bạch độ tin cậy dòng tiền: Dòng tiền ước tính chỉ được tính trọng số thấp
+    flow_weight = 1.0 if is_real else 0.45
 
-def compute_quant(symbols, index, now=None):
-    now=now or datetime.now(TZ)
-    feeds,feed_errors=fetch_stock_feeds(symbols)
-    rows=[]; errors=list(feed_errors)
+    q = 20
+    q += 25 if has_vol else 0
+    q += 25 if is_real else 8
+    q += 15 if r.get('ma20_vol') else 0
+    q += 15 if r.get('ma20w') else 8
+    quality = _clamp(q, 15, 98)
+
+    if not has_vol:
+        return quality, 0.0, 0, 0.0, 'THẤP', 'CHỜ DỮ LIỆU'
+
+    s = 48.0
+    s += 8.0 if r['vwap_position'] == 'Trên VWAP' else -7.0
+    s += _clamp((r.get('rs_vni') or 0) * 2.2, -12, 12)
+    s += _clamp(((r.get('vol_ratio') or 1) - 1) * 14, -8, 12)
+    s += _clamp(((r.get('buy_ratio') or 50) - 50) * 0.42 * flow_weight, -10, 10)
+    # Cộng hưởng từ Bottom/Top Detector
+    s += _clamp(((r.get('bottom_score') or 50) - 50) * 0.18, -8, 10)
+    s -= _clamp(((r.get('top_score') or 30) - 50) * 0.20, 0, 12)
+    if (r.get('foreign_net_today') or 0) > 0:
+        s += 4
+    elif (r.get('foreign_net_today') or 0) < 0:
+        s -= 3
+    if r['weekly_trend'] == 'Uptrend Tuần':
+        s += 7
+    elif r['weekly_trend'] == 'Dưới MA20W':
+        s -= 6
+    signal = round(_clamp(s, 5, 98), 1)
+
+    # Tính độ đồng thuận từ các biến ĐỘC LẬP (Giá/VWAP, RS, Xu hướng tuần, Khối ngoại, Cấu trúc đáy)
+     independent_votes = [
+        r['vwap_position'] == 'Trên VWAP',
+        (r.get('rs_vni') or 0) > 0,
+        r['weekly_trend'] in ('Uptrend Tuần', 'Pullback Trên MA20W'),
+        (r.get('bottom_score') or 0) >= 60,
+        (r.get('foreign_net_today') or 0) >= 0
+    ]
+    if is_real:
+        independent_votes.append((r.get('buy_ratio') or 50) >= 54)
+    agree = int(round(sum(1 for v in independent_votes if v) / len(independent_votes) * 100))
+
+    p_win = round(_clamp(signal * 0.55 + agree * 0.30 + (r.get('bottom_score') or 50) * 0.15, 20.0, 89.0), 1)
+    conv = 'CAO' if p_win >= 68 and quality >= 70 else ('TRUNG BÌNH' if p_win >= 54 else 'THẤP')
+
+    if r.get('top_score', 0) >= 72:
+        action = 'CHỐT LỜI / HẠ TỶ TRỌNG'
+    elif r['wyckoff'] in ('SOS / Breakout', 'Spring Candidate (Test Đáy)', 'Absorption Setup (Hấp Thụ Cung)') and p_win >= 60:
+        action = 'MUA THĂM DÒ / GOM DẦN'
+    elif r['wyckoff'] == 'Selling Climax / Quá Bán':
+        action = 'QUAN SÁT CẠN CUNG'
+    elif p_win < 45:
+        action = 'HẠ TỶ TRỌNG'
+    else:
+        action = 'QUAN SÁT'
+
+    return quality, signal, agree, p_win, conv, action
+
+def _delta_open_flow(trade_date, symbol, current_net):
+    if current_net is None:
+        return None
+    df = query('SELECT net_flow_billion FROM flow_snapshots WHERE trade_date=? AND symbol=? ORDER BY id ASC LIMIT 1', (trade_date, symbol))
+    if df.empty or df.iloc[0]['net_flow_billion'] is None:
+        return 0.0
+    return float(current_net) - float(df.iloc[0]['net_flow_billion'])
+
+def _foreign_5d(symbol, today_net):
+    df = query('SELECT trade_date, foreign_net_today FROM stock_snapshots WHERE symbol=? AND foreign_net_today IS NOT NULL ORDER BY id DESC LIMIT 30', (symbol,))
+    by_day = {}
+    for _, r in df.iterrows():
+        by_day.setdefault(r['trade_date'], int(r['foreign_net_today']))
+    vals = list(by_day.values())[:4]
+    if today_net is not None:
+        vals = [int(today_net)] + vals
+    return sum(vals) if vals else today_net
+
+def compute_quant(symbols, index_quote, now: datetime):
+    feeds, errors = fetch_stock_feeds(symbols)
+    _, ratio = u_shape_ratio(now)
+    trade_date = now.date().isoformat()
+    vni_change = float(index_quote.get('change_pct') or 0.0) if index_quote.get('valid') else 0.0
+    rows = []
+
     for sym in symbols:
-        f=feeds.get(sym)
-        if not f:
-            errors.append(f'{sym}: không có quote hợp lệ từ VPS/TCBS')
+        q = feeds.get(sym)
+        if not q:
             continue
-        bars,hist_source,hist_errors=fetch_history(sym,days=240)
-        errors.extend([f'{sym} {x}' for x in hist_errors if not bars])
-        weekly=_weekly_features(bars)
-        change=float(f['change_pct']); px=float(f['price']); volume=int(f.get('volume') or 0)
-        volume_available=bool(f.get('volume_available',volume>0) and volume>0)
-        vwap=float(f.get('vwap') or px)
-        vwap_diff=(px/vwap-1)*100 if vwap else None
-        vwap_pos='Trên VWAP' if vwap_diff is not None and vwap_diff>.15 else 'Dưới VWAP' if vwap_diff is not None and vwap_diff<-.15 else 'Quanh VWAP'
-        hist_vol=[int(b.get('volume') or 0) for b in bars if int(b.get('volume') or 0)>0]
-        ma20=sum(hist_vol[-20:])/20 if len(hist_vol)>=20 else None
-        ratio=u_shape_ratio(now)
-        projected=round(volume/ratio) if ratio>0 and volume_available else None
-        vol_ratio=projected/ma20 if ma20 and projected is not None else None
-        deal=fetch_deal_flow(sym) if volume_available else None
-        if deal and deal.get('is_real') and deal.get('buy') is not None and deal.get('sell') is not None and 0 < int(deal['buy'])+int(deal['sell']) <= volume*1.5:
-            buy,sell=int(deal['buy']),int(deal['sell']); is_real=True; flow_source=deal['source']
-        elif volume_available:
-            buy,sell=_proxy_flow({**f,'price':px,'volume':volume,'vwap':vwap}); is_real=False
-            flow_source='Flow Ước Tính' + (f" ({deal.get('error')})" if deal and deal.get('error') else '')
+        bars, hist_source, hist_err = fetch_history(sym)
+        errors.extend(hist_err[:1])
+        wf = _weekly_and_structure_features(bars)
+        deal = fetch_deal_flow(sym)
+        vol = int(q.get('volume') or 0)
+        vol_ok = bool(q.get('volume_available')) and vol > 0
+
+        if deal.get('is_real') and vol_ok and (deal['buy'] + deal['sell']) <= vol * 1.5:
+            buy = int(deal['buy']); sell = int(deal['sell'])
+            tot = max(1, buy + sell)
+            coverage_pct = round(min(100.0, (tot / max(1, vol)) * 100), 1)
+            buy_ratio = buy / tot * 100
+            net_flow = ((buy - sell) * q['price']) / 1e9
+            flow_source = f"{deal['source']} (Độ phủ {coverage_pct}%)"
+            is_real = True
+            flow_conf = "CAO (Khớp thực)" if coverage_pct >= 35 else "TRUNG BÌNH (Khớp thực độ phủ thấp)"
+        elif vol_ok:
+            buy, sell, buy_ratio, net_flow, flow_source = _proxy_flow(q)
+            is_real = False
+            flow_conf = "THẤP (Ước tính từ VWAP)"
         else:
-            buy,sell=None,None; is_real=False; flow_source='Unavailable: thiếu volume'
-        buy_ratio=(buy/max(1,buy+sell)) if buy is not None and sell is not None else None
-        net=((buy-sell)*px/1e9) if buy is not None and sell is not None else None
-        bounce=(px-f['low'])/max(f['high']-f['low'],1e-9)
-        val=px*volume/1e9 if volume_available else None
-        r={
-            'symbol':sym,'sector':SECTORS.get(sym,'Chưa phân loại'),'price':px,'ref_price':f['ref_price'],'change_pct':change,
-            'weekly':weekly,'weekly_trend':weekly['trend'],'vwap':vwap,'vwap_diff':vwap_diff,'vwap_position':vwap_pos,
-            'volume':volume,'volume_available':volume_available,'volume_field':f.get('volume_field'),
-            'projected_volume':projected,'ma20_vol':ma20,'vol_ratio':vol_ratio,
-            'buy_vol':buy,'sell_vol':sell,'buy_ratio':buy_ratio,'mb_ratio':buy/max(1,sell) if buy is not None and sell is not None else None,
-            'net_flow_billion':net,'delta_flow_open':None,'quality_score':0,'signal_score':0,'score_vs_sector':None,
-            'agreement_pct':0,'wyckoff':'','is_real_deal':is_real,'foreign_net_today':f.get('foreign_net'),
-            'foreign_net_5d':None,'source_label':f.get('source_label',f.get('provider','Unknown'))+f' | Hist:{hist_source} | Flow:{flow_source}',
-            'divergence_pct':f.get('divergence_pct'),'feed_warning':f.get('feed_warning',False),
-            'high':f['high'],'low':f['low'],'bounce':bounce,'trading_value_billion':val,
-            'history_count':len(bars),'provider':f.get('provider')
+            buy = sell = buy_ratio = net_flow = None
+            flow_source = 'Unavailable: thiếu volume'
+            is_real = False
+            flow_conf = "KHÔNG CÓ"
+
+        proj = round(vol / ratio, 0) if vol_ok and ratio > 0 else None
+        vol_ratio = (proj / wf['ma20_vol']) if (proj and wf['ma20_vol']) else None
+        vwap_pos = 'Trên VWAP' if q['price'] > q['vwap'] * 1.001 else ('Dưới VWAP' if q['price'] < q['vwap'] * 0.999 else 'Tại VWAP')
+        delta_flow = _delta_open_flow(trade_date, sym, net_flow)
+        f_today = q.get('foreign_net')
+        f_5d = _foreign_5d(sym, f_today)
+
+        r = {
+            'symbol': sym, 'sector': ticker_sector(sym),
+            'price': q['price'], 'ref_price': q['ref_price'], 'change_pct': round(q['change_pct'], 2),
+            'high': q['high'], 'low': q['low'],
+            'volume': vol if vol_ok else None, 'volume_available': vol_ok,
+            'ma20_vol': round(wf['ma20_vol'], 0) if wf['ma20_vol'] else None,
+            'projected_volume': proj, 'vol_ratio': round(vol_ratio, 2) if vol_ratio else None,
+            'vwap': round(q['vwap'], 0), 'vwap_position': vwap_pos,
+            'buy_vol': buy, 'sell_vol': sell, 'buy_ratio': round(buy_ratio, 1) if buy_ratio is not None else None,
+            'mb_ratio': round(buy / max(1, sell), 2) if buy is not None and sell is not None else None,
+            'net_flow_billion': round(net_flow, 2) if net_flow is not None else None,
+            'delta_flow_open': round(delta_flow, 2) if delta_flow is not None else None,
+            'flow_confidence': flow_conf,
+            'weekly_trend': wf['weekly_trend'],
+            'support': wf['support'], 'resistance': wf['resistance'],
+            'retest_count': wf['retest_count'], 'supply_decay_score': wf['supply_decay_score'],
+            'downside_eff': wf['downside_eff'], 'upside_eff': wf['upside_eff'],
+            'rs_vni': round(q['change_pct'] - vni_change, 2), 'rs_sector': 0.0,
+            'foreign_net_today': f_today, 'foreign_net_5d': f_5d,
+            'source_label': f"{q['source_label']} | Hist:{hist_source} | Flow:{flow_source}",
+            'feed_warning': q.get('feed_warning', False), 'divergence_pct': q.get('divergence_pct'),
+            'is_real_deal': is_real,
+            'key_levels': {'support': wf['support'], 'resistance': wf['resistance'], 'ma10w': wf['ma10w'], 'ma20w': wf['ma20w']}
         }
-        r['wyckoff']=classify_wyckoff(r)
-        r['signal_score']=_score(r)
-        if volume_available:
-            quality=55+(15 if is_real else -15)+(10 if ma20 else -10)+(5 if weekly['ma20w'] else -5)+(5 if not f.get('feed_warning') else -10)
-            r['quality_score']=max(0,min(100,quality))
-            r['agreement_pct']=max(20,min(95,50+(10 if net is not None and ((net>=0)==(change>=0)) else -10)+(10 if (r['signal_score']>=55)==(change>=0) else -10)+(5 if is_real else -5)))
-            p=50; climax=('Quá Bán' in r['wyckoff'] or 'Chờ Nảy KT' in r['wyckoff']) and vol_ratio is not None and vol_ratio>=1.5
-            if vwap_pos=='Trên VWAP': p+=14
-            elif vwap_pos=='Dưới VWAP': p+=-4 if climax else -14
-            if net is not None and net>5: p+=12
-            elif net is not None and net>0: p+=6
-            elif net is not None and net<-5: p+=8 if climax and vol_ratio and vol_ratio>=1.8 else -12
-            else: p-=6
-            if climax: p+=22
-            r['pwin_raw']=p
-            r['p_win']=max(20,min(80,50+(p-50)*.65 if not is_real else p))
-            r['conviction']=bool(r['agreement_pct']>=75 and r['quality_score']>=65 and abs(r['p_win']-50)>=12)
-            if r['conviction'] and r['p_win']>=65: action='MUA THĂM DÒ (chờ trigger)'
-            elif r['conviction'] and r['p_win']<=40 and not climax: action='QUẢN TRỊ RỦI RO'
-            else: action='QUAN SÁT'
-        else:
-            r.update({'quality_score':0,'agreement_pct':0,'pwin_raw':None,'p_win':None,'conviction':False})
-            action='CHỜ DỮ LIỆU'
-        if ('Quá Bán' in r['wyckoff'] or 'Chờ Nảy KT' in r['wyckoff']) and ('BÁN' in action or 'HẠ' in action): action='QUAN SÁT'
-        if r['feed_warning']: r['quality_score']=max(0,r['quality_score']-10)
-        r['action']=action; r['pred_t2']=None; r['pred_t3']=None; r['pred_t7']=None; r['ai_vsa']='Chưa chạy AI'
-        r['key_levels']={'support':weekly['support'],'resistance':weekly['resistance'],'ma10w':weekly['ma10w'],'ma20w':weekly['ma20w']}
-        r['rs_vni']=change-index.get('change_pct') if index.get('valid') and index.get('change_pct') is not None else None
-        r['rs_sector']=None
-        if volume_available and r['rs_vni'] is not None:
-            if r['rs_vni']>.4: r['pwin_raw']+=8
-            elif r['rs_vni']<-.4: r['pwin_raw']-=6
-            r['p_win']=max(20,min(80,50+(r['pwin_raw']-50)*.65 if not is_real else r['pwin_raw']))
         rows.append(r)
 
-    # Cross-sectional relative strength is only computed when peer data exists.
+    by_sec = {}
     for r in rows:
-        peers=[x['change_pct'] for x in rows if x['sector']==r['sector'] and x['symbol']!=r['symbol']]
-        if peers: r['rs_sector']=r['change_pct']-sum(peers)/len(peers)
-    for r in rows:
-        if not r.get('volume_available') or r.get('pwin_raw') is None:
-            r['p_win']=None; r['conviction']=False; r['action']='CHỜ DỮ LIỆU'; r['score_vs_sector']=r.get('rs_sector'); continue
-        raw=r['pwin_raw']
-        if r['rs_sector'] is not None:
-            if r['rs_sector']>.4: raw+=8
-            elif r['rs_sector']<-.4: raw-=6
-        r['p_win']=max(20,min(80,raw if r['is_real_deal'] else 50+(raw-50)*.65))
-        r['score_vs_sector']=r['rs_sector']
-        r['conviction']=bool(r['agreement_pct']>=75 and r['quality_score']>=65 and abs(r['p_win']-50)>=12)
-        from .db import query
-        baseline=query("SELECT net_flow_billion FROM flow_snapshots WHERE session_date=? AND symbol=? AND substr(recorded_at,12,8)>='09:15:00' AND substr(recorded_at,12,8)<='09:16:30' ORDER BY recorded_at ASC LIMIT 1",(now.date().isoformat(),r['symbol']))
-        if not baseline.empty and r.get('net_flow_billion') is not None and baseline.iloc[0]['net_flow_billion'] is not None:
-            r['delta_flow_open']=r['net_flow_billion']-float(baseline.iloc[0]['net_flow_billion'])
-        prior=query("SELECT s.metrics_json FROM stock_snapshots s JOIN (SELECT date(recorded_at) d, MAX(recorded_at) latest FROM stock_snapshots WHERE symbol=? AND date(recorded_at) < ? GROUP BY date(recorded_at) ORDER BY d DESC LIMIT 4) q ON date(s.recorded_at)=q.d AND s.recorded_at=q.latest WHERE s.symbol=? ORDER BY s.recorded_at DESC",(r['symbol'],now.date().isoformat(),r['symbol']))
-        foreign_values=[]
-        for item in prior.get('metrics_json',[]):
-            try:
-                v=json.loads(item).get('foreign_net_today')
-                if v is not None: foreign_values.append(float(v))
-            except Exception: pass
-        if r.get('foreign_net_today') is not None:
-            foreign_values=[float(r['foreign_net_today'])]+foreign_values[:4]
-            r['foreign_net_5d']=sum(foreign_values) if len(foreign_values)>=2 else None
-        else: r['foreign_net_5d']=None
-    _store_rows(rows,now)
-    return rows,errors
+        by_sec.setdefault(r['sector'], []).append(r['change_pct'])
+    sec_avg = {k: sum(v) / len(v) for k, v in by_sec.items() if v}
 
-def _store_rows(rows,now):
-    stamp=now.isoformat(timespec='seconds')
+    for r in rows:
+        r['rs_sector'] = round(r['change_pct'] - sec_avg.get(r['sector'], 0.0), 2)
+        b_sc, t_sc, early_tag, eff_sc = compute_bottom_top_detectors(r)
+        r['bottom_score'] = b_sc
+        r['top_score'] = t_sc
+        r['early_signal'] = early_tag
+        r['effort_result_score'] = eff_sc
+        r['wyckoff'] = classify_wyckoff(r)
+        q_sc, sig, agree, p_win, conv, act = _score(r)
+        r.update({
+            'quality_score': q_sc, 'signal_score': sig, 'agreement_pct': agree,
+            'p_win': p_win, 'conviction': conv, 'action': act, 'ai_action': act,
+            'ai_vsa': 'Chưa chạy AI', 'pred_t2': None, 'pred_t3': None, 'pred_t7': None
+        })
+
+    sec_sig = {}
+    for r in rows:
+        if r.get('volume_available'):
+            sec_sig.setdefault(r['sector'], []).append(r['signal_score'])
+    sec_sig_avg = {k: sum(v) / len(v) for k, v in sec_sig.items() if v}
+    for r in rows:
+        r['score_vs_sector'] = round(r['signal_score'] - sec_sig_avg.get(r['sector'], r['signal_score']), 1) if r.get('volume_available') else None
+
+    _persist(rows, now)
+    return sorted(rows, key=lambda x: (x.get('volume_available', False), x['bottom_score'], x['signal_score']), reverse=True), errors
+
+def _persist(rows, now: datetime):
+    ts = now.isoformat(); trade_date = now.date().isoformat()
     with connect() as c:
         for r in rows:
-            c.execute('INSERT INTO stocks(symbol,sector,weekly_trend,weekly_support,weekly_resistance,weekly_bias,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(symbol) DO UPDATE SET sector=excluded.sector,weekly_trend=excluded.weekly_trend,weekly_support=excluded.weekly_support,weekly_resistance=excluded.weekly_resistance,weekly_bias=excluded.weekly_bias,updated_at=excluded.updated_at',(r['symbol'],r['sector'],r['weekly_trend'],r['weekly']['support'],r['weekly']['resistance'],r['weekly']['bias'],stamp))
-            c.execute('INSERT INTO stock_snapshots(recorded_at,symbol,sector,price,ref_price,change_pct,vwap,vwap_position,volume,projected_volume,vol_ratio,buy_vol,sell_vol,mb_ratio,net_flow_billion,quality_score,signal_score,score_vs_sector,agreement_pct,wyckoff_phase,is_real_deal,foreign_net_today,source_label,divergence_pct,metrics_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',(stamp,r['symbol'],r['sector'],r['price'],r['ref_price'],r['change_pct'],r['vwap'],r['vwap_position'],r['volume'],r['projected_volume'],r['vol_ratio'],r['buy_vol'],r['sell_vol'],r['mb_ratio'],r['net_flow_billion'],r['quality_score'],r['signal_score'],r['rs_sector'],r['agreement_pct'],r['wyckoff'],int(r['is_real_deal']),r['foreign_net_today'],r['source_label'],r['divergence_pct'],__import__('json').dumps(r,ensure_ascii=False,default=str)))
-            c.execute('INSERT OR IGNORE INTO flow_snapshots(recorded_at,session_date,symbol,net_flow_billion,source,buy_vol,sell_vol) VALUES(?,?,?,?,?,?,?)',(stamp,now.date().isoformat(),r['symbol'],r['net_flow_billion'],'Unavailable' if r.get('net_flow_billion') is None else 'Real Deal' if r['is_real_deal'] else 'Flow Ước Tính',r['buy_vol'],r['sell_vol']))
-    # Sector aggregation: missing flow stays NULL instead of being counted as neutral/zero.
-    sectors={}
-    for r in rows:
-        s=sectors.setdefault(r['sector'],{'net':0.0,'flow_n':0,'delta':0.0,'value':0.0,'changes':[],'leader':None})
-        if r.get('net_flow_billion') is not None:
-            s['net']+=float(r['net_flow_billion']); s['flow_n']+=1
-            if s['leader'] is None or float(r['net_flow_billion'])>float(s['leader']['net_flow_billion']):
-                s['leader']=r
-        if r.get('trading_value_billion') is not None:
-            s['value']+=float(r['trading_value_billion'])
-        s['changes'].append(r['change_pct'])
-    positive=sum(max(0,x['net']) for x in sectors.values() if x['flow_n']) or 1
-    with connect() as c:
-        for sector,s in sectors.items():
-            has_flow=s['flow_n']>0
-            intensity=s['net']/s['value'] if s['value'] and has_flow else None
-            rank=(s['net']*.65+intensity*40+s['delta']*(.5 if s['delta']>0 else .3)) if has_flow and intensity is not None else None
-            market_share=max(0,s['net'])/positive*100 if has_flow else None
-            c.execute('INSERT INTO sector_snapshots(recorded_at,sector_name,net_flow_billion,delta_flow,flow_intensity,market_share_pct,avg_price_change,leader_symbol,flow_status,rank_score) VALUES(?,?,?,?,?,?,?,?,?,?)',
-                (stamp,sector,s['net'] if has_flow else None,s['delta'] if has_flow else None,intensity,market_share,
-                 sum(s['changes'])/len(s['changes']),s['leader']['symbol'] if s['leader'] else None,
-                 ('Net mua' if s['net']>0 else 'Net bán') if has_flow else 'Thiếu dữ liệu flow',rank))
+            c.execute('''INSERT INTO stock_snapshots(
+                ts,trade_date,symbol,sector,price,change_pct,volume,ma20_vol,projected_volume,vwap,vwap_position,
+                buy_vol,sell_vol,buy_ratio,net_flow_billion,delta_flow_open,rs_vni,rs_sector,foreign_net_today,foreign_net_5d,
+                quality_score,signal_score,agreement_pct,p_win,conviction,wyckoff_phase,action_rec,ai_vsa,ai_action,
+                pred_t2,pred_t3,pred_t7,source_label,is_real_deal,metrics_json
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (
+                ts, trade_date, r['symbol'], r['sector'], r['price'], r['change_pct'], r['volume'], r['ma20_vol'], r['projected_volume'],
+                r['vwap'], r['vwap_position'], r['buy_vol'], r['sell_vol'], r['buy_ratio'], r['net_flow_billion'], r['delta_flow_open'],
+                r['rs_vni'], r['rs_sector'], r['foreign_net_today'], r['foreign_net_5d'], r['quality_score'], r['signal_score'],
+                r['agreement_pct'], r['p_win'], r['conviction'], r['wyckoff'], r['action'], r['ai_vsa'], r['ai_action'],
+                r['pred_t2'], r['pred_t3'], r['pred_t7'], r['source_label'], 1 if r['is_real_deal'] else 0, json.dumps(r, ensure_ascii=False, default=str)
+            ))
+            c.execute('''INSERT INTO flow_snapshots(ts,trade_date,symbol,net_flow_billion,buy_vol,sell_vol,price,volume,is_real_deal)
+                VALUES (?,?,?,?,?,?,?,?,?)''', (ts, trade_date, r['symbol'], r['net_flow_billion'], r['buy_vol'], r['sell_vol'], r['price'], r['volume'], 1 if r['is_real_deal'] else 0))
