@@ -107,11 +107,14 @@ def _quote_from_raw(x, provider):
             'provider':provider,'raw':x}
 
 def fetch_stock_feeds(symbols):
+    """Cơ chế Waterfall Failover đa nguồn: VPS -> TCBS -> VNDirect để triệt tiêu hoàn toàn lỗi mất quote."""
     symbols=list(dict.fromkeys(str(s).strip().upper() for s in symbols if str(s).strip()))
     result={}; errors=[]
-    url='https://bgapidatafeed.vps.com.vn/getliststockdata/'+','.join(symbols)
+    
+    # 1. Thử lấy từ VPS trước
     try:
-        payload=get_json(url)
+        url='https://bgapidatafeed.vps.com.vn/getliststockdata/'+','.join(symbols)
+        payload=get_json(url, timeout=6)
         arr=_list(payload)
         for x in arr:
             if not isinstance(x,dict): continue
@@ -121,38 +124,66 @@ def fetch_stock_feeds(symbols):
     except Exception as e:
         errors.append(f'VPS quotes: {type(e).__name__}: {e}')
 
+    # 2. Các mã còn thiếu sẽ được quét dự phòng tự động qua TCBS Overview & VNDirect
     missing=[sym for sym in symbols if sym not in result]
     for sym in missing:
+        # Thử qua TCBS API dự phòng
         try:
-            payload=get_json(f'https://bgapidatafeed.vps.com.vn/getliststockdata/{sym}', timeout=6)
-            arr=_list(payload)
-            for x in arr:
-                if not isinstance(x,dict): continue
-                row=_quote_from_raw(x,'VPS')
-                if row and row['symbol'] in (sym, ''):
-                    row['symbol']=sym
-                    result[sym]={'VPS':row}
-                    break
-        except Exception as e:
-            errors.append(f'VPS {sym}: {type(e).__name__}: {e}')
+            d = get_json(f'https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{sym}/overview', timeout=5)
+            p = price(d.get('price') or d.get('close'))
+            ref = price(d.get('reference') or d.get('prevClose') or p)
+            vol = int(n(d.get('totalVolume') or d.get('totalMatchVolume'), default=0))
+            if p > 0:
+                row = {
+                    'symbol': sym, 'price': p, 'ref_price': ref, 'change_pct': (p/ref-1)*100 if ref > 0 else 0,
+                    'volume': vol, 'volume_available': bool(vol > 0), 'volume_field': 'tcbs_totalVolume',
+                    'high': p, 'low': p, 'vwap': p, 'foreign_buy': None, 'foreign_sell': None, 'foreign_net': None,
+                    'value_billion': None, 'value_source': None, 'provider': 'TCBS-Fallback', 'raw': d
+                }
+                result[sym] = {'TCBS': row}
+                continue
+        except Exception:
+            pass
+
+        # Thử qua VNDirect DChart dự phòng tiếp theo
+        try:
+            now_ts = int(time.time())
+            d = get_json(f'https://dchart-api.vndirect.com.vn/dchart/history?resolution=D&symbol={sym}&from={now_ts-86400*3}&to={now_ts}', timeout=5)
+            if d and 'c' in d and len(d['c']) > 0:
+                p = price(d['c'][-1])
+                ref = price(d['c'][-2]) if len(d['c']) >= 2 else p
+                vol = int(n(d['v'][-1])) if 'v' in d and len(d['v']) > 0 else 0
+                if p > 0:
+                    row = {
+                        'symbol': sym, 'price': p, 'ref_price': ref, 'change_pct': (p/ref-1)*100 if ref > 0 else 0,
+                        'volume': vol, 'volume_available': bool(vol > 0), 'volume_field': 'vnd_close',
+                        'high': p, 'low': p, 'vwap': p, 'foreign_buy': None, 'foreign_sell': None, 'foreign_net': None,
+                        'value_billion': None, 'value_source': None, 'provider': 'VNDirect-Fallback', 'raw': d
+                    }
+                    result[sym] = {'VNDirect': row}
+                    continue
+        except Exception:
+            pass
 
     merged={}
     for sym,feeds in result.items():
-        row=dict(feeds['VPS'])
-        row['source_label']='VPS'
+        primary_source = list(feeds.keys())[0]
+        row=dict(feeds[primary_source])
+        row['source_label']=primary_source
         row['divergence_pct']=None
         row['feed_warning']=False
         row['feeds']=feeds
         merged[sym]=row
+        
     for sym in symbols:
         if sym not in merged:
-            errors.append(f'{sym}: không có quote hợp lệ từ VPS')
-    return merged,errors
+            errors.append(f'{sym}: không có quote hợp lệ từ tất cả các cổng (VPS/TCBS/VNDirect)')
+    return merged, errors
 
 def fetch_vnindex():
     errors=[]; vps_candidate=None
     try:
-        payload=get_json('https://bgapidatafeed.vps.com.vn/getlistindexdetail/10,11,02,03')
+        payload=get_json('https://bgapidatafeed.vps.com.vn/getlistindexdetail/10,11,02,03', timeout=5)
         arr=_list(payload)
         x=next((z for z in arr if isinstance(z,dict) and str(z.get('mc') or '').strip() in ('10','010')), None)
         if x:
@@ -176,7 +207,7 @@ def fetch_vnindex():
     try:
         now=int(time.time())
         url=f'https://dchart-api.vndirect.com.vn/dchart/history?resolution=D&symbol=VNINDEX&from={now-14*86400}&to={now}'
-        x=get_json(url)
+        x=get_json(url, timeout=5)
         closes=x.get('c',[]) if isinstance(x,dict) else []
         vols=x.get('v',[]) if isinstance(x,dict) else []
         times=x.get('t',[]) if isinstance(x,dict) else []
