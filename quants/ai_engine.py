@@ -32,7 +32,7 @@ def _client(provider="Gemini"):
             raise AIUnavailable('Thiếu GEMINI_API_KEY trong Streamlit Secrets.')
         try:
             from google import genai
-            return genai.Client(api_key=key, http_options={'timeout': 45000})
+            return genai.Client(api_key=key)
         except ImportError as exc:
             raise AIUnavailable('Chưa cài thư viện google-genai.') from exc
 
@@ -48,8 +48,8 @@ def _generate(client, provider, prompt):
         )
         return response.choices[0].message.content or '{}'
     else:
-        # Sử dụng danh sách model chuẩn theo tài liệu Google GenAI API mới nhất
-        DANH_SACH_MODELS = ["gemini-3.8-flash", "gemini-3.6-flash", "gemini-flash-latest"]
+        # Danh sách model chuẩn xác theo tài liệu Google GenAI SDK mới nhất
+        DANH_SACH_MODELS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"]
         last_error = None
         for m_name in DANH_SACH_MODELS:
             try:
@@ -97,7 +97,7 @@ INPUT rows:
             if isinstance(obj, dict):
                 for r in batch:
                     if isinstance(obj.get(r['symbol']), dict):
-                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-3.8-flash', '_provider': provider}
+                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-2.5-flash', '_provider': provider}
         except Exception as e:
             event('WARN', 'ai_engine', f'Batch failed: {e}')
         time.sleep(.2)
@@ -114,7 +114,7 @@ def enforce_predictions(rows, ai):
         r['invalidation_level'] = str(x.get('invalidation_level') or 'Chưa đủ dữ liệu')
         r['ai_rationale'] = str(x.get('rationale') or '')
         r['ai_provider'] = x.get('_provider', 'Gemini')
-        r['ai_model'] = x.get('_model', 'gemini-3.8-flash')
+        r['ai_model'] = x.get('_model', 'gemini-2.5-flash')
         r['pred_t2'] = x.get('pred_t2_pct')
         r['pred_t3'] = x.get('pred_t3_pct')
         r['pred_t7'] = x.get('pred_t7_pct')
