@@ -15,32 +15,53 @@ def _setting(name, default=''):
     except Exception:
         return default
 
-def _client():
-    key = _setting('OPENAI_API_KEY')
-    if key:
+def _client(provider="Gemini"):
+    provider = str(provider or "Gemini").strip()
+    if provider == "OpenAI":
+        key = _setting('OPENAI_API_KEY')
+        if not key:
+            raise AIUnavailable('Thiếu OPENAI_API_KEY trong Streamlit Secrets.')
         try:
             from openai import OpenAI
-            return ('OpenAI', OpenAI(api_key=key, timeout=45.0, max_retries=0))
-        except Exception:
-            pass
-
-    gemini_key = _setting('GEMINI_API_KEY')
-    if gemini_key:
+            return OpenAI(api_key=key, timeout=45.0, max_retries=0)
+        except ImportError as exc:
+            raise AIUnavailable('Chưa cài thư viện openai.') from exc
+    else:
+        key = _setting('GEMINI_API_KEY')
+        if not key:
+            raise AIUnavailable('Thiếu GEMINI_API_KEY trong Streamlit Secrets.')
         try:
             from google import genai
-            return ('Gemini', genai.Client(api_key=gemini_key, http_options={'timeout': 45000}))
-        except Exception:
-            pass
-            
-    raise AIUnavailable('Thiếu cấu hình API Key trong Streamlit Secrets.')
+            return genai.Client(api_key=key, http_options={'timeout': 45000})
+        except ImportError as exc:
+            raise AIUnavailable('Chưa cài thư viện google-genai.') from exc
 
-def run_ai(rows, regime, macro, provider='Auto', media_context=None):
+def _generate(client, provider, prompt):
+    provider = str(provider or "Gemini").strip()
+    if provider == "OpenAI":
+        response = client.chat.completions.create(
+            model='gpt-4o-mini', temperature=0,
+            messages=[
+                {'role':'system','content':'You are a cautious quantitative analyst.'},
+                {'role':'user','content':prompt}
+            ]
+        )
+        return response.choices[0].message.content or '{}'
+    else:
+        # Sử dụng model chuẩn gemini-2.0-flash để tránh hoàn toàn lỗi 404
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=prompt
+        )
+        return response.text if response and response.text else '{}'
+
+def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
     valid_rows = [r for r in rows if float(r.get('volume') or 0) > 0 and bool(r.get('volume_available', True))]
     if not valid_rows:
         return {'_ai_diagnostics': {'failed_batches': [], 'blocked_missing_volume': [r.get('symbol') for r in rows]}}
 
     try:
-        prov_type, client = _client()
+        client = _client(provider)
     except Exception as e:
         event('WARN', 'ai_engine', f'Client init failed: {e}')
         return {}
@@ -62,27 +83,12 @@ INPUT rows:
 {json.dumps(payload,ensure_ascii=False,default=str)}"""
 
         try:
-            if prov_type == 'OpenAI':
-                response = client.chat.completions.create(
-                    model='gpt-4o-mini', temperature=0, response_format={'type':'json_object'},
-                    messages=[
-                        {'role':'system','content':'You are a cautious quantitative analyst. Return valid JSON only.'},
-                        {'role':'user','content':prompt}
-                    ]
-                )
-                raw = response.choices[0].message.content or '{}'
-            else:
-                response = client.models.generate_content(
-                    model='gemini-2.0-flash',
-                    contents=prompt
-                )
-                raw = response.text if response and response.text else '{}'
-
+            raw = _generate(client, provider, prompt)
             obj = json.loads(raw)
             if isinstance(obj, dict):
                 for r in batch:
                     if isinstance(obj.get(r['symbol']), dict):
-                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'active-model', '_provider': prov_type}
+                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-2.0-flash', '_provider': provider}
         except Exception as e:
             event('WARN', 'ai_engine', f'Batch failed: {e}')
         time.sleep(.2)
@@ -98,8 +104,8 @@ def enforce_predictions(rows, ai):
         r['trigger_condition'] = str(x.get('trigger_condition') or 'Chưa đủ dữ liệu')
         r['invalidation_level'] = str(x.get('invalidation_level') or 'Chưa đủ dữ liệu')
         r['ai_rationale'] = str(x.get('rationale') or '')
-        r['ai_provider'] = x.get('_provider', 'Auto')
-        r['ai_model'] = x.get('_model', 'active-model')
+        r['ai_provider'] = x.get('_provider', 'Gemini')
+        r['ai_model'] = x.get('_model', 'gemini-2.0-flash')
         r['pred_t2'] = x.get('pred_t2_pct')
         r['pred_t3'] = x.get('pred_t3_pct')
         r['pred_t7'] = x.get('pred_t7_pct')
@@ -108,8 +114,8 @@ def enforce_predictions(rows, ai):
 def save_prediction_audit(rows, regime):
     return len(rows)
 
-def analyze_media(provider='Auto', hours=48, limit=30):
+def analyze_media(provider='Gemini', hours=48, limit=30):
     return 0
 
-def analyze_macro(provider='Auto', macro=None):
+def analyze_macro(provider='Gemini', macro=None):
     return 0
