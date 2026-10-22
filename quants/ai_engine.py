@@ -48,12 +48,21 @@ def _generate(client, provider, prompt):
         )
         return response.choices[0].message.content or '{}'
     else:
-        # Sử dụng model chuẩn gemini-2.0-flash để tránh hoàn toàn lỗi 404
-        response = client.models.generate_content(
-            model='gemini-2.0-flash',
-            contents=prompt
-        )
-        return response.text if response and response.text else '{}'
+        # Đồng bộ danh sách model dự phòng chuẩn theo Colab/Script mới nhất
+        DANH_SACH_MODELS = ["gemini-3.8-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-lite-latest"]
+        last_error = None
+        for m_name in DANH_SACH_MODELS:
+            try:
+                response = client.models.generate_content(
+                    model=m_name,
+                    contents=prompt
+                )
+                if response and response.text:
+                    return response.text
+            except Exception as e:
+                last_error = e
+                time.sleep(0.3)
+        raise RuntimeError(f"Không thể kết nối Gemini API với mọi model. Chi tiết: {last_error}")
 
 def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
     valid_rows = [r for r in rows if float(r.get('volume') or 0) > 0 and bool(r.get('volume_available', True))]
@@ -88,7 +97,7 @@ INPUT rows:
             if isinstance(obj, dict):
                 for r in batch:
                     if isinstance(obj.get(r['symbol']), dict):
-                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-2.0-flash', '_provider': provider}
+                        result[r['symbol']] = {**obj[r['symbol']], '_model': 'gemini-active', '_provider': provider}
         except Exception as e:
             event('WARN', 'ai_engine', f'Batch failed: {e}')
         time.sleep(.2)
@@ -105,7 +114,7 @@ def enforce_predictions(rows, ai):
         r['invalidation_level'] = str(x.get('invalidation_level') or 'Chưa đủ dữ liệu')
         r['ai_rationale'] = str(x.get('rationale') or '')
         r['ai_provider'] = x.get('_provider', 'Gemini')
-        r['ai_model'] = x.get('_model', 'gemini-2.0-flash')
+        r['ai_model'] = x.get('_model', 'gemini-active')
         r['pred_t2'] = x.get('pred_t2_pct')
         r['pred_t3'] = x.get('pred_t3_pct')
         r['pred_t7'] = x.get('pred_t7_pct')
