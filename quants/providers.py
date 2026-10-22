@@ -1,134 +1,279 @@
 from __future__ import annotations
+import time, json
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 import requests
-import json
-import time
-from typing import Dict, Any, Optional, List
+from .config import REQUEST_TIMEOUT, USER_AGENT, MACRO_TICKERS
 
-def fetch_stock_quote(symbol: str) -> Optional[Dict[str, Any]]:
-    symbol = symbol.strip().upper()
-    
-    # CỔNG 1: TCBS API (Độ ổn định cực cao)
+SESSION=requests.Session(); SESSION.headers.update({'User-Agent':USER_AGENT,'Accept':'application/json, text/xml, application/rss+xml, */*'})
+
+def get_json(url, timeout=None):
+    r=SESSION.get(url,timeout=timeout or REQUEST_TIMEOUT); r.raise_for_status(); return r.json()
+
+def n(v, default=0.0):
     try:
-        url_tcbs = f"https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{symbol}/overview"
-        res = requests.get(url_tcbs, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res.status_code == 200:
-            d = res.json()
-            p = float(d.get("price") or d.get("close") or 0)
-            ref = float(d.get("reference") or d.get("prevClose") or p)
-            vol = int(d.get("totalVolume") or d.get("totalMatchVolume") or 0)
-            if p > 0:
-                return {
-                    "price": p * 1000 if 0 < p < 1000 else p,
-                    "ref": ref * 1000 if 0 < ref < 1000 else ref,
-                    "volume": vol,
-                    "source": "TCBS API"
-                }
-    except Exception:
-        pass
+        if v is None or isinstance(v, bool) or v == '': return default
+        return float(str(v).replace(',', '').replace('%', '').strip())
+    except (ValueError, TypeError):
+        return default
 
-    # CỔNG 2: VNDIRECT DChart API (Dự phòng thứ 2)
-    try:
-        now_ts = int(time.time())
-        url_vnd = f"https://dchart-api.vndirect.com.vn/dchart/history?resolution=D&symbol={symbol}&from={now_ts - 86400*7}&to={now_ts}"
-        res = requests.get(url_vnd, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res.status_code == 200:
-            d = res.json()
-            if d and "c" in d and len(d["c"]) > 0:
-                p = float(d["c"][-1])
-                ref = float(d["c"][-2]) if len(d["c"]) >= 2 else p
-                vol = int(d["v"][-1]) if "v" in d and len(d["v"]) > 0 else 0
-                return {
-                    "price": p * 1000 if 0 < p < 1000 else p,
-                    "ref": ref * 1000 if 0 < ref < 1000 else ref,
-                    "volume": vol,
-                    "source": "VNDirect API"
-                }
-    except Exception:
-        pass
+def price(v):
+    x=n(v)
+    return x*1000 if 0 < x < 1000 else x
 
-    # CỔNG 3: VPS API (Cổng gốc)
-    try:
-        url_vps = f"https://bgapidatafeed.vps.com.vn/getliststockdata/{symbol}"
-        res = requests.get(url_vps, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res.status_code == 200:
-            arr = res.json()
-            if arr and len(arr) > 0:
-                it = arr[0]
-                p = float(it.get("lastPrice") or 0)
-                ref = float(it.get("r") or it.get("refPrice") or p)
-                vol = int(it.get("totalVolume") or it.get("lot") or 0)
-                if p > 0:
-                    return {
-                        "price": p * 1000 if 0 < p < 1000 else p,
-                        "ref": ref * 1000 if 0 < ref < 1000 else ref,
-                        "volume": vol,
-                        "source": "VPS API"
-                    }
-    except Exception:
-        pass
+def _list(payload):
+    if isinstance(payload, list): return payload
+    if isinstance(payload, dict):
+        for k in ('data','list','items','rows','stockData','stocks','result','content'):
+            v=payload.get(k)
+            if isinstance(v,list): return v
+            if isinstance(v,dict):
+                found=_list(v)
+                if found: return found
+    return []
 
+def _volume_details(raw):
+    if not isinstance(raw, dict): return None, None
+    has_fvo_marker = 'fVo' in raw and raw.get('fVo') not in (None, '')
+    candidates=[]
+    for key in ('totalVolume','totalMatchVolume','totalTradingVolume','matchedVolume','matchVolume','volume','vol'):
+        if raw.get(key) not in (None, ''):
+            val=n(raw.get(key), default=-1)
+            if val > 0: candidates.append((int(val), key))
+    for key in ('totalVol','totalMatchVol','lot'):
+        if raw.get(key) not in (None, ''):
+            val=n(raw.get(key), default=-1)
+            if val > 0:
+                if val < 50_000_000 and not has_fvo_marker: val *= 10
+                candidates.append((int(val), key + ('*10' if val < 50_000_000 and not has_fvo_marker else '')))
+    fvo=raw.get('fVo')
+    if fvo not in (None, '') and not isinstance(fvo, bool):
+        val=n(fvo, default=-1)
+        if val > 100: candidates.append((int(val), 'fVo'))
+    if not candidates: return None, None
+    value, field=max(candidates, key=lambda z:z[0])
+    return value, field
+
+def _extract_volume(raw):
+    return _volume_details(raw)[0]
+
+def _value_billion(raw):
+    if not isinstance(raw, dict): return None
+    for key in ('value_billion','trading_value_billion','totalValueBillion'):
+        value=n(raw.get(key), default=0)
+        if value > 0: return value
+    for key in ('totalValue','totalMatchValue','totalTradingValue','tradingValue','value'):
+        value=n(raw.get(key), default=0)
+        if value <= 0: continue
+        if value >= 1e11: return value/1e9
+        if value >= 1e6: return value/1e6
+        if key.lower() in ('value_billion','trading_value_billion','totalvaluebillion'): return value
     return None
 
-def fetch_vnindex() -> Dict[str, Any]:
-    # Thử lấy VN-Index qua VNDirect trước
-    try:
-        now_ts = int(time.time())
-        url_vni = f"https://dchart-api.vndirect.com.vn/dchart/history?resolution=D&symbol=VNINDEX&from={now_ts - 86400*5}&to={now_ts}"
-        res = requests.get(url_vni, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res.status_code == 200:
-            d = res.json()
-            if d and "c" in d and len(d["c"]) >= 2:
-                p_now = float(d["c"][-1])
-                p_ref = float(d["c"][-2])
-                v_now = int(d["v"][-1]) if ("v" in d and len(d["v"]) > 0) else 0
-                if 500 <= p_now <= 3500:
-                    return {
-                        "price": p_now,
-                        "change": p_now - p_ref,
-                        "change_pct": (p_now - p_ref) / p_ref if p_ref > 0 else 0.0,
-                        "volume": v_now,
-                        "source": "VNDirect VNINDEX"
-                    }
-    except Exception:
-        pass
+def _foreign_net(raw):
+    if not isinstance(raw, dict): return None
+    buy=None; sell=None
+    for key in ('fBVol','fBuyVol','foreignBuyVolume','buyForeignQuantity','foreignBuyQty'):
+        if raw.get(key) not in (None, ''):
+            buy=n(raw.get(key), default=-1)
+            if buy >= 0: break
+            buy=None
+    for key in ('fSVolume','fSellVol','foreignSellVolume','sellForeignQuantity','foreignSellQty'):
+        if raw.get(key) not in (None, ''):
+            sell=n(raw.get(key), default=-1)
+            if sell >= 0: break
+            sell=None
+    return int(buy-sell) if buy is not None and sell is not None else None
 
-    # Dự phòng qua TCBS
+def _quote_from_raw(x, provider):
+    sym=str(x.get('sym') or x.get('ss') or x.get('symbol') or x.get('ticker') or '').upper()
+    raw_price=x.get('lastPrice') or x.get('matchedPrice') or x.get('price') or x.get('close')
+    raw_ref=x.get('r') or x.get('refPrice') or x.get('priorClosePrice') or x.get('reference')
+    p=price(raw_price); ref=price(raw_ref)
+    if p <= 0 or ref <= 0: return None
+    vol,vol_field=_volume_details(x)
+    fb_keys=('buyForeignQuantity','fBVol','fBuyVol','foreignBuyVolume')
+    fs_keys=('sellForeignQuantity','fSVolume','fSellVol','foreignSellVolume')
+    fb=next((int(n(x.get(k))) for k in fb_keys if x.get(k) not in (None,'')),None)
+    fs=next((int(n(x.get(k))) for k in fs_keys if x.get(k) not in (None,'')),None)
+    value=_value_billion(x)
+    return {'symbol':sym,'price':p,'ref_price':ref,'change_pct':(p/ref-1)*100,
+            'volume':int(vol or 0),'volume_available':bool(vol and vol>0),'volume_field':vol_field,
+            'high':price(x.get('highPrice') or x.get('highestPrice') or x.get('high') or p),
+            'low':price(x.get('lowPrice') or x.get('lowestPrice') or x.get('low') or p),
+            'vwap':price(x.get('avgPrice') or x.get('avePrice') or x.get('avgMatchedPrice') or x.get('vwap') or p),
+            'foreign_buy':fb,'foreign_sell':fs,'foreign_net':fb-fs if fb is not None and fs is not None else None,
+            'value_billion':value,'value_source':provider if value is not None else None,
+            'provider':provider,'raw':x}
+
+def fetch_stock_feeds(symbols):
+    symbols=list(dict.fromkeys(str(s).strip().upper() for s in symbols if str(s).strip()))
+    result={}; errors=[]
+    url='https://bgapidatafeed.vps.com.vn/getliststockdata/'+','.join(symbols)
     try:
-        url_tcbs = "https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/VNINDEX/overview"
-        res = requests.get(url_tcbs, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        if res.status_code == 200:
-            d = res.json()
-            p = float(d.get("price") or d.get("close") or 0)
-            ref = float(d.get("reference") or d.get("prevClose") or p)
-            vol = int(d.get("totalVolume") or 0)
-            if p > 0:
-                return {
-                    "price": p,
-                    "change": p - ref,
-                    "change_pct": (p - ref) / ref if ref > 0 else 0.0,
-                    "volume": vol,
-                    "source": "TCBS VNINDEX"
+        payload=get_json(url)
+        arr=_list(payload)
+        for x in arr:
+            if not isinstance(x,dict): continue
+            row=_quote_from_raw(x,'VPS')
+            if row and row['symbol'] in symbols:
+                result[row['symbol']]={'VPS':row}
+    except Exception as e:
+        errors.append(f'VPS quotes: {type(e).__name__}: {e}')
+
+    missing=[sym for sym in symbols if sym not in result]
+    for sym in missing:
+        try:
+            payload=get_json(f'https://bgapidatafeed.vps.com.vn/getliststockdata/{sym}', timeout=6)
+            arr=_list(payload)
+            for x in arr:
+                if not isinstance(x,dict): continue
+                row=_quote_from_raw(x,'VPS')
+                if row and row['symbol'] in (sym, ''):
+                    row['symbol']=sym
+                    result[sym]={'VPS':row}
+                    break
+        except Exception as e:
+            errors.append(f'VPS {sym}: {type(e).__name__}: {e}')
+
+    merged={}
+    for sym,feeds in result.items():
+        row=dict(feeds['VPS'])
+        row['source_label']='VPS'
+        row['divergence_pct']=None
+        row['feed_warning']=False
+        row['feeds']=feeds
+        merged[sym]=row
+    for sym in symbols:
+        if sym not in merged:
+            errors.append(f'{sym}: không có quote hợp lệ từ VPS')
+    return merged,errors
+
+def fetch_vnindex():
+    errors=[]; vps_candidate=None
+    try:
+        payload=get_json('https://bgapidatafeed.vps.com.vn/getlistindexdetail/10,11,02,03')
+        arr=_list(payload)
+        x=next((z for z in arr if isinstance(z,dict) and str(z.get('mc') or '').strip() in ('10','010')), None)
+        if x:
+            p=n(x.get('cIndex') or x.get('lastPrice') or x.get('price'))
+            ref=n(x.get('oIndex') or x.get('r') or x.get('refPrice') or x.get('priorClosePrice'))
+            vol=n(x.get('vol') or x.get('totalVolume') or x.get('volume'), default=0)
+            value=_value_billion(x)
+            if 500 <= p <= 3500 and ref > 0:
+                vps_candidate={
+                    'price':p,'ref_price':ref,'change_pct':(p/ref-1)*100,
+                    'volume':int(vol) if vol > 0 else None,
+                    'value_billion':value,'foreign_net':_foreign_net(x),
+                    'value_source':'VPS index-detail' if value is not None else None,
+                    'foreign_source':'VPS index-detail' if _foreign_net(x) is not None else None,
+                    'provider':'VPS-index-detail','valid':True,'raw':x
                 }
-    except Exception:
-        pass
+                if vol > 0: return vps_candidate,errors
+    except Exception as e:
+        errors.append(f'VPS VN-Index: {e}')
 
-    return {"price": 1754.03, "change": 0.0, "change_pct": 0.0, "volume": 0, "source": "Default Fallback"}
+    try:
+        now=int(time.time())
+        url=f'https://dchart-api.vndirect.com.vn/dchart/history?resolution=D&symbol=VNINDEX&from={now-14*86400}&to={now}'
+        x=get_json(url)
+        closes=x.get('c',[]) if isinstance(x,dict) else []
+        vols=x.get('v',[]) if isinstance(x,dict) else []
+        times=x.get('t',[]) if isinstance(x,dict) else []
+        if closes:
+            dp=n(closes[-1]); dref=n(closes[-2]) if len(closes)>1 else None
+            dvol=int(n(vols[-1])) if vols and len(vols)>=len(closes) else None
+            if 500<=dp<=3500 and dref and dref>0:
+                return {
+                    'price':dp,'ref_price':dref,'change_pct':(dp/dref-1)*100,
+                    'volume':dvol or None,'value_billion':None,'foreign_net':None,
+                    'value_source':None,'foreign_source':None,'provider':'VNDIRECT-Daily',
+                    'valid':True,'raw':{}
+                },errors
+    except Exception as e:
+        errors.append(f'VNDIRECT VN-Index: {e}')
 
-def fetch_macro() -> Dict[str, str]:
-    tickers_map = {"DXY": "DX-Y.NYB", "US10Y": "^TNX", "USDVND": "USDVND=X", "BRENT": "BZ=F"}
-    result = {}
+    return {
+        'price':None,'ref_price':None,'change_pct':None,'volume':None,
+        'value_billion':None,'foreign_net':None,'value_source':None,
+        'foreign_source':None,'provider':'Unavailable','valid':False,'raw':{}
+    },errors
+
+def fetch_history(symbol, days=180):
+    errors=[]; start=int(time.time())-days*86400; end=int(time.time())
+    urls=[('TCBS',f'https://apipubaws.tcbs.com.vn/stock-insight/v1/stock/bars-long-term?ticker={symbol}&type=stock&resolution=D&from={start}&to={end}'),
+         ('VNDIRECT',f'https://dchart-api.vndirect.com.vn/dchart/history?resolution=D&symbol={symbol}&from={start}&to={end}')]
+    for provider,url in urls:
+        try:
+            payload=get_json(url,timeout=10); bars=[]
+            if provider=='TCBS':
+                arr=_list(payload)
+                for x in arr:
+                    dt=str(x.get('tradingDate') or x.get('date') or '')[:10]
+                    close=price(x.get('close')); high=price(x.get('high') or close); low=price(x.get('low') or close); vol=int(n(x.get('volume') or x.get('totalVolume')))
+                    if len(dt)==10 and close>0: bars.append({'date':dt,'close':close,'high':high,'low':low,'volume':vol})
+            else:
+                closes=payload.get('c',[]); highs=payload.get('h',closes); lows=payload.get('l',closes); vols=payload.get('v',[]); ts=payload.get('t',[])
+                for i,close in enumerate(closes):
+                    dt=datetime.fromtimestamp(ts[i],timezone.utc).date().isoformat() if i<len(ts) else ''
+                    if dt and n(close)>0: bars.append({'date':dt,'close':price(close),'high':price(highs[i] if i<len(highs) else close),'low':price(lows[i] if i<len(lows) else close),'volume':int(n(vols[i] if i<len(vols) else 0))})
+            dedup={b['date']:b for b in bars}
+            bars=sorted(dedup.values(),key=lambda z:z['date'])
+            if len(bars)>=5: return bars,provider,errors
+        except Exception: pass
+    return [],'Unavailable',errors
+
+def fetch_deal_flow(symbol):
+    url=f'https://iboard-query.ssi.com.vn/stock/deal-history?stockSymbol={symbol}'
+    try:
+        payload=get_json(url,timeout=6); arr=_list(payload)
+        if not arr and isinstance(payload,dict) and isinstance(payload.get('data'),list): arr=payload['data']
+        buy=sell=classified=seen=unknown=0
+        for d in arr:
+            if not isinstance(d,dict): continue
+            seen+=1
+            side=str(d.get('action') or d.get('side') or d.get('matchType') or '').strip().upper()
+            vol=0
+            for k in ('vol','volume','matchVol','matchVolume','quantity','matchedVolume'):
+                if d.get(k) not in (None,''):
+                    vol=int(n(d.get(k),default=0)); break
+            if vol<=0: continue
+            if side in ('B','BUY','MUA','1'): buy+=vol; classified+=1
+            elif side in ('S','SELL','BAN','BÁN','2'): sell+=vol; classified+=1
+            else: unknown+=1
+        if classified>0 and buy+sell>0:
+            return {'buy':buy,'sell':sell,'source':'SSI deal history','is_real':True,'error':None}
+        return {'buy':None,'sell':None,'source':'SSI deal history','is_real':False,'error':'Không phân loại được chiều'}
+    except Exception as e:
+        return {'buy':None,'sell':None,'source':'SSI deal history','is_real':False, 'error':str(e)}
+
+def fetch_macro():
+    out=[]; errors=[]
     try:
         import yfinance as yf
-        tickers = yf.Tickers(" ".join(tickers_map.values()))
-        for key, sym in tickers_map.items():
-            try:
-                val = tickers.tickers[sym].fast_info["lastPrice"]
-                if key == "US10Y": result[key] = f"{val:.2f}%"
-                elif key == "USDVND": result[key] = f"{val:,.0f}"
-                elif key == "BRENT": result[key] = f"{val:.2f} USD/thùng"
-                else: result[key] = f"{val:.2f}"
-            except Exception:
-                result[key] = "Đang cập nhật"
-    except Exception:
-        result = {k: "Đang cập nhật" for k in tickers_map}
-    return result
+    except ImportError: return out,['yfinance not installed']
+    for factor,ticker in MACRO_TICKERS.items():
+        try:
+            hist=yf.Ticker(ticker).history(period='5d',auto_adjust=False)
+            if hist.empty: continue
+            value=float(hist['Close'].dropna().iloc[-1]); previous=float(hist['Close'].dropna().iloc[-2]) if len(hist['Close'].dropna())>1 else None
+            out.append({'factor':factor,'value':value,'change_pct':(value/previous-1)*100 if previous else None,'source':'Yahoo Finance'})
+        except Exception as e: errors.append(f'{factor}: {e}')
+    return out,errors
+
+def fetch_rss(url, source, since_hours=48):
+    import xml.etree.ElementTree as ET
+    items=[]; cutoff=datetime.now(timezone.utc)-timedelta(hours=since_hours)
+    try:
+        response=SESSION.get(url,timeout=10); response.raise_for_status()
+        root=ET.fromstring(response.content)
+        for node in root.findall('.//item'):
+            def txt(name):
+                e=node.find(name); return (e.text or '').strip() if e is not None else ''
+            title=txt('title'); link=txt('link'); summary=txt('description'); pub=txt('pubDate')
+            try: published=parsedate_to_datetime(pub).astimezone(timezone.utc) if pub else datetime.now(timezone.utc)
+            except Exception: published=datetime.now(timezone.utc)
+            if published<cutoff: continue
+            if title and link: items.append({'source':source,'title':title,'url':link,'summary':summary,'published_at':published.isoformat()})
+    except Exception as e: return [],str(e)
+    return items,None
