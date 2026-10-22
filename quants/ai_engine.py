@@ -32,7 +32,7 @@ def _client():
         except Exception:
             pass
             
-    raise AIUnavailable('Thiếu cấu hình API Key (OpenAI hoặc Gemini) trong Streamlit Secrets.')
+    raise AIUnavailable('Thiếu cấu hình API Key trong Streamlit Secrets.')
 
 def run_ai(rows, regime, macro, provider='Auto', media_context=None):
     valid_rows = [r for r in rows if float(r.get('volume') or 0) > 0 and bool(r.get('volume_available', True))]
@@ -72,7 +72,6 @@ INPUT rows:
                 )
                 raw = response.choices[0].message.content or '{}'
             else:
-                # Sử dụng các model chuẩn mới nhất của Gemini để tránh lỗi 404
                 response = client.models.generate_content(
                     model='gemini-2.0-flash',
                     contents=prompt
