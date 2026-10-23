@@ -66,8 +66,6 @@ def _weekly_and_structure_features(bars):
     ma20_vol = sum(vols[-20:]) / min(20, len(vols)) if vols else None
     ret5 = (closes[-1] / closes[-6] - 1) * 100 if len(closes) >= 6 and closes[-6] > 0 else 0.0
 
-    # Use completed bars before the current bar to avoid moving support/resistance
-    # with today's low/high and manufacturing a same-session 'test'.
     recent_20 = bars[-21:-1] if len(bars) >= 21 else bars[:-1]
     if not recent_20:
         recent_20 = bars[-20:]
@@ -79,7 +77,6 @@ def _weekly_and_structure_features(bars):
     sup_60 = min(b['low'] for b in recent_60)
     res_60 = max(b['high'] for b in recent_60)
 
-    # Count independent tests rather than every candle that touches the same zone.
     retest_count = count_independent_retests(recent_20, pivot_sup_20)
     retest_bars = [b for b in recent_20 if b['low'] <= pivot_sup_20 * 1.025]
     supply_decay_score = 50.0
@@ -188,44 +185,30 @@ def compute_bottom_top_detectors(r):
 
     top_score = round(_clamp(top_score, 0.0, 99.0), 1)
 
-    if bottom_score >= 72 and bottom_score > top_score + 15:
-        if close_pos >= 0.7 and vr >= 1.0:
-            early_tag = "🟢 Xác Nhận Tạo Đáy (Spring/Hấp Thụ)"
-        else:
-            early_tag = "🟢 Tạo Đáy Sớm (Cạn Cung/Giữ Nền)"
-    elif bottom_score >= 58 and bottom_score > top_score:
-        early_tag = "🟡 Nghi Ngờ Tạo Đáy (Đang Test Cung)"
-    elif top_score >= 70 and top_score > bottom_score + 15:
-        early_tag = "🔴 Cảnh Báo Tạo Đỉnh / Phân Phối"
-    elif top_score >= 58 and top_score > bottom_score:
-        early_tag = "🟠 Suy Yếu Tại Vùng Cao (Cẩn Trọng)"
-    else:
-        early_tag = "⚪ Trung Tính / Chờ Tín Hiệu"
-
-    # Add interpretable state features without replacing the legacy score contract.
-    # The base detector remains available for compatibility; these features contribute
-    # conservatively and are explicitly not probabilities.
     features = compute_reversal_features({**r, 'close_position': close_pos})
-    bottom_score += max(0.0, features['downtrend_exhaustion'] - 55.0) * 0.10
-    bottom_score += max(0.0, features['support_test_quality'] - 50.0) * 0.08
-    bottom_score += max(0.0, features['demand_confirmation'] - 55.0) * 0.10
-    bottom_score -= features['bottom_context_penalty']
+    bottom_score += max(0.0, features['downtrend_exhaustion'] - 50.0) * 0.12
+    bottom_score += max(0.0, features['support_test_quality'] - 45.0) * 0.12
+    bottom_score += max(0.0, features['demand_confirmation'] - 50.0) * 0.12
+    penalty = features['bottom_context_penalty']
+    if features['support_test_quality'] >= 54.0 and not r.get('support_break_event'):
+        penalty = penalty * 0.45
+    bottom_score -= penalty
     top_score += max(0.0, features['distribution_risk'] - 50.0) * 0.10
     top_score += max(0.0, features['failed_rebound_risk'] - 50.0) * 0.08
     top_score += max(0.0, features['media_price_divergence'] - 50.0) * 0.06
     bottom_score = round(_clamp(bottom_score, 0.0, 99.0), 1)
     top_score = round(_clamp(top_score, 0.0, 99.0), 1)
 
-    if bottom_score >= 72 and bottom_score > top_score + 15:
-        if close_pos >= 0.7 and vr >= 1.0:
+    if bottom_score >= 70 and bottom_score > top_score + 12:
+        if close_pos >= 0.68 and vr >= 0.95:
             early_tag = "🟢 Xác Nhận Tạo Đáy (Spring/Hấp Thụ)"
         else:
             early_tag = "🟢 Tạo Đáy Sớm (Cạn Cung/Giữ Nền)"
-    elif bottom_score >= 58 and bottom_score > top_score:
+    elif bottom_score >= 54 and bottom_score > top_score:
         early_tag = "🟡 Nghi Ngờ Tạo Đáy (Đang Test Cung)"
-    elif top_score >= 70 and top_score > bottom_score + 15:
+    elif top_score >= 70 and top_score > bottom_score + 12:
         early_tag = "🔴 Cảnh Báo Tạo Đỉnh / Phân Phối"
-    elif top_score >= 58 and top_score > bottom_score:
+    elif top_score >= 54 and top_score > bottom_score:
         early_tag = "🟠 Suy Yếu Tại Vùng Cao (Cẩn Trọng)"
     else:
         early_tag = "⚪ Trung Tính / Chờ Tín Hiệu"
@@ -292,8 +275,10 @@ def _score(r):
     s += _clamp((r.get('rs_vni') or 0) * 2.2, -12, 12)
     s += _clamp(((r.get('vol_ratio') or 1) - 1) * 14, -8, 12)
     s += _clamp(((r.get('buy_ratio') or 50) - 50) * 0.42 * flow_weight, -10, 10)
-    s += _clamp(((r.get('bottom_score') or 50) - 50) * 0.18, -8, 10)
-    s -= _clamp(((r.get('top_score') or 30) - 50) * 0.20, 0, 12)
+    b_val = float(r['bottom_score']) if r.get('bottom_score') is not None else 50.0
+    t_val = float(r['top_score']) if r.get('top_score') is not None else 30.0
+    s += _clamp((b_val - 50.0) * 0.18, -8, 10)
+    s -= _clamp((t_val - 50.0) * 0.20, 0, 12)
     if (r.get('foreign_net_today') or 0) > 0:
         s += 4
     elif (r.get('foreign_net_today') or 0) < 0:
@@ -315,20 +300,19 @@ def _score(r):
         independent_votes.append((r.get('buy_ratio') or 50) >= 54)
     agree = int(round(sum(1 for v in independent_votes if v) / len(independent_votes) * 100))
 
-    p_win = round(_clamp(signal * 0.55 + agree * 0.30 + (r.get('bottom_score') or 50) * 0.15, 20.0, 89.0), 1)
-    # Backward-compatible numeric field; the status explicitly prevents interpreting it as calibrated probability.
+    p_win = round(_clamp(signal * 0.55 + agree * 0.30 + b_val * 0.15, 20.0, 89.0), 1)
     r['heuristic_score'] = p_win
     r['p_win_status'] = 'HEURISTIC_NOT_CALIBRATED'
     r['calibrated_p_win'] = None
     conv = 'CAO' if p_win >= 68 and quality >= 70 else ('TRUNG BÌNH' if p_win >= 54 else 'THẤP')
 
-    if r.get('top_score', 0) >= 72:
+    if t_val >= 70:
         action = 'CHỐT LỜI / HẠ TỶ TRỌNG'
-    elif r['wyckoff'] in ('SOS / Breakout', 'Spring Candidate (Test Đáy)', 'Absorption Setup (Hấp Thụ Cung)') and p_win >= 60:
+    elif r['wyckoff'] in ('SOS / Breakout', 'Spring Candidate (Test Đáy)', 'Absorption Setup (Hấp Thụ Cung)') and p_win >= 58:
         action = 'MUA THĂM DÒ / GOM DẦN'
     elif r['wyckoff'] == 'Selling Climax / Quá Bán':
         action = 'QUAN SÁT CẠN CUNG'
-    elif p_win < 45:
+    elif p_win < 45 and float(r.get('change_pct') or 0) <= 1.0:
         action = 'HẠ TỶ TRỌNG'
     else:
         action = 'QUAN SÁT'
@@ -345,11 +329,17 @@ def _delta_open_flow(trade_date, symbol, current_net):
     return float(current_net) - float(df.iloc[0]['net_flow_billion'])
 
 
-def _foreign_5d(symbol, today_net):
-    df = query('SELECT trade_date, foreign_net_today FROM stock_snapshots WHERE symbol=? AND foreign_net_today IS NOT NULL ORDER BY id DESC LIMIT 30', (symbol,))
+def _foreign_5d(symbol, today_net, trade_date=None):
+    if trade_date:
+        df = query('SELECT trade_date, foreign_net_today FROM stock_snapshots WHERE symbol=? AND trade_date < ? AND foreign_net_today IS NOT NULL ORDER BY id DESC LIMIT 40', (symbol, trade_date))
+    else:
+        df = query('SELECT trade_date, foreign_net_today FROM stock_snapshots WHERE symbol=? AND foreign_net_today IS NOT NULL ORDER BY id DESC LIMIT 40', (symbol,))
     by_day = {}
     for _, r in df.iterrows():
-        by_day.setdefault(r['trade_date'], int(r['foreign_net_today']))
+        d_str = str(r['trade_date'] or '')
+        if trade_date and d_str == str(trade_date):
+            continue
+        by_day.setdefault(d_str, int(r['foreign_net_today']))
     vals = list(by_day.values())[:4]
     if today_net is not None:
         vals = [int(today_net)] + vals
@@ -357,7 +347,6 @@ def _foreign_5d(symbol, today_net):
 
 
 def _historical_reversal_memory(symbol, trade_date, current_price, support, resistance):
-    """Read prior persisted snapshots to retain context without a schema migration."""
     result = {
         'historical_bottom_peak_20d': None, 'historical_top_peak_20d': None,
         'bottom_signal_memory': 0.0, 'top_signal_memory': 0.0,
@@ -405,7 +394,6 @@ def _historical_reversal_memory(symbol, trade_date, current_price, support, resi
         result['support_break_event'] = bool(old_sup > 0 and current_price < old_sup * 0.98)
         result['resistance_break_event'] = bool(old_res > 0 and current_price > old_res * 1.01)
     except Exception:
-        # Historical context is additive: never fail the live scan because old snapshots are malformed.
         return result
     finally:
         if c is not None:
@@ -414,7 +402,6 @@ def _historical_reversal_memory(symbol, trade_date, current_price, support, resi
 
 
 def _media_context(symbol, trade_date, rs_vni):
-    """Aggregate historical article tone/attention and compare it with relative price action."""
     empty = {'media_article_count_7d': 0, 'media_sentiment_score_7d': 0.0,
              'media_attention_change': None, 'media_price_divergence': 0.0}
     c = None
@@ -515,7 +502,7 @@ def compute_quant(symbols, index_quote, now: datetime):
         vwap_pos = 'Trên VWAP' if q['price'] > q['vwap'] * 1.001 else ('Dưới VWAP' if q['price'] < q['vwap'] * 0.999 else 'Tại VWAP')
         delta_flow = _delta_open_flow(trade_date, sym, net_flow)
         f_today = q.get('foreign_net')
-        f_5d = _foreign_5d(sym, f_today)
+        f_5d = _foreign_5d(sym, f_today, trade_date=trade_date)
 
         r = {
             'symbol': sym, 'sector': _get_sector(sym),
@@ -584,19 +571,11 @@ def compute_quant(symbols, index_quote, now: datetime):
 
 
 def _insert_snapshot_compat(c, table: str, columns: list[str], values: list):
-    """Insert snapshots against both current and legacy SQLite schemas.
-
-    Some deployed databases have a legacy ``recorded_at NOT NULL`` column
-    that is absent from the current CREATE TABLE definition. Populate it when
-    present, but do not reference it in fresh databases where it does not exist.
-    """
     existing = {row["name"] for row in c.execute(f'PRAGMA table_info("{table}")')}
     insert_columns = list(columns)
     insert_values = list(values)
     if "recorded_at" in existing and "recorded_at" not in insert_columns:
         insert_columns.append("recorded_at")
-        # Use the canonical snapshot timestamp so old and new timestamp fields
-        # refer to the same event.
         insert_values.append(values[columns.index("ts")] if "ts" in columns else values[0])
     placeholders = ",".join("?" for _ in insert_columns)
     quoted_columns = ",".join(f'"{name}"' for name in insert_columns)
@@ -640,5 +619,4 @@ def _persist(rows, now: datetime):
             _insert_snapshot_compat(c, "flow_snapshots", flow_columns, flow_values)
 
 
-# Backward-compatible internal name retained for tests and older integrations.
 _store_rows = _persist
