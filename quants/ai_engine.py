@@ -6,7 +6,6 @@ from .db import query, connect, event
 
 class AIUnavailable(RuntimeError): pass
 
-# Chuỗi 5 model Gemini dự phòng liên hoàn: nếu 2.5-flash bị 503 (High Demand), tự động nhảy sang flash-lite và 2.0-flash
 GEMINI_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
@@ -34,15 +33,26 @@ def _clean_json(raw_text: str) -> dict:
     text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.IGNORECASE)
     text = re.sub(r'\s*```$', '', text)
     text = text.strip()
+    parsed = None
     try:
-        return json.loads(text)
+        parsed = json.loads(text)
     except Exception:
-        match = re.search(r'\{.*\}', text, flags=re.DOTALL)
+        match = re.search(r'(\{.*\}|\[.*\])', text, flags=re.DOTALL)
         if match:
             try:
-                return json.loads(match.group(0))
+                parsed = json.loads(match.group(0))
             except Exception:
                 pass
+    if isinstance(parsed, dict):
+        return parsed
+    if isinstance(parsed, list):
+        out = {}
+        for item in parsed:
+            if isinstance(item, dict):
+                sym = item.get('symbol') or item.get('ticker') or item.get('ma_cp')
+                if sym:
+                    out[str(sym).strip().upper()] = item
+        return out
     return {}
 
 def _client(provider="Gemini"):
@@ -73,7 +83,7 @@ def _call_gemini(prompt: str, json_mode: bool = False) -> tuple[str, str]:
     client = genai.Client(api_key=key)
 
     last_err = None
-    for idx, model_name in enumerate(GEMINI_MODELS):
+    for model_name in GEMINI_MODELS:
         for attempt in range(2):
             try:
                 cfg = types.GenerateContentConfig(
@@ -90,11 +100,12 @@ def _call_gemini(prompt: str, json_mode: bool = False) -> tuple[str, str]:
             except Exception as e:
                 last_err = e
                 err_str = str(e).upper()
-                # Nếu gặp 503 UNAVAILABLE hoặc 429, nghỉ lùi 1.2s rồi chuyển sang model nhẹ hơn
-                if "503" in err_str or "UNAVAILABLE" in err_str or "429" in err_str or "OVERLOADED" in err_str:
-                    time.sleep(1.2 * (attempt + 1))
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
                     break
-                time.sleep(0.5)
+                if "503" in err_str or "UNAVAILABLE" in err_str or "OVERLOADED" in err_str:
+                    time.sleep(0.8 * (attempt + 1))
+                    break
+                time.sleep(0.4)
     raise RuntimeError(f"Gemini quá tải tạm thời (503/429): {last_err}")
 
 def _call_openai(prompt: str, json_mode: bool = False) -> tuple[str, str]:
@@ -130,7 +141,6 @@ def _call_openai(prompt: str, json_mode: bool = False) -> tuple[str, str]:
                 return content, model_name
         except Exception as e:
             last_err = e
-            # Nếu tài khoản OpenAI hết credit (insufficient_quota), dừng thử OpenAI ngay
             if "insufficient_quota" in str(e).lower() or "credit" in str(e).lower():
                 break
             time.sleep(0.3)
@@ -159,6 +169,36 @@ def _generate(client, provider, prompt):
     text, _, _ = _generate_with_fallback(provider, prompt, json_mode=False)
     return text
 
+def _load_today_cached_ai_predictions() -> dict[str, dict]:
+    """Đọc lại kết quả dự báo AI đã chạy thành công trong cùng ngày từ bảng predictions để bảo toàn kết quả khi hết Quota."""
+    trade_date = datetime.now(timezone.utc).astimezone(ZoneInfo('Asia/Ho_Chi_Minh')).date().isoformat()
+    cached: dict[str, dict] = {}
+    try:
+        df = query(
+            "SELECT symbol, horizon, predicted_pct, predicted_action, ai_provider, ai_model "
+            "FROM predictions WHERE trade_date=? AND ai_provider NOT IN ('None', 'Fallback định lượng')",
+            (trade_date,)
+        )
+        if df.empty:
+            return {}
+        for _, row in df.iterrows():
+            sym = str(row['symbol'] or '').strip().upper()
+            h = int(row['horizon'] or 0)
+            entry = cached.setdefault(sym, {
+                'action': row['predicted_action'],
+                '_provider': row['ai_provider'],
+                '_model': row['ai_model']
+            })
+            if h == 2:
+                entry['pred_t2_pct'] = float(row['predicted_pct'])
+            elif h == 3:
+                entry['pred_t3_pct'] = float(row['predicted_pct'])
+            elif h == 7:
+                entry['pred_t7_pct'] = float(row['predicted_pct'])
+    except Exception:
+        return {}
+    return cached
+
 def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
     valid_rows = [r for r in rows if float(r.get('price') or 0) > 0 and bool(r.get('volume_available')) and float(r.get('volume') or 0) > 0]
     if not valid_rows:
@@ -172,7 +212,7 @@ def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
         'early_signal','retest_count','supply_decay_score','wyckoff','key_levels'
     ]
 
-    batch_size = 10
+    batch_size = 15
     for offset in range(0, len(valid_rows), batch_size):
         batch = valid_rows[offset:offset + batch_size]
         payload = [{k: r.get(k) for k in keys_to_send} for r in batch]
@@ -221,24 +261,11 @@ INPUT rows:
                         }
         except Exception as e:
             event('WARN', 'ai_engine', f'Batch offset {offset} failed: {e}')
-        time.sleep(0.8)
+        time.sleep(0.4)
 
     return result
 
-def _deterministic_fallback_forecast(r):
-    """Tính dự báo định lượng cơ sở nếu lô AI bị nghẽn mạng tạm thời"""
-    b_sc = float(r.get('bottom_score') or 50.0)
-    t_sc = float(r.get('top_score') or 30.0)
-    sig = float(r.get('signal_score') or 50.0)
-    rs = float(r.get('rs_vni') or 0.0)
-    edge = (b_sc - t_sc) * 0.045 + (sig - 50.0) * 0.05 + rs * 0.15
-    t2 = round(max(-6.0, min(7.0, edge * 0.45)), 2)
-    t3 = round(max(-9.0, min(11.0, edge * 0.75)), 2)
-    t7 = round(max(-14.0, min(18.0, edge * 1.35)), 2)
-    return t2, t3, t7
-
 def _safe_float(value, default=0.0):
-    """Parse numeric features safely; confidence labels may be descriptive strings."""
     try:
         if value is None or isinstance(value, bool):
             return float(default)
@@ -250,14 +277,43 @@ def _safe_float(value, default=0.0):
     except (TypeError, ValueError):
         return float(default)
 
+def _flow_conf_score(val) -> float:
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        return float(val)
+    s = str(val or '').upper()
+    if 'CAO' in s or 'HIGH' in s:
+        return 80.0
+    if 'TRUNG BÌNH' in s or 'MEDIUM' in s:
+        return 55.0
+    num = _safe_float(val, -1.0)
+    if num >= 0:
+        return num
+    return 25.0
+
+def _deterministic_fallback_forecast(r):
+    """Tính dự báo định lượng cơ sở nhất quán với chiều hướng khuyến nghị (không bị lỗi Falsy 0.0)"""
+    b_sc = _safe_float(r.get('bottom_score'), 50.0) if r.get('bottom_score') is not None else 50.0
+    t_sc = _safe_float(r.get('top_score'), 30.0) if r.get('top_score') is not None else 30.0
+    sig = _safe_float(r.get('signal_score'), 50.0) if r.get('signal_score') is not None else 50.0
+    rs = _safe_float(r.get('rs_vni'), 0.0)
+    act = str(r.get('action') or '').upper()
+
+    edge = (b_sc - t_sc) * 0.035 + (sig - 50.0) * 0.06 + rs * 0.15
+    if ('HẠ TỶ TRỌNG' in act or 'CHỐT LỜI' in act) and sig < 46.0 and edge > -0.15:
+        edge = -abs(50.0 - sig) * 0.08
+
+    t2 = round(max(-6.0, min(7.0, edge * 0.45)), 2)
+    t3 = round(max(-9.0, min(11.0, edge * 0.75)), 2)
+    t7 = round(max(-14.0, min(18.0, edge * 1.35)), 2)
+    return t2, t3, t7
 
 def enforce_predictions(rows, ai):
+    cached_today = _load_today_cached_ai_predictions()
     for r in rows:
         sym = str(r.get('symbol') or '').strip().upper()
-        x = ai.get(sym, {}) if isinstance(ai, dict) else {}
+        x = (ai.get(sym) if isinstance(ai, dict) else None) or cached_today.get(sym, {})
         has_valid_data = bool(r.get('volume_available')) and _safe_float(r.get('volume'), 0) > 0 and _safe_float(r.get('price'), 0) > 0
 
-        # Hard data gate: never invent a forecast when volume/price is unavailable.
         if not has_valid_data:
             r['ai_vsa'] = 'CHỜ DỮ LIỆU: thiếu giá hoặc khối lượng hợp lệ; không tạo dự báo T+.'
             r['ai_analysis_source'] = 'Data gate'
@@ -285,24 +341,38 @@ def enforce_predictions(rows, ai):
             r['ai_analysis_source'] = 'AI'
         else:
             b = _safe_float(r.get('bottom_score')); t = _safe_float(r.get('top_score'))
-            fc = _safe_float(r.get('flow_confidence')); sd = _safe_float(r.get('supply_decay_score'))
+            fc = _flow_conf_score(r.get('flow_confidence'))
+            sd = _safe_float(r.get('supply_decay_score'))
             rv = _safe_float(r.get('rs_vni')); rs = _safe_float(r.get('rs_sector'))
             ch = _safe_float(r.get('change_pct')); vwap = str(r.get('vwap_position') or '').lower()
             wy = str(r.get('wyckoff') or r.get('early_signal') or 'Chưa rõ cấu trúc')
             parts = [wy, f"điểm đáy {b:.0f}/100, điểm đỉnh {t:.0f}/100"]
-            if b >= 65 and b > t + 15: parts.append('ứng viên tạo đáy; cần giữ hỗ trợ và vượt VWAP để xác nhận')
-            elif t >= 65 and t > b + 15: parts.append('rủi ro phân phối/tạo đỉnh; theo dõi mất hỗ trợ, tránh mua đuổi')
-            elif ch > 1.5 and ('trên' in vwap or 'above' in vwap): parts.append('giá tăng mạnh; cần kiểm tra độ bền khối lượng')
-            elif ch < -1.5 and (fc < 40 or sd < 35): parts.append('áp lực bán còn đáng kể; chưa đủ bằng chứng hấp thụ cung')
-            elif sd >= 60 and fc >= 50: parts.append('có dấu hiệu cung suy giảm; chờ cầu xác nhận')
-            else: parts.append('chưa có lợi thế rõ; chờ xác nhận từ giá và khối lượng')
-            if rv >= 1: parts.append(f'RS mạnh hơn VN-Index ({rv:+.1f})')
-            elif rv <= -1: parts.append(f'RS yếu hơn VN-Index ({rv:+.1f})')
-            if rs >= 1: parts.append('mạnh hơn ngành')
-            elif rs <= -1: parts.append('yếu hơn ngành')
-            if fc < 40: parts.append('độ tin cậy flow thấp; không xem flow ước tính là bằng chứng dòng tiền lớn')
+            if b >= 65 and b > t + 12:
+                parts.append('ứng viên tạo đáy; cần giữ hỗ trợ và vượt VWAP để xác nhận')
+            elif b >= 54 and b > t:
+                parts.append('có tín hiệu test cung/hấp thụ bước đầu quanh hỗ trợ')
+            elif t >= 65 and t > b + 12:
+                parts.append('rủi ro phân phối/tạo đỉnh; theo dõi mất hỗ trợ, tránh mua đuổi')
+            elif ch > 1.5 and ('trên' in vwap or 'above' in vwap):
+                parts.append('giá tăng tốt trên VWAP; cần kiểm tra độ bền khối lượng')
+            elif ch < -1.5 and (fc < 40 or sd < 35):
+                parts.append('áp lực bán còn đáng kể; chưa đủ bằng chứng hấp thụ cung')
+            elif sd >= 60 and fc >= 50:
+                parts.append('có dấu hiệu cung suy giảm; chờ cầu xác nhận')
+            else:
+                parts.append('chưa có lợi thế rõ; chờ xác nhận từ giá và khối lượng')
+            if rv >= 1:
+                parts.append(f'RS mạnh hơn VN-Index ({rv:+.1f})')
+            elif rv <= -1:
+                parts.append(f'RS yếu hơn VN-Index ({rv:+.1f})')
+            if rs >= 1:
+                parts.append('mạnh hơn ngành')
+            elif rs <= -1:
+                parts.append('yếu hơn ngành')
+            if fc < 40:
+                parts.append('độ tin cậy flow thấp; không xem flow ước tính là bằng chứng dòng tiền lớn')
             r['ai_vsa'] = ' | '.join(parts)
-            r['ai_analysis_source'] = 'Fallback định lượng'
+            r['ai_analysis_source'] = 'AI (Cached)' if x else 'Fallback định lượng'
 
         r['ai_action'] = str(x.get('action') or r.get('action', 'QUAN SÁT'))
         r['position_size_suggestion'] = str(x.get('position_size_suggestion') or '20% NAV')
@@ -314,6 +384,23 @@ def enforce_predictions(rows, ai):
         r['pred_t2'] = _flt(x.get('pred_t2_pct'), t2_fb)
         r['pred_t3'] = _flt(x.get('pred_t3_pct'), t3_fb)
         r['pred_t7'] = _flt(x.get('pred_t7_pct'), t7_fb)
+
+    try:
+        with connect() as c:
+            for r in rows:
+                c.execute(
+                    """UPDATE stock_snapshots
+                       SET ai_vsa=?, ai_action=?, pred_t2=?, pred_t3=?, pred_t7=?, metrics_json=?
+                       WHERE id = (SELECT MAX(id) FROM stock_snapshots WHERE symbol=?)""",
+                    (
+                        r.get('ai_vsa'), r.get('ai_action'),
+                        r.get('pred_t2'), r.get('pred_t3'), r.get('pred_t7'),
+                        json.dumps(r, ensure_ascii=False, default=str),
+                        r.get('symbol')
+                    )
+                )
+    except Exception:
+        pass
     return rows
 
 def save_prediction_audit(rows, regime):
@@ -324,7 +411,6 @@ def save_prediction_audit(rows, regime):
     saved = 0
     try:
         with connect() as c:
-            # Serialize the existence-check + insert sequence to prevent duplicate rows on repeated syncs.
             c.execute('BEGIN IMMEDIATE')
             for r in rows:
                 p = _safe_float(r.get('price'), 0)
