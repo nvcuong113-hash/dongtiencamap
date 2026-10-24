@@ -6,6 +6,8 @@ from .providers import fetch_rss
 from .db import connect, query, event
 
 TICKER_RE = re.compile(r'(?<![A-Z0-9])([A-Z]{3})(?![A-Z0-9])')
+MONEY_VND_RE = re.compile(r'(?:\d+[\.,]?\d*\s*(?:tỷ|triệu|nghìn|ngàn|đồng)?\s*vnd|vnd\s*/\s*cp)', re.IGNORECASE)
+NEGATION_RE = re.compile(r'\b(không|chưa|ngừng|hết|bác bỏ|phủ nhận|chấm dứt|không còn|tránh)\s+(?:còn\s+|bị\s+|có\s+)?', re.IGNORECASE)
 
 RISK_WORDS = (
     'phân phối', 'thoát hàng', 'fomo', 'hô hào', 'xả hàng', 'úp bô',
@@ -25,44 +27,62 @@ def _clean(s):
     return re.sub(r'\s+', ' ', html.unescape(re.sub('<[^>]+>', ' ', s or ''))).strip()
 
 def extract_symbols(text, watchlist):
-    found = set(TICKER_RE.findall((text or '').upper()))
-    return sorted(found.intersection(set(watchlist)))
+    if not text:
+        return []
+    cleaned_for_ticker = MONEY_VND_RE.sub(' ', text)
+    upper_matches = set(TICKER_RE.findall(cleaned_for_ticker.upper()))
+    explicit_matches = set(
+        m.upper() for m in re.findall(r'(?:cổ phiếu|mã|cp)\s+([a-zA-Z]{3})\b', cleaned_for_ticker, flags=re.IGNORECASE)
+    )
+    return sorted((upper_matches | explicit_matches).intersection(set(watchlist)))
+
+def _has_keyword_unnegated(low_text: str, words: tuple[str, ...]) -> tuple[bool, bool]:
+    aff = False
+    neg = False
+    for w in words:
+        for m in re.finditer(re.escape(w), low_text):
+            prefix = low_text[max(0, m.start() - 28):m.start()]
+            if NEGATION_RE.search(prefix):
+                neg = True
+            else:
+                aff = True
+    return aff, neg
 
 def classify_article_text(text: str) -> tuple[str, str, str, str]:
-    """Phân loại chi tiết Chiều hướng, Tâm lý nhỏ lẻ, Ý đồ Big Boys và Cảnh báo cho từng bài báo."""
+    """Phân loại chi tiết Chiều hướng, Tâm lý nhỏ lẻ, Ý đồ Big Boys (chống bẫy phủ định) cho từng bài báo."""
     low = (text or '').lower()
-    has_risk = any(w in low for w in RISK_WORDS)
-    has_accum = any(w in low for w in ACCUM_WORDS)
+    has_risk_aff, has_risk_neg = _has_keyword_unnegated(low, RISK_WORDS)
+    has_accum_aff, has_accum_neg = _has_keyword_unnegated(low, ACCUM_WORDS)
     has_corp = any(w in low for w in CORP_WORDS)
 
-    neg_strong = any(w in low for w in ('giảm sâu', 'bán tháo', 'lao dốc', 'thua lỗ', 'tạm lỗ', 'giảm 65%', 'hụt gần', 'xả', 'rút vốn', 'bán ra', 'thu hẹp'))
-    pos_strong = any(w in low for w in ('tăng mạnh', 'lợi nhuận tăng', 'mua ròng', 'gom mạnh', 'hút tiền', 'bứt phá', 'kỷ lục', 'khuyến nghị mua', 'tiềm năng tăng', 'gia tăng sở hữu', 'đăng ký mua', 'trở lại mốc', 'khởi sắc'))
+    neg_strong = has_risk_aff and not has_risk_neg
+    pos_strong = has_accum_aff and not has_accum_neg
 
     if neg_strong and not pos_strong:
         sentiment = 'Tiêu cực'
     elif pos_strong and not neg_strong:
         sentiment = 'Tích cực'
-    elif has_accum and not has_risk:
+    elif has_accum_aff and not has_risk_aff:
         sentiment = 'Tích cực'
-    elif has_risk and not has_accum:
+    elif has_risk_aff and not has_accum_aff:
         sentiment = 'Tiêu cực'
     else:
         sentiment = 'Trung tính'
 
-    if any(w in low for w in ('khuyến nghị mua', 'tiềm năng tăng', 'mục tiêu')):
-        intent = 'CTCK/Media nâng kỳ vọng (cần đối chiếu Vol/VWAP)'
+    if any(w in low for w in ('khuyến nghị mua', 'tiềm năng tăng', 'mục tiêu')) and not has_risk_neg:
+        intent = 'CTCK/Media nâng kỳ vọng (Cần đối chiếu Vol/VWAP)'
         buzz = 'Nhỏ lẻ dễ hưng phấn theo giá mục tiêu'
         warning = 'Kiểm tra phản ứng giá tại kháng cự; tránh mua đuổi nếu cầu thực yếu.'
     elif any(w in low for w in ('mua ròng', 'gom mạnh', 'hút tiền', 'đăng ký mua', 'gia tăng sở hữu')):
-        intent = 'Khả năng gom hàng/hấp thụ (candidate)'
+        intent = 'Khả năng gom hàng / hấp thụ ngầm (Shakeout/Accumulation)'
         buzz = 'Tâm lý cải thiện theo dòng tiền ngoại/nội bộ'
         warning = 'Theo dõi xác nhận giữ nền hỗ trợ và khối lượng thực.'
-    elif any(w in low for w in ('bán ra', 'xả', 'rút vốn', 'thu hẹp', 'phân phối', 'thoát hàng')):
-        intent = 'Rủi ro phân phối/cơ cấu giảm tỷ trọng (candidate)'
+    elif neg_strong:
+        intent = 'Rủi ro phân phối / cơ cấu giảm tỷ trọng (Distribution)'
         buzz = 'Tâm lý thận trọng / Lo ngại nguồn cung lớn'
         warning = 'Chú ý rủi ro gãy VWAP hoặc nổ vol vùng đỉnh.'
-    elif any(w in low for w in ('tạm lỗ', 'giảm 65%', 'hụt gần', 'rẻ đi', 'nhịp điều chỉnh', 'lọc "nhiễu"')):
-        intent = 'Khả năng rũ cung/thử thách tâm lý (candidate)'
+    elif any(w in low for w in ('tạm lỗ', 'giảm sâu', 'rẻ đi', 'nhịp điều chỉnh')):
+        intent = 'Khả năng rũ bỏ nhỏ lẻ / thử thách tâm lý (Spring candidate)'
         buzz = 'Nhỏ lẻ hoang mang / Nghi ngờ định giá'
         warning = 'Quan sát tín hiệu cạn cung (No Supply) tại vùng hỗ trợ 20P.'
     elif has_corp:
