@@ -1,0 +1,20 @@
+QUANTS PRO V16.3 — TEST REPORT
+
+Result: PASS
+Pytest: 49 passed
+Compile check: python -m compileall -q quants app.py worker.py — PASS
+AST parse of changed Python files — PASS
+ZIP integrity — PASS
+
+Added regression cases:
+- VWAP above/at/below points are ordered correctly; at-VWAP is neutral.
+- Trim action with low p_win cannot produce positive fallback forecast.
+- VND currency amount does not become VND ticker; explicit stock context can.
+- Negated sell-off language does not automatically become negative/distribution intent.
+- Media sentiment attribution is per ticker sentence when possible.
+- Existing OPEN fallback prediction can be upgraded by successful real AI prediction.
+- AI response missing one ticker triggers one bounded mini-batch retry for that ticker only.
+- Complete same-day delta cache avoids an unnecessary API call when thresholds are met.
+
+Scope/limitations:
+Tests use mocks and temporary DBs; no live Gemini/OpenAI/RSS calls, no production DB write, no chronological financial backtest.
