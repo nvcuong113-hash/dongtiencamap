@@ -22,10 +22,6 @@ def n(v, default=0.0):
         return default
 
 def price(v):
-    """PATCH: Chuẩn hóa đơn vị giá VNĐ.
-    Các cổng VPS/TCBS/VNDirect trả về đơn vị nghìn đồng (ví dụ 25.45 hoặc 0.85).
-    Nếu giá đã là số nguyên >= 300 (ví dụ 850 đ hoặc 25450 đ) thì giữ nguyên, chỉ nhân 1000 khi < 300.
-    """
     x = n(v)
     if x <= 0:
         return 0.0
@@ -46,7 +42,6 @@ def _list(payload):
     return []
 
 def _volume_details(raw):
-    """PATCH: Loại bỏ logic tự nhân 10 (`val *= 10`) trên totalVol/totalMatchVol gây sai lệch gấp 10 lần."""
     if not isinstance(raw, dict):
         return None, None
     primary_keys = (
@@ -61,7 +56,6 @@ def _volume_details(raw):
     if raw.get('lot') not in (None, ''):
         lot_val = n(raw.get('lot'), default=-1)
         if lot_val > 0:
-            # Lô giao dịch chuẩn HSX/HNX hiện tại là 100 CP, chỉ dùng khi hoàn toàn thiếu các trường volume
             return int(lot_val * 100) if lot_val < 1_000_000 else int(lot_val), 'lot'
     fvo = raw.get('fVo')
     if fvo not in (None, '') and not isinstance(fvo, bool):
@@ -157,25 +151,6 @@ def fetch_stock_feeds(symbols):
     missing = [sym for sym in symbols if sym not in result]
     for sym in missing:
         try:
-            d = get_json(f'https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{sym}/overview', timeout=5)
-            p = price(d.get('price') or d.get('close'))
-            ref = price(d.get('reference') or d.get('prevClose') or p)
-            vol = int(n(d.get('totalVolume') or d.get('totalMatchVolume'), default=0))
-            if p > 0:
-                row = {
-                    'symbol': sym, 'price': p, 'ref_price': ref, 'change_pct': (p / ref - 1) * 100 if ref > 0 else 0,
-                    'volume': vol, 'volume_available': bool(vol > 0), 'volume_field': 'tcbs_totalVolume',
-                    'high': price(d.get('high') or p), 'low': price(d.get('low') or p),
-                    'vwap': price(d.get('averagePrice') or p),
-                    'foreign_buy': None, 'foreign_sell': None, 'foreign_net': None,
-                    'value_billion': None, 'value_source': None, 'provider': 'TCBS-Fallback', 'raw': d
-                }
-                result[sym] = {'TCBS': row}
-                continue
-        except Exception:
-            pass
-
-        try:
             now_ts = int(time.time())
             d = get_json(f'https://dchart-api.vndirect.com.vn/dchart/history?resolution=D&symbol={sym}&from={now_ts-86400*7}&to={now_ts}', timeout=5)
             if d and 'c' in d and len(d['c']) > 0:
@@ -197,6 +172,25 @@ def fetch_stock_feeds(symbols):
         except Exception:
             pass
 
+        try:
+            d = get_json(f'https://apipubaws.tcbs.com.vn/tcanalysis/v1/ticker/{sym}/overview', timeout=5)
+            p = price(d.get('price') or d.get('close'))
+            ref = price(d.get('reference') or d.get('prevClose') or p)
+            vol = int(n(d.get('totalVolume') or d.get('totalMatchVolume'), default=0))
+            if p > 0:
+                row = {
+                    'symbol': sym, 'price': p, 'ref_price': ref, 'change_pct': (p / ref - 1) * 100 if ref > 0 else 0,
+                    'volume': vol, 'volume_available': bool(vol > 0), 'volume_field': 'tcbs_totalVolume',
+                    'high': price(d.get('high') or p), 'low': price(d.get('low') or p),
+                    'vwap': price(d.get('averagePrice') or p),
+                    'foreign_buy': None, 'foreign_sell': None, 'foreign_net': None,
+                    'value_billion': None, 'value_source': None, 'provider': 'TCBS-Fallback', 'raw': d
+                }
+                result[sym] = {'TCBS': row}
+                continue
+        except Exception:
+            pass
+
     merged = {}
     for sym, feeds in result.items():
         primary_source = list(feeds.keys())[0]
@@ -209,7 +203,7 @@ def fetch_stock_feeds(symbols):
 
     for sym in symbols:
         if sym not in merged:
-            errors.append(f'{sym}: không có quote hợp lệ từ tất cả các cổng (VPS/TCBS/VNDirect)')
+            errors.append(f'{sym}: không có quote hợp lệ từ tất cả các cổng (VPS/VNDirect/TCBS)')
     return merged, errors
 
 def fetch_vnindex():
@@ -233,7 +227,7 @@ def fetch_vnindex():
                     'provider': 'VPS-index-detail', 'valid': True, 'raw': x
                 }
                 if vol > 0:
-                    return vps_candidate, errors
+                    return vps_candidate, []
     except Exception as e:
         errors.append(f'VPS VN-Index: {e}')
 
@@ -253,7 +247,7 @@ def fetch_vnindex():
                     'volume': dvol or None, 'value_billion': None, 'foreign_net': None,
                     'value_source': None, 'foreign_source': None, 'provider': 'VNDIRECT-Daily',
                     'valid': True, 'raw': {}
-                }, errors
+                }, []
     except Exception as e:
         errors.append(f'VNDIRECT VN-Index: {e}')
 
@@ -268,8 +262,8 @@ def fetch_history(symbol, days=180):
     start = int(time.time()) - days * 86400
     end = int(time.time())
     urls = [
+        ('VNDIRECT', f'https://dchart-api.vndirect.com.vn/dchart/history?resolution=D&symbol={symbol}&from={start}&to={end}'),
         ('TCBS', f'https://apipubaws.tcbs.com.vn/stock-insight/v1/stock/bars-long-term?ticker={symbol}&type=stock&resolution=D&from={start}&to={end}'),
-        ('VNDIRECT', f'https://dchart-api.vndirect.com.vn/dchart/history?resolution=D&symbol={symbol}&from={start}&to={end}')
     ]
     for provider, url in urls:
         try:
@@ -303,13 +297,12 @@ def fetch_history(symbol, days=180):
             dedup = {b['date']: b for b in bars}
             bars = sorted(dedup.values(), key=lambda z: z['date'])
             if len(bars) >= 5:
-                return bars, provider, errors
+                return bars, provider, []
         except Exception as e:
             errors.append(f'{symbol} history ({provider}): {e}')
     return [], 'Unavailable', errors
 
 def fetch_deal_flow(symbol):
-    """PATCH: Tính chính xác dòng tiền mua/bán chủ động theo từng mức giá khớp (tick-level value)."""
     url = f'https://iboard-query.ssi.com.vn/stock/deal-history?stockSymbol={symbol}'
     try:
         payload = get_json(url, timeout=6)
