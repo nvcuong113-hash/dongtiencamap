@@ -15,3 +15,13 @@ Validation performed locally against the uploaded repository baseline:
 - unittest discover -s tests -v: 11 tests passed.
 
 This does not verify live Gemini API access or Streamlit Cloud deployment. No API keys are included. __pycache__ files are not included in this patch.
+
+
+PATCH V22 - SELECTIVE PORT OF LEGACY PRACTICAL FLOW (2026-10-24)
+- Added quants/practical_flow.py: rolling 3/5-session flow, flow acceleration/persistence,
+  conservative Selling Climax/absorption/distribution candidates, and sector flow aggregation.
+- Integrated these descriptive features into engine rows and metrics_json persistence.
+- Sector rotation explicitly separates verified deal-flow from proxy flow and labels watchlist coverage.
+- These outputs are heuristics, not calibrated probabilities and do not identify investor identity.
+- Did not port hardcoded volume benchmarks, fixed fallback VN-Index return, arbitrary confidence/P_Win
+  rules, or unvalidated price/VWAP-based "real flow" assumptions from the legacy scripts.
