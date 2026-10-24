@@ -1,6 +1,6 @@
 from __future__ import annotations
-import hashlib, sqlite3, re, os, secrets
-from datetime import datetime, timezone
+import hashlib, sqlite3, re, os, secrets, json
+from datetime import datetime, timezone, timedelta
 import pandas as pd
 from .config import DB_PATH
 
@@ -89,14 +89,13 @@ CREATE TABLE IF NOT EXISTS user_portfolios(
 );
 '''
 
+SESSION_TTL_DAYS = 7
+
 def _hash_pw(password: str) -> str:
     return hashlib.sha256(f"quants_v16_salt_{password}".encode("utf-8")).hexdigest()
 
 
 def _admin_reset_password() -> str | None:
-    """Return an explicitly configured one-time admin reset password, if present."""
-    # Environment variable supports local deployments; Streamlit Cloud values are
-    # normally supplied through st.secrets.
     value = os.getenv("QUANTS_ADMIN_RESET_PASSWORD", "").strip()
     if value:
         return value
@@ -114,8 +113,8 @@ def connect():
     c.row_factory = sqlite3.Row
     return c
 
+
 def _schema_columns(schema: str) -> dict[str, dict[str, str]]:
-    """Extract column names/types from our CREATE TABLE statements for safe additive migrations."""
     tables: dict[str, dict[str, str]] = {}
     current_table = None
     for line in schema.splitlines():
@@ -134,8 +133,6 @@ def _schema_columns(schema: str) -> dict[str, dict[str, str]]:
         if stripped.startswith(");"):
             current_table = None
             continue
-        # Several schema declarations place multiple columns on one line.
-        # Split simple column fragments; table constraints are ignored by the regex.
         for fragment in stripped.rstrip(",").split(","):
             col_match = re.match(
                 r"([A-Za-z_][A-Za-z0-9_]*)\s+(INTEGER|REAL|TEXT|BLOB|NUMERIC)\b",
@@ -148,35 +145,25 @@ def _schema_columns(schema: str) -> dict[str, dict[str, str]]:
 
 
 def _migrate_legacy_columns(c: sqlite3.Connection) -> None:
-    """Add missing non-key columns without deleting or rebuilding legacy tables."""
     for table, expected_columns in _schema_columns(SCHEMA).items():
         existing = {
             row["name"]
             for row in c.execute(f'PRAGMA table_info("{table}")').fetchall()
         }
         for column, sql_type in expected_columns.items():
-            # Existing tables should already have their primary key. SQLite cannot
-            # add an AUTOINCREMENT primary key with ALTER TABLE; never fake one.
-            # Let the dedicated users.status migration below preserve its
-            # DEFAULT 'APPROVED' behavior for existing accounts.
             if column == "id" or column in existing or (table == "users" and column == "status"):
                 continue
-            c.execute(
-                f'ALTER TABLE "{table}" ADD COLUMN "{column}" {sql_type}'
-            )
+            c.execute(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {sql_type}')
             existing.add(column)
 
 
 def _backfill_legacy_values(c: sqlite3.Connection) -> None:
-    """Copy equivalent legacy values into newly introduced canonical columns."""
     media_cols = {r["name"] for r in c.execute('PRAGMA table_info("media_articles")').fetchall()}
     if {"symbols", "symbols_json"} <= media_cols:
         c.execute("UPDATE media_articles SET symbols_json=symbols WHERE (symbols_json IS NULL OR symbols_json='') AND symbols IS NOT NULL")
         c.execute("UPDATE media_articles SET symbols=symbols_json WHERE (symbols IS NULL OR symbols='') AND symbols_json IS NOT NULL")
     if {"fetched_at", "crawled_at"} <= media_cols:
         c.execute("UPDATE media_articles SET fetched_at=crawled_at WHERE fetched_at IS NULL AND crawled_at IS NOT NULL")
-    # Backfill URL hashes for legacy rows, avoiding collisions in old databases
-    # that may not have had a UNIQUE constraint on url_hash.
     if {"id", "url", "url_hash"} <= media_cols:
         rows = c.execute("SELECT id,url FROM media_articles WHERE (url_hash IS NULL OR url_hash='') AND url IS NOT NULL AND url!=''").fetchall()
         for row in rows:
@@ -186,7 +173,6 @@ def _backfill_legacy_values(c: sqlite3.Connection) -> None:
                 try:
                     c.execute("UPDATE media_articles SET url_hash=? WHERE id=?", (digest, row["id"]))
                 except sqlite3.IntegrityError:
-                    # Preserve legacy records if the old table has stricter constraints.
                     pass
     perf_cols = {r["name"] for r in c.execute('PRAGMA table_info("model_performance")').fetchall()}
     if {"computed_at", "calculated_at"} <= perf_cols:
@@ -197,8 +183,6 @@ def _backfill_legacy_values(c: sqlite3.Connection) -> None:
 
 def init_db():
     with connect() as c:
-        # Create missing tables, then migrate all missing columns before creating
-        # indexes. CREATE TABLE IF NOT EXISTS does not update an existing table.
         c.executescript(SCHEMA)
         _migrate_legacy_columns(c)
         _backfill_legacy_values(c)
@@ -221,17 +205,15 @@ def init_db():
         created_admin = cur is None
         if created_admin:
             now_str = datetime.now(timezone.utc).isoformat()
+            default_admin_pw = os.getenv("QUANTS_INITIAL_ADMIN_PASSWORD", "admin123").strip() or "admin123"
             c.execute(
                 "INSERT INTO users(username, password_hash, full_name, role, status, cash_balance, created_at) VALUES (?,?,?,?,?,?,?)",
-                ("admin", _hash_pw("admin123"), "Quản Trị Viên (Admin)", "ADMIN", "APPROVED", 500000000.0, now_str)
+                ("admin", _hash_pw(default_admin_pw), "Quản Trị Viên (Admin)", "ADMIN", "APPROVED", 500000000.0, now_str)
             )
             cur = c.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()
         else:
             c.execute("UPDATE users SET role='ADMIN', status='APPROVED' WHERE username='admin'")
 
-        # Explicit recovery only: reset the existing admin password when the
-        # operator deliberately sets QUANTS_ADMIN_RESET_PASSWORD. Never reset
-        # credentials automatically during ordinary app startup.
         reset_password = _admin_reset_password()
         if reset_password:
             c.execute(
@@ -240,8 +222,6 @@ def init_db():
             )
 
         admin_id = cur["id"]
-        # Older portfolio schemas may identify owners by username rather than user_id.
-        # Backfill only when that legacy column exists; do not guess ownership.
         portfolio_cols = {
             r["name"] for r in c.execute('PRAGMA table_info("user_portfolios")').fetchall()
         }
@@ -254,8 +234,6 @@ def init_db():
                   AND EXISTS (SELECT 1 FROM users WHERE users.username = user_portfolios.username)
             """)
 
-        # Preserve migrated portfolios. Seed the sample portfolio only for a new
-        # admin with no existing portfolio rows.
         portfolio_count = c.execute(
             "SELECT COUNT(*) FROM user_portfolios WHERE user_id = ?", (admin_id,)
         ).fetchone()[0]
@@ -268,6 +246,7 @@ def init_db():
                     (admin_id, "FPT", 62980.0, 2000, now_str)
                 ]
             )
+
 
 def register_user(username: str, password: str, full_name: str = "") -> tuple[bool, str]:
     username = username.strip().lower()
@@ -289,6 +268,7 @@ def register_user(username: str, password: str, full_name: str = "") -> tuple[bo
     except Exception as e:
         return False, f"Lỗi hệ thống: {e}"
 
+
 def authenticate_user(username: str, password: str) -> tuple[dict | None, str]:
     username = username.strip().lower()
     with connect() as c:
@@ -297,7 +277,8 @@ def authenticate_user(username: str, password: str) -> tuple[dict | None, str]:
             (username, _hash_pw(password))
         ).fetchone()
         if not row:
-            return None, "Sai tên đăng nhập hoặc mật khẩu! (Tài khoản mẫu: admin / admin123)"
+            # PATCH: Tuyệt đối không lộ mật khẩu admin mẫu trên thông báo lỗi giao diện
+            return None, "Sai tên đăng nhập hoặc mật khẩu!"
         user_dict = dict(row)
         st_code = str(user_dict.get("status") or "APPROVED").upper()
         if st_code == "PENDING" and user_dict.get("role") != "ADMIN":
@@ -306,8 +287,10 @@ def authenticate_user(username: str, password: str) -> tuple[dict | None, str]:
             return None, "🚫 Tài khoản của bạn đã bị khóa hoặc từ chối quyền truy cập."
         return user_dict, "OK"
 
+
 def list_all_users() -> pd.DataFrame:
     return query("SELECT id, username, full_name, role, status, cash_balance, created_at FROM users ORDER BY id DESC")
+
 
 def update_user_status(user_id: int, new_status: str, new_role: str | None = None) -> bool:
     try:
@@ -320,6 +303,7 @@ def update_user_status(user_id: int, new_status: str, new_role: str | None = Non
     except Exception:
         return False
 
+
 def delete_user_account(user_id: int) -> bool:
     try:
         with connect() as c:
@@ -329,33 +313,48 @@ def delete_user_account(user_id: int) -> bool:
     except Exception:
         return False
 
+
 def create_auth_session(user_id: int) -> str:
-    """Create a random browser-session token; only its SHA-256 hash is stored."""
     token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    now_utc = datetime.now(timezone.utc)
+    cutoff_iso = (now_utc - timedelta(days=SESSION_TTL_DAYS)).isoformat()
     with connect() as c:
+        c.execute("DELETE FROM auth_sessions WHERE created_at < ?", (cutoff_iso,))
         c.execute(
             "INSERT INTO auth_sessions(token_hash, user_id, created_at) VALUES (?,?,?)",
-            (token_hash, int(user_id), datetime.now(timezone.utc).isoformat()),
+            (token_hash, int(user_id), now_utc.isoformat()),
         )
     return token
 
 
 def get_user_by_session(token: str) -> dict | None:
-    """Resolve a browser-session token to a currently approved user."""
     if not token or len(token) > 256:
         return None
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     with connect() as c:
         row = c.execute(
-            """SELECT u.id, u.username, u.full_name, u.role, u.status, u.cash_balance
+            """SELECT u.id, u.username, u.full_name, u.role, u.status, u.cash_balance, s.created_at AS session_created_at
                FROM auth_sessions s JOIN users u ON u.id=s.user_id
                WHERE s.token_hash=? LIMIT 1""",
             (token_hash,),
         ).fetchone()
-    if not row or str(row["status"] or "APPROVED").upper() not in ("APPROVED", "ACTIVE"):
+        if not row:
+            return None
+        try:
+            created_dt = datetime.fromisoformat(str(row["session_created_at"]).replace("Z", "+00:00"))
+            if created_dt.tzinfo is None:
+                created_dt = created_dt.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) - created_dt > timedelta(days=SESSION_TTL_DAYS):
+                c.execute("DELETE FROM auth_sessions WHERE token_hash=?", (token_hash,))
+                return None
+        except Exception:
+            pass
+    if str(row["status"] or "APPROVED").upper() not in ("APPROVED", "ACTIVE"):
         return None
-    return dict(row)
+    out = dict(row)
+    out.pop("session_created_at", None)
+    return out
 
 
 def revoke_auth_session(token: str) -> None:
@@ -374,6 +373,7 @@ def get_user_portfolio(user_id: int) -> list[dict]:
         ).fetchall()
         return [dict(r) for r in rows]
 
+
 def save_user_portfolio(user_id: int, portfolio_items: list[dict], cash_balance: float):
     now_str = datetime.now(timezone.utc).isoformat()
     with connect() as c:
@@ -390,16 +390,26 @@ def save_user_portfolio(user_id: int, portfolio_items: list[dict], cash_balance:
                 valid_rows
             )
 
+
 def query(sql, params=()):
     with connect() as c:
         return pd.read_sql_query(sql, c, params=params)
 
-def event(level, component, message):
+
+def event(level, component, message, extra=None):
+    """PATCH: Hỗ trợ tham số thứ 4 `extra` (dict/list) để tương thích hoàn toàn với worker.py."""
     try:
+        full_msg = str(message)
+        if extra is not None:
+            try:
+                extra_str = json.dumps(extra, ensure_ascii=False, default=str)
+            except Exception:
+                extra_str = str(extra)
+            full_msg = f"{full_msg} | {extra_str}"
         with connect() as c:
             c.execute(
                 'INSERT INTO system_events(ts,level,component,message) VALUES (?,?,?,?)',
-                (datetime.now(timezone.utc).isoformat(), level, component, str(message)[:900])
+                (datetime.now(timezone.utc).isoformat(), str(level), str(component), full_msg[:900])
             )
     except Exception:
         pass
