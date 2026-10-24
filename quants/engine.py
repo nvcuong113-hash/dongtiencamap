@@ -271,7 +271,11 @@ def _score(r):
         return quality, 0.0, 0, None, 'THẤP', 'CHỜ DỮ LIỆU'
 
     s = 48.0
-    s += 8.0 if r['vwap_position'] == 'Trên VWAP' else -7.0
+    if r['vwap_position'] == 'Trên VWAP':
+        s += 8.0
+    elif r['vwap_position'] == 'Dưới VWAP':
+        s -= 7.0
+    # 'Tại VWAP' giữ trung tính (+0.0) tránh phạt oan
     s += _clamp((r.get('rs_vni') or 0) * 2.2, -12, 12)
     s += _clamp(((r.get('vol_ratio') or 1) - 1) * 14, -8, 12)
     s += _clamp(((r.get('buy_ratio') or 50) - 50) * 0.42 * flow_weight, -10, 10)
