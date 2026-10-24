@@ -10,10 +10,9 @@ GEMINI_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
     "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-flash-latest"
 ]
 OPENAI_MODELS = ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1-nano"]
+_OPENAI_QUOTA_EXHAUSTED = False
 
 def _setting(name, default=''):
     value = os.getenv(name)
@@ -101,14 +100,22 @@ def _call_gemini(prompt: str, json_mode: bool = False) -> tuple[str, str]:
                 last_err = e
                 err_str = str(e).upper()
                 if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    if "PER_DAY" in err_str or "QUOTA" in err_str and attempt == 0:
+                        break
+                    time.sleep(1.2)
                     break
                 if "503" in err_str or "UNAVAILABLE" in err_str or "OVERLOADED" in err_str:
-                    time.sleep(0.8 * (attempt + 1))
+                    time.sleep(1.2 * (attempt + 1))
+                    continue
+                if "404" in err_str or "NOT_FOUND" in err_str:
                     break
-                time.sleep(0.4)
+                time.sleep(0.5)
     raise RuntimeError(f"Gemini quá tải tạm thời (503/429): {last_err}")
 
 def _call_openai(prompt: str, json_mode: bool = False) -> tuple[str, str]:
+    global _OPENAI_QUOTA_EXHAUSTED
+    if _OPENAI_QUOTA_EXHAUSTED:
+        raise AIUnavailable('OpenAI đã hết hạn mức tín dụng (insufficient_quota).')
     key = _setting('OPENAI_API_KEY')
     if not key:
         raise AIUnavailable('Thiếu OPENAI_API_KEY.')
@@ -141,7 +148,8 @@ def _call_openai(prompt: str, json_mode: bool = False) -> tuple[str, str]:
                 return content, model_name
         except Exception as e:
             last_err = e
-            if "insufficient_quota" in str(e).lower() or "credit" in str(e).lower():
+            if "insufficient_quota" in str(e).lower() or "credit_balance_exhausted" in str(e).lower():
+                _OPENAI_QUOTA_EXHAUSTED = True
                 break
             time.sleep(0.3)
     raise RuntimeError(f"OpenAI lỗi: {last_err}")
@@ -170,17 +178,48 @@ def _generate(client, provider, prompt):
     return text
 
 def _load_today_cached_ai_predictions() -> dict[str, dict]:
-    """Đọc lại kết quả dự báo AI đã chạy thành công trong cùng ngày từ bảng predictions để bảo toàn kết quả khi hết Quota."""
+    """Khôi phục đầy đủ kết quả AI (vsa, rationale, trigger, T+2/3/7) đã chạy thành công trong ngày từ DB."""
     trade_date = datetime.now(timezone.utc).astimezone(ZoneInfo('Asia/Ho_Chi_Minh')).date().isoformat()
     cached: dict[str, dict] = {}
+    try:
+        snap_df = query(
+            "SELECT symbol, price, vol_ratio, early_signal, metrics_json FROM ("
+            "  SELECT symbol, price, json_extract(metrics_json, '$.vol_ratio') AS vol_ratio, "
+            "         json_extract(metrics_json, '$.early_signal') AS early_signal, "
+            "         json_extract(metrics_json, '$.ai_analysis_source') AS src, metrics_json, id "
+            "  FROM stock_snapshots WHERE trade_date=? "
+            ") WHERE src='AI' ORDER BY id ASC",
+            (trade_date,)
+        )
+        for _, row in snap_df.iterrows():
+            sym = str(row['symbol'] or '').strip().upper()
+            met = json.loads(row['metrics_json'] or '{}')
+            if met.get('ai_vsa') and met.get('ai_analysis_source') == 'AI':
+                cached[sym] = {
+                    'vsa': met.get('ai_vsa'),
+                    'action': met.get('ai_action'),
+                    'position_size_suggestion': met.get('position_size_suggestion'),
+                    'trigger_condition': met.get('trigger_condition'),
+                    'invalidation_level': met.get('invalidation_level'),
+                    'pred_t2_pct': met.get('pred_t2'),
+                    'pred_t3_pct': met.get('pred_t3'),
+                    'pred_t7_pct': met.get('pred_t7'),
+                    'rationale': met.get('ai_rationale', ''),
+                    '_provider': met.get('ai_provider', 'Gemini'),
+                    '_model': met.get('ai_model', 'gemini-2.5-flash'),
+                    '_cached_price': float(met.get('price') or 0),
+                    '_cached_vol_ratio': float(met.get('vol_ratio') or 0),
+                    '_cached_signal': str(met.get('early_signal') or ''),
+                }
+    except Exception:
+        pass
+
     try:
         df = query(
             "SELECT symbol, horizon, predicted_pct, predicted_action, ai_provider, ai_model "
             "FROM predictions WHERE trade_date=? AND ai_provider NOT IN ('None', 'Fallback định lượng')",
             (trade_date,)
         )
-        if df.empty:
-            return {}
         for _, row in df.iterrows():
             sym = str(row['symbol'] or '').strip().upper()
             h = int(row['horizon'] or 0)
@@ -196,7 +235,7 @@ def _load_today_cached_ai_predictions() -> dict[str, dict]:
             elif h == 7:
                 entry['pred_t7_pct'] = float(row['predicted_pct'])
     except Exception:
-        return {}
+        pass
     return cached
 
 def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
@@ -205,37 +244,66 @@ def run_ai(rows, regime, macro, provider='Gemini', media_context=None):
         return {}
 
     result = {}
+    cached_today = _load_today_cached_ai_predictions()
+    rows_to_call = []
+
+    # Smart Delta Cache: Tái sử dụng kết quả AI trong ngày nếu giá/vol biến động hẹp (<0.8%)
+    for r in valid_rows:
+        sym = str(r.get('symbol') or '').strip().upper()
+        c_item = cached_today.get(sym)
+        if c_item and c_item.get('vsa') and c_item.get('_cached_price', 0) > 0:
+            cur_p = float(r.get('price') or 0)
+            old_p = float(c_item['_cached_price'])
+            cur_vr = float(r.get('vol_ratio') or 0)
+            old_vr = float(c_item.get('_cached_vol_ratio') or 0)
+            if abs(cur_p - old_p) / old_p * 100.0 < 0.8 and abs(cur_vr - old_vr) < 0.25 and str(r.get('early_signal') or '') == c_item.get('_cached_signal'):
+                result[sym] = c_item
+                continue
+        rows_to_call.append(r)
+
+    if not rows_to_call:
+        return result
+
+    # Truyền đủ 100% đặc trưng vi cấu trúc, VSA, Reversal, Trí nhớ 20P, Khối ngoại & Media cho AI
     keys_to_send = [
-        'symbol','sector','price','change_pct','weekly_trend','vwap_position',
-        'vol_ratio','buy_ratio','net_flow_billion','flow_confidence','rs_vni',
-        'rs_sector','quality_score','signal_score','bottom_score','top_score',
-        'early_signal','retest_count','supply_decay_score','wyckoff','key_levels'
+        'symbol', 'sector', 'price', 'change_pct', 'ret5', 'weekly_trend', 'trend_state',
+        'vwap_position', 'vol_ratio', 'buy_ratio', 'net_flow_billion', 'flow_confidence',
+        'foreign_net_today', 'foreign_net_5d', 'rs_vni', 'rs_sector',
+        'quality_score', 'signal_score', 'agreement_pct', 'p_win',
+        'bottom_score', 'top_score', 'early_signal', 'effort_result_score',
+        'retest_count', 'supply_decay_score', 'downside_eff', 'upside_eff',
+        'downtrend_exhaustion', 'support_test_quality', 'demand_confirmation',
+        'distribution_risk', 'failed_rebound_risk',
+        'bottom_signal_memory', 'top_signal_memory', 'support_break_event', 'resistance_break_event',
+        'media_article_count_7d', 'media_sentiment_score_7d', 'media_price_divergence',
+        'wyckoff', 'key_levels'
     ]
 
     batch_size = 15
-    for offset in range(0, len(valid_rows), batch_size):
-        batch = valid_rows[offset:offset + batch_size]
-        payload = [{k: r.get(k) for k in keys_to_send} for r in batch]
-        
+    for offset in range(0, len(rows_to_call), batch_size):
+        batch = rows_to_call[offset:offset + batch_size]
+        expected_syms = [str(r['symbol']).strip().upper() for r in batch]
+        payload = [{k: r.get(k) for k in keys_to_send if r.get(k) is not None} for r in batch]
+
         prompt = f"""QUANTS PRO V16.3 - Stage 2 Quantitative, VSA & Early Bottom/Top Inference.
 Market regime: {regime}
 Macro indicators: {json.dumps(macro or [], ensure_ascii=False, default=str)}
 Recent Media context (48h): {json.dumps(media_context or [], ensure_ascii=False, default=str)}
 
 Instructions:
-- Analyze EVERY stock in INPUT rows using VSA/Wyckoff, bottom_score, top_score, supply_decay_score, and flow_confidence.
-- Note: If flow_confidence is low/estimated, do not claim institutional buying unless supported by price holding support & supply decay.
-- Return ONLY a valid JSON object keyed by stock ticker symbol (e.g., {{"FPT": {{...}}, "NKG": {{...}}}}).
+- Analyze EVERY stock in INPUT rows ({len(expected_syms)} symbols: {', '.join(expected_syms)}). Do NOT omit any symbol.
+- Cross-check VSA/Wyckoff, effort_result_score, bottom_score, top_score, reversal sub-scores, 20d signal memory, foreign_net_today/5d, media_price_divergence, and flow_confidence.
+- Return ONLY a valid JSON object keyed by stock ticker symbol for ALL {len(expected_syms)} symbols.
 - Each symbol object MUST contain these exact keys:
-  "vsa": (string, nhận định VSA + đánh giá tạo đáy/đỉnh ngắn gọn bằng tiếng Việt),
+  "vsa": (string, nhận định VSA + đánh giá tạo đáy/đỉnh + dòng tiền ngoại/media ngắn gọn bằng tiếng Việt),
   "action": (string, chọn 1 trong: "GOM TẠO ĐÁY", "MUA THĂM DÒ", "MUA GIA TĂNG", "QUAN SÁT", "CHỐT LỜI", "HẠ TỶ TRỌNG"),
   "position_size_suggestion": (string, ví dụ: "20-30% NAV"),
-  "trigger_condition": (string, điều kiện kích hoạt mua/bán),
+  "trigger_condition": (string, điều kiện kích hoạt mua/bán kèm mốc giá),
   "invalidation_level": (string, mốc cắt lỗ/vi phạm),
-  "key_levels": (string, hỗ trợ/kháng cự),
-  "pred_t2_pct": (float, dự báo % biến động T+2, ví dụ 1.2),
-  "pred_t3_pct": (float, dự báo % biến động T+3, ví dụ 2.8),
-  "pred_t7_pct": (float, dự báo % biến động T+7, ví dụ 5.5),
+  "key_levels": (string, hỗ trợ/kháng cự 20 phiên),
+  "pred_t2_pct": (float, dự báo % biến động T+2),
+  "pred_t3_pct": (float, dự báo % biến động T+3),
+  "pred_t7_pct": (float, dự báo % biến động T+7),
   "rationale": (string, giải thích ngắn gọn bằng tiếng Việt)
 
 INPUT rows:
@@ -247,7 +315,7 @@ INPUT rows:
             if isinstance(obj, dict):
                 if len(obj) == 1 and isinstance(next(iter(obj.values())), dict):
                     first_val = next(iter(obj.values()))
-                    if any(str(r['symbol']).upper() in {str(k).upper() for k in first_val.keys()} for r in batch):
+                    if any(s in {str(k).upper() for k in first_val.keys()} for s in expected_syms):
                         obj = first_val
 
                 upper_obj = {str(k).strip().upper(): v for k, v in obj.items() if isinstance(v, dict)}
@@ -259,9 +327,15 @@ INPUT rows:
                             '_model': used_model,
                             '_provider': used_provider
                         }
+                    elif sym in cached_today:
+                        result[sym] = cached_today[sym]
         except Exception as e:
             event('WARN', 'ai_engine', f'Batch offset {offset} failed: {e}')
-        time.sleep(0.4)
+            for r in batch:
+                sym = str(r['symbol']).strip().upper()
+                if sym in cached_today:
+                    result[sym] = cached_today[sym]
+        time.sleep(0.3)
 
     return result
 
@@ -291,16 +365,17 @@ def _flow_conf_score(val) -> float:
     return 25.0
 
 def _deterministic_fallback_forecast(r):
-    """Tính dự báo định lượng cơ sở nhất quán với chiều hướng khuyến nghị (không bị lỗi Falsy 0.0)"""
+    """Tính dự báo định lượng cơ sở nhất quán 100% với chiều hướng khuyến nghị."""
     b_sc = _safe_float(r.get('bottom_score'), 50.0) if r.get('bottom_score') is not None else 50.0
     t_sc = _safe_float(r.get('top_score'), 30.0) if r.get('top_score') is not None else 30.0
     sig = _safe_float(r.get('signal_score'), 50.0) if r.get('signal_score') is not None else 50.0
+    p_win = _safe_float(r.get('p_win'), 50.0) if r.get('p_win') is not None else 50.0
     rs = _safe_float(r.get('rs_vni'), 0.0)
     act = str(r.get('action') or '').upper()
 
     edge = (b_sc - t_sc) * 0.035 + (sig - 50.0) * 0.06 + rs * 0.15
-    if ('HẠ TỶ TRỌNG' in act or 'CHỐT LỜI' in act) and sig < 46.0 and edge > -0.15:
-        edge = -abs(50.0 - sig) * 0.08
+    if ('HẠ TỶ TRỌNG' in act or 'CHỐT LỜI' in act) and (sig < 52.0 or p_win < 45.0) and edge > -0.15:
+        edge = -max(0.25, abs(50.0 - min(sig, p_win)) * 0.08)
 
     t2 = round(max(-6.0, min(7.0, edge * 0.45)), 2)
     t3 = round(max(-9.0, min(11.0, edge * 0.75)), 2)
@@ -404,7 +479,7 @@ def enforce_predictions(rows, ai):
     return rows
 
 def save_prediction_audit(rows, regime):
-    """Save one forecast per symbol/local trade date/horizon; skip invalid data and duplicates."""
+    """Save one forecast per symbol/local trade date/horizon; allows upgrading from fallback to real AI."""
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
     trade_date = now.astimezone(ZoneInfo('Asia/Ho_Chi_Minh')).date().isoformat()
@@ -422,11 +497,33 @@ def save_prediction_audit(rows, regime):
                     pred_val = r.get(key)
                     if pred_val is None:
                         continue
-                    exists = c.execute(
-                        'SELECT 1 FROM predictions WHERE trade_date=? AND UPPER(symbol)=? AND horizon=? LIMIT 1',
+                    existing_row = c.execute(
+                        'SELECT id, ai_provider, status FROM predictions WHERE trade_date=? AND UPPER(symbol)=? AND horizon=? LIMIT 1',
                         (trade_date, str(r.get('symbol') or '').upper(), horizon)
                     ).fetchone()
-                    if exists:
+                    if existing_row:
+                        old_prov = str(existing_row['ai_provider'] or 'None')
+                        new_prov = str(r.get('ai_provider') or 'None')
+                        if existing_row['status'] == 'OPEN' and old_prov in ('None', 'Fallback định lượng') and new_prov not in ('None', 'Fallback định lượng'):
+                            c.execute("""UPDATE predictions
+                                SET base_price=?, predicted_pct=?, predicted_action=?, p_win=?,
+                                    signal_score=?, quality_score=?, regime=?, ai_provider=?, ai_model=?, feature_json=?
+                                WHERE id=?""", (
+                                p, float(pred_val), r.get('ai_action') or r.get('action'), r.get('p_win'),
+                                r.get('signal_score'), r.get('quality_score'), regime,
+                                new_prov, r.get('ai_model', 'None'),
+                                json.dumps({
+                                    'bottom_score': r.get('bottom_score'),
+                                    'top_score': r.get('top_score'),
+                                    'early_signal': r.get('early_signal'),
+                                    'ai_analysis_source': r.get('ai_analysis_source'),
+                                    'volume_available': r.get('volume_available'),
+                                    'is_real_deal': r.get('is_real_deal'),
+                                    'flow_confidence': r.get('flow_confidence'),
+                                }, ensure_ascii=False, default=str),
+                                existing_row['id']
+                            ))
+                            saved += 1
                         continue
                     c.execute("""INSERT INTO predictions(
                         created_at, trade_date, symbol, horizon, base_price, predicted_pct,
