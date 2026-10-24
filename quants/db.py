@@ -94,7 +94,6 @@ SESSION_TTL_DAYS = 7
 def _hash_pw(password: str) -> str:
     return hashlib.sha256(f"quants_v16_salt_{password}".encode("utf-8")).hexdigest()
 
-
 def _admin_reset_password() -> str | None:
     value = os.getenv("QUANTS_ADMIN_RESET_PASSWORD", "").strip()
     if value:
@@ -106,24 +105,18 @@ def _admin_reset_password() -> str | None:
     except Exception:
         return None
 
-
 def connect():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(str(DB_PATH), timeout=30, check_same_thread=False)
     c.row_factory = sqlite3.Row
     return c
 
-
 def _schema_columns(schema: str) -> dict[str, dict[str, str]]:
     tables: dict[str, dict[str, str]] = {}
     current_table = None
     for line in schema.splitlines():
         stripped = line.strip()
-        match = re.match(
-            r"CREATE TABLE IF NOT EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
-            stripped,
-            flags=re.IGNORECASE,
-        )
+        match = re.match(r"CREATE TABLE IF NOT EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", stripped, flags=re.IGNORECASE)
         if match:
             current_table = match.group(1)
             tables[current_table] = {}
@@ -134,28 +127,19 @@ def _schema_columns(schema: str) -> dict[str, dict[str, str]]:
             current_table = None
             continue
         for fragment in stripped.rstrip(",").split(","):
-            col_match = re.match(
-                r"([A-Za-z_][A-Za-z0-9_]*)\s+(INTEGER|REAL|TEXT|BLOB|NUMERIC)\b",
-                fragment.strip(),
-                flags=re.IGNORECASE,
-            )
+            col_match = re.match(r"([A-Za-z_][A-Za-z0-9_]*)\s+(INTEGER|REAL|TEXT|BLOB|NUMERIC)\b", fragment.strip(), flags=re.IGNORECASE)
             if col_match:
                 tables[current_table][col_match.group(1)] = col_match.group(2).upper()
     return tables
 
-
 def _migrate_legacy_columns(c: sqlite3.Connection) -> None:
     for table, expected_columns in _schema_columns(SCHEMA).items():
-        existing = {
-            row["name"]
-            for row in c.execute(f'PRAGMA table_info("{table}")').fetchall()
-        }
+        existing = {row["name"] for row in c.execute(f'PRAGMA table_info("{table}")').fetchall()}
         for column, sql_type in expected_columns.items():
             if column == "id" or column in existing or (table == "users" and column == "status"):
                 continue
             c.execute(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {sql_type}')
             existing.add(column)
-
 
 def _backfill_legacy_values(c: sqlite3.Connection) -> None:
     media_cols = {r["name"] for r in c.execute('PRAGMA table_info("media_articles")').fetchall()}
@@ -174,12 +158,6 @@ def _backfill_legacy_values(c: sqlite3.Connection) -> None:
                     c.execute("UPDATE media_articles SET url_hash=? WHERE id=?", (digest, row["id"]))
                 except sqlite3.IntegrityError:
                     pass
-    perf_cols = {r["name"] for r in c.execute('PRAGMA table_info("model_performance")').fetchall()}
-    if {"computed_at", "calculated_at"} <= perf_cols:
-        c.execute("UPDATE model_performance SET computed_at=calculated_at WHERE (computed_at IS NULL OR computed_at='') AND calculated_at IS NOT NULL")
-    if "horizon" in perf_cols:
-        c.execute("UPDATE model_performance SET horizon=CAST(REPLACE(horizon,'T+','') AS INTEGER) WHERE CAST(REPLACE(horizon,'T+','') AS INTEGER) IN (2,3,7)")
-
 
 def init_db():
     with connect() as c:
@@ -216,27 +194,10 @@ def init_db():
 
         reset_password = _admin_reset_password()
         if reset_password:
-            c.execute(
-                "UPDATE users SET password_hash = ? WHERE username = 'admin'",
-                (_hash_pw(reset_password),),
-            )
+            c.execute("UPDATE users SET password_hash = ? WHERE username = 'admin'", (_hash_pw(reset_password),))
 
         admin_id = cur["id"]
-        portfolio_cols = {
-            r["name"] for r in c.execute('PRAGMA table_info("user_portfolios")').fetchall()
-        }
-        if "username" in portfolio_cols:
-            c.execute("""
-                UPDATE user_portfolios
-                SET user_id = (SELECT id FROM users WHERE users.username = user_portfolios.username)
-                WHERE user_id IS NULL
-                  AND username IS NOT NULL
-                  AND EXISTS (SELECT 1 FROM users WHERE users.username = user_portfolios.username)
-            """)
-
-        portfolio_count = c.execute(
-            "SELECT COUNT(*) FROM user_portfolios WHERE user_id = ?", (admin_id,)
-        ).fetchone()[0]
+        portfolio_count = c.execute("SELECT COUNT(*) FROM user_portfolios WHERE user_id = ?", (admin_id,)).fetchone()[0]
         if created_admin and portfolio_count == 0:
             now_str = datetime.now(timezone.utc).isoformat()
             c.executemany(
@@ -246,7 +207,6 @@ def init_db():
                     (admin_id, "FPT", 62980.0, 2000, now_str)
                 ]
             )
-
 
 def register_user(username: str, password: str, full_name: str = "") -> tuple[bool, str]:
     username = username.strip().lower()
@@ -268,7 +228,6 @@ def register_user(username: str, password: str, full_name: str = "") -> tuple[bo
     except Exception as e:
         return False, f"Lỗi hệ thống: {e}"
 
-
 def authenticate_user(username: str, password: str) -> tuple[dict | None, str]:
     username = username.strip().lower()
     with connect() as c:
@@ -277,7 +236,6 @@ def authenticate_user(username: str, password: str) -> tuple[dict | None, str]:
             (username, _hash_pw(password))
         ).fetchone()
         if not row:
-            # PATCH: Tuyệt đối không lộ mật khẩu admin mẫu trên thông báo lỗi giao diện
             return None, "Sai tên đăng nhập hoặc mật khẩu!"
         user_dict = dict(row)
         st_code = str(user_dict.get("status") or "APPROVED").upper()
@@ -287,10 +245,8 @@ def authenticate_user(username: str, password: str) -> tuple[dict | None, str]:
             return None, "🚫 Tài khoản của bạn đã bị khóa hoặc từ chối quyền truy cập."
         return user_dict, "OK"
 
-
 def list_all_users() -> pd.DataFrame:
     return query("SELECT id, username, full_name, role, status, cash_balance, created_at FROM users ORDER BY id DESC")
-
 
 def update_user_status(user_id: int, new_status: str, new_role: str | None = None) -> bool:
     try:
@@ -303,7 +259,6 @@ def update_user_status(user_id: int, new_status: str, new_role: str | None = Non
     except Exception:
         return False
 
-
 def delete_user_account(user_id: int) -> bool:
     try:
         with connect() as c:
@@ -312,7 +267,6 @@ def delete_user_account(user_id: int) -> bool:
         return True
     except Exception:
         return False
-
 
 def create_auth_session(user_id: int) -> str:
     token = secrets.token_urlsafe(32)
@@ -326,7 +280,6 @@ def create_auth_session(user_id: int) -> str:
             (token_hash, int(user_id), now_utc.isoformat()),
         )
     return token
-
 
 def get_user_by_session(token: str) -> dict | None:
     if not token or len(token) > 256:
@@ -356,14 +309,12 @@ def get_user_by_session(token: str) -> dict | None:
     out.pop("session_created_at", None)
     return out
 
-
 def revoke_auth_session(token: str) -> None:
     if not token or len(token) > 256:
         return
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     with connect() as c:
         c.execute("DELETE FROM auth_sessions WHERE token_hash=?", (token_hash,))
-
 
 def get_user_portfolio(user_id: int) -> list[dict]:
     with connect() as c:
@@ -372,7 +323,6 @@ def get_user_portfolio(user_id: int) -> list[dict]:
             (int(user_id),)
         ).fetchall()
         return [dict(r) for r in rows]
-
 
 def save_user_portfolio(user_id: int, portfolio_items: list[dict], cash_balance: float):
     now_str = datetime.now(timezone.utc).isoformat()
@@ -390,14 +340,11 @@ def save_user_portfolio(user_id: int, portfolio_items: list[dict], cash_balance:
                 valid_rows
             )
 
-
 def query(sql, params=()):
     with connect() as c:
         return pd.read_sql_query(sql, c, params=params)
 
-
 def event(level, component, message, extra=None):
-    """PATCH: Hỗ trợ tham số thứ 4 `extra` (dict/list) để tương thích hoàn toàn với worker.py."""
     try:
         full_msg = str(message)
         if extra is not None:
