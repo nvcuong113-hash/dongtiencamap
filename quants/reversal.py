@@ -71,8 +71,6 @@ def count_independent_retests(
             last_touch = i
             armed = False
         elif moved_away and i - last_touch >= min_gap:
-            # A wick can test support and still close far enough away to re-arm
-            # the detector for a later, independent test.
             armed = True
     return count
 
@@ -95,12 +93,11 @@ def compute_reversal_features(row: dict) -> dict:
     near_support = support > 0 and -1.5 <= (price / support - 1) * 100 <= 5.0
     near_resistance = resistance > 0 and -1.5 <= (resistance / max(price, 1) - 1) * 100 <= 4.0
 
-    # Exhaustion is a setup condition, not a bottom confirmation.
     exhaustion = 25 + min(30, max(0, -chg) * 5) + min(25, max(0, 1.0 - downside_eff) * 25)
     if vr < 0.8 and chg >= -1.5:
         exhaustion += 15
     if trend == "DOWNTREND":
-        exhaustion += 5  # exhaustion can emerge inside a downtrend; never label it a confirmed bottom.
+        exhaustion += 5
     demand = 15 + (25 if close_pos >= 0.65 else 0) + (20 if chg > 0 else 0)
     demand += 20 if vr >= 1.05 and close_pos >= 0.6 else 0
     demand += 15 if _num(row.get("buy_ratio"), 50) >= 55 and row.get("is_real_deal") else 0
@@ -144,69 +141,23 @@ def media_divergence_score(
 ) -> float:
     """Score disagreement (Reflexivity Divergence) between media tone (-1..1),
     crowding/attention surge, real deal-flow, and relative price response.
-    Backward-compatible with 2-argument calls (sentiment_score, relative_return_pct).
     """
     sentiment, rel = _num(sentiment_score), _num(relative_return_pct)
     att_chg = _num(attention_change_pct, 0.0) if attention_change_pct is not None else 0.0
     flow = _num(net_flow_billion, 0.0) if net_flow_billion is not None else 0.0
 
-    # Hệ số khuếch đại đám đông (Crowding Amplifier):
-    # Khi lượng tin tức tăng vọt (>50%..200%), sự lệch pha giữa tin và giá phản ánh hành vi xả/hấp thụ mạnh hơn.
     crowding_amp = 1.0 + 0.30 * max(0.0, min(2.0, att_chg / 100.0))
 
-    # 1. Phân kỳ đỉnh (Bull Trap / Bơm tin tốt để phân phối): Tin tích cực nhưng giá suy yếu so với VNI
     if sentiment >= 0.25 and rel <= -1.0:
         base = 50.0 + min(50.0, ((sentiment * 25.0) + abs(rel) * 8.0) * crowding_amp)
         if is_real_deal and flow < 0:
             base += 8.0
         return clamp(base, 0.0, 100.0)
 
-    # 2. PR Euphoria Stalling: Bơm tin rất tích cực + mật độ tin đột biến (>=50%) nhưng giá dậm chân tại chỗ
     if sentiment >= 0.45 and att_chg >= 50.0 and -1.0 < rel <= 0.3:
         base = 52.0 + min(30.0, sentiment * 20.0 + (att_chg / 20.0))
         if is_real_deal and flow < 0:
             base += 10.0
         return clamp(base, 0.0, 100.0)
 
-    # 3. Phân kỳ đáy (Bear Trap / Ra tin xấu để rũ cung gom hàng): Tin tiêu cực nhưng giá khỏe hơn thị trường
-    if sentiment <= -0.25 and rel >= 1.0:
-        base = 50.0 + min(50.0, ((abs(sentiment) * 25.0) + rel * 8.0) * crowding_amp)
-        if is_real_deal and flow > 0:
-            base += 8.0
-        return clamp(base, 0.0, 100.0)
-
-    return clamp(abs(sentiment * rel) * 8.0 * crowding_amp, 0.0, 49.0)
-
-
-def evaluate_forward_events(bars: list[dict], horizon: int = 10, threshold_pct: float = 5.0) -> list[dict]:
-    """Offline event labels/MFE/MAE. Future bars are used only for evaluation, never live features."""
-    if horizon < 1 or threshold_pct <= 0:
-        raise ValueError("horizon must be positive and threshold_pct must be positive")
-    clean = [b for b in bars if _num(b.get("close")) > 0]
-    out = []
-    for i, bar in enumerate(clean):
-        base = _num(bar.get("close"))
-        future = clean[i + 1:i + 1 + horizon]
-        if not future:
-            continue
-        highs = [_num(x.get("high"), _num(x.get("close"))) for x in future]
-        lows = [_num(x.get("low"), _num(x.get("close"))) for x in future]
-        closes = [_num(x.get("close")) for x in future]
-        mfe = (max(highs) / base - 1) * 100
-        mae = (min(lows) / base - 1) * 100
-        bottom_lead = next((j + 1 for j, value in enumerate(highs) if value >= base * (1 + threshold_pct / 100)), None)
-        top_lead = next((j + 1 for j, value in enumerate(lows) if value <= base * (1 - threshold_pct / 100)), None)
-        out.append({
-            "date": bar.get("date"),
-            "base_price": base,
-            "forward_max_return_pct": round(mfe, 3),
-            "forward_min_return_pct": round(mae, 3),
-            "mfe_pct": round(mfe, 3),
-            "mae_pct": round(mae, 3),
-            "bottom_event": bool(mfe >= threshold_pct),
-            "top_event": bool(mae <= -threshold_pct),
-            "bottom_lead_time_sessions": bottom_lead,
-            "top_lead_time_sessions": top_lead,
-            "horizon_sessions": len(future),
-        })
-    return out
+    if sentiment <= -
