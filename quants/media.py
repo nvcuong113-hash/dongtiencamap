@@ -22,9 +22,20 @@ ACCUM_WORDS = (
 CORP_WORDS = (
     'cổ tức', 'chốt danh sách', 'ngày đăng ký cuối cùng', 'phát hành cổ phiếu', 'chia cổ tức'
 )
+STRONG_POS_WORDS = (
+    'tăng mạnh', 'lợi nhuận tăng', 'mua ròng', 'gom mạnh', 'hút tiền',
+    'bứt phá', 'kỷ lục', 'khuyến nghị mua', 'tiềm năng tăng',
+    'gia tăng sở hữu', 'đăng ký mua', 'trở lại mốc', 'khởi sắc', 'vượt kế hoạch'
+)
+STRONG_NEG_WORDS = (
+    'giảm sâu', 'bán tháo', 'lao dốc', 'thua lỗ', 'tạm lỗ', 'giảm 65%',
+    'hụt gần', 'xả', 'rút vốn', 'bán ra', 'thu hẹp', 'cắt margin', 'giải chấp'
+)
+
 
 def _clean(s):
     return re.sub(r'\s+', ' ', html.unescape(re.sub('<[^>]+>', ' ', s or ''))).strip()
+
 
 def extract_symbols(text, watchlist):
     if not text:
@@ -44,46 +55,100 @@ def _keyword_present_unnegated(text: str, keyword: str) -> bool:
     return False
 
 
+def _count_unnegated_matches(text: str, keywords: tuple[str, ...]) -> int:
+    """Đếm số lượng từ khóa xuất hiện mà không bị từ phủ định đứng trước trong phạm vi 36 ký tự."""
+    return sum(1 for w in keywords if _keyword_present_unnegated(text, w))
+
+
 def _symbol_sentiments(text: str, symbols) -> dict[str, str]:
     sentences = [x.strip() for x in re.split(r'(?<=[.!?;])\s+|\n+', text or '') if x.strip()]
     out = {}
     for symbol in symbols:
-        relevant = [sentence for sentence in sentences if re.search(rf'(?<![A-Z0-9]){re.escape(str(symbol).upper())}(?![A-Z0-9])', sentence.upper())]
+        relevant = [
+            sentence for sentence in sentences
+            if re.search(rf'(?<![A-Z0-9]){re.escape(str(symbol).upper())}(?![A-Z0-9])', sentence.upper())
+        ]
         out[str(symbol).upper()] = classify_article_text(' '.join(relevant))[0] if relevant else 'Trung tính'
     return out
 
+
 def classify_article_text(text: str) -> tuple[str, str, str, str]:
-    """Keyword baseline with local negation handling; candidate labels are not proof of intent."""
+    """Chấm điểm cực tính có trọng số (Weighted Polarity Scoring) kèm xử lý phủ định cục bộ."""
     low = (text or '').lower()
-    has_risk = any(_keyword_present_unnegated(low, w) for w in RISK_WORDS)
-    has_accum = any(_keyword_present_unnegated(low, w) for w in ACCUM_WORDS)
-    has_corp = any(_keyword_present_unnegated(low, w) for w in CORP_WORDS)
-    neg_strong = any(_keyword_present_unnegated(low, w) for w in ('giảm sâu','bán tháo','lao dốc','thua lỗ','tạm lỗ','giảm 65%','hụt gần','xả','rút vốn','bán ra','thu hẹp'))
-    pos_strong = any(_keyword_present_unnegated(low, w) for w in ('tăng mạnh','lợi nhuận tăng','mua ròng','gom mạnh','hút tiền','bứt phá','kỷ lục','khuyến nghị mua','tiềm năng tăng','gia tăng sở hữu','đăng ký mua','trở lại mốc','khởi sắc'))
-    if neg_strong and not pos_strong:
-        sentiment = 'Tiêu cực'
-    elif pos_strong and not neg_strong:
+    risk_cnt = _count_unnegated_matches(low, RISK_WORDS)
+    accum_cnt = _count_unnegated_matches(low, ACCUM_WORDS)
+    corp_cnt = _count_unnegated_matches(low, CORP_WORDS)
+    pos_strong_cnt = _count_unnegated_matches(low, STRONG_POS_WORDS)
+    neg_strong_cnt = _count_unnegated_matches(low, STRONG_NEG_WORDS)
+
+    # Từ khóa mạnh có trọng số x2, từ khóa hành vi tích lũy/rủi ro có trọng số x1
+    pos_score = pos_strong_cnt * 2 + accum_cnt
+    neg_score = neg_strong_cnt * 2 + risk_cnt
+    net_polarity = pos_score - neg_score
+
+    if pos_score > neg_score:
         sentiment = 'Tích cực'
-    elif has_accum and not has_risk:
-        sentiment = 'Tích cực'
-    elif has_risk and not has_accum:
+    elif neg_score > pos_score:
         sentiment = 'Tiêu cực'
     else:
         sentiment = 'Trung tính'
 
-    if any(_keyword_present_unnegated(low, w) for w in ('khuyến nghị mua','tiềm năng tăng','mục tiêu')):
-        intent, buzz, warning = ('CTCK/Media nâng kỳ vọng (cần đối chiếu Vol/VWAP)', 'Nhỏ lẻ dễ hưng phấn theo giá mục tiêu', 'Nhãn keyword chưa chứng minh ý đồ; kiểm tra phản ứng giá tại kháng cự và cầu thực.')
-    elif any(_keyword_present_unnegated(low, w) for w in ('mua ròng','gom mạnh','hút tiền','đăng ký mua','gia tăng sở hữu')):
-        intent, buzz, warning = ('Khả năng gom/hấp thụ (candidate; chưa xác nhận)', 'Tâm lý cải thiện theo tin dòng tiền/giao dịch', 'Đăng ký mua không đồng nghĩa giao dịch đã thực hiện; đối chiếu dữ liệu giao dịch và giá.')
-    elif any(_keyword_present_unnegated(low, w) for w in ('bán ra','xả','rút vốn','thu hẹp','phân phối','thoát hàng')):
-        intent, buzz, warning = ('Rủi ro phân phối/cơ cấu giảm tỷ trọng (candidate)', 'Tâm lý thận trọng / Lo ngại nguồn cung', 'Cần xác nhận bằng giá, khối lượng, VWAP; keyword không chứng minh ý đồ.')
-    elif any(_keyword_present_unnegated(low, w) for w in ('tạm lỗ','giảm 65%','hụt gần','rẻ đi','nhịp điều chỉnh')):
-        intent, buzz, warning = ('Sự kiện/điều chỉnh cần kiểm chứng', 'Tâm lý có thể dao động', 'Chỉ xem xét kịch bản rũ cung nếu giá/volume xác nhận tại hỗ trợ.')
-    elif has_corp:
-        intent, buzz, warning = ('Sự kiện doanh nghiệp (cổ tức/chốt quyền)', 'Chờ đợi thông tin sự kiện', 'Lưu ý điều chỉnh kỹ thuật và ngày hiệu lực của sự kiện.')
+    if _count_unnegated_matches(low, ('khuyến nghị mua', 'tiềm năng tăng', 'mục tiêu')) > 0 and net_polarity >= 0:
+        intent, buzz, warning = (
+            'CTCK/Media nâng kỳ vọng (cần đối chiếu Vol/VWAP)',
+            'Nhỏ lẻ dễ hưng phấn theo giá mục tiêu',
+            'Nhãn keyword chưa chứng minh ý đồ; kiểm tra phản ứng giá tại kháng cự và cầu thực.'
+        )
+    elif _count_unnegated_matches(low, ('mua ròng', 'gom mạnh', 'hút tiền', 'đăng ký mua', 'gia tăng sở hữu')) > 0 and net_polarity >= 0:
+        intent, buzz, warning = (
+            'Khả năng gom/hấp thụ (candidate; chưa xác nhận)',
+            'Tâm lý cải thiện theo tin dòng tiền/giao dịch',
+            'Đăng ký mua không đồng nghĩa giao dịch đã thực hiện; đối chiếu dữ liệu giao dịch và giá.'
+        )
+    elif _count_unnegated_matches(low, ('bán ra', 'xả', 'rút vốn', 'thu hẹp', 'phân phối', 'thoát hàng', 'giải chấp')) > 0 and net_polarity <= 0:
+        intent, buzz, warning = (
+            'Rủi ro phân phối/cơ cấu giảm tỷ trọng (candidate)',
+            'Tâm lý thận trọng / Lo ngại nguồn cung',
+            'Cần xác nhận bằng giá, khối lượng, VWAP; keyword không chứng minh ý đồ.'
+        )
+    elif _count_unnegated_matches(low, ('tạm lỗ', 'giảm 65%', 'hụt gần', 'rẻ đi', 'nhịp điều chỉnh')) > 0:
+        intent, buzz, warning = (
+            'Sự kiện/điều chỉnh cần kiểm chứng',
+            'Tâm lý có thể dao động',
+            'Chỉ xem xét kịch bản rũ cung nếu giá/volume xác nhận tại hỗ trợ.'
+        )
+    elif corp_cnt > 0:
+        intent, buzz, warning = (
+            'Sự kiện doanh nghiệp (cổ tức/chốt quyền)',
+            'Chờ đợi thông tin sự kiện',
+            'Lưu ý điều chỉnh kỹ thuật và ngày hiệu lực của sự kiện.'
+        )
     else:
-        intent, buzz, warning = ('Quan sát thông tin chung (chưa rõ ý đồ)', 'Bình thường / Quan sát', 'Không suy luận ý đồ bigboy từ sentiment đơn lẻ; đối chiếu bảng điện.')
+        intent, buzz, warning = (
+            'Quan sát thông tin chung (chưa rõ ý đồ)',
+            'Bình thường / Quan sát',
+            'Không suy luận ý đồ bigboy từ sentiment đơn lẻ; đối chiếu bảng điện.'
+        )
     return sentiment, buzz, intent, warning
+
+
+def _article_time_source_weight(article: dict, now_utc: datetime) -> float:
+    """Tính trọng số suy giảm theo thời gian (Half-life ~30h) và độ tin cậy của nguồn tin."""
+    stamp = article.get('published_at') or article.get('crawled_at')
+    age_hours = 24.0
+    if stamp:
+        try:
+            parsed = datetime.fromisoformat(str(stamp).replace('Z', '+00:00'))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            age_hours = max(0.0, (now_utc - parsed).total_seconds() / 3600.0)
+        except Exception:
+            age_hours = 24.0
+    time_weight = max(0.30, 0.5 ** (age_hours / 30.0))
+    source_str = str(article.get('source') or '').upper()
+    source_weight = 0.75 if 'F319' in source_str else 1.0
+    return time_weight * source_weight
+
 
 def refresh_existing_media_classifications():
     """Tự động cập nhật phân loại cho các bài báo đã lưu trong DB."""
@@ -110,8 +175,12 @@ def refresh_existing_media_classifications():
     except Exception:
         pass
 
+
 def _rebuild_media_summary(watchlist=None, hours=48):
-    recent = query("SELECT * FROM media_articles WHERE datetime(COALESCE(published_at, crawled_at)) >= datetime('now',?)", (f'-{hours} hours',))
+    recent = query(
+        "SELECT * FROM media_articles WHERE datetime(COALESCE(published_at, crawled_at)) >= datetime('now',?)",
+        (f'-{hours} hours',)
+    )
     bysym = {}
     if watchlist:
         for s in watchlist:
@@ -123,28 +192,61 @@ def _rebuild_media_summary(watchlist=None, hours=48):
             syms = []
         for s in syms:
             bysym.setdefault(s, []).append(a)
+
+    now_utc = datetime.now(timezone.utc)
     with connect() as c:
         for sym, arts in bysym.items():
             if not arts:
                 continue
-            pos_cnt = neg_cnt = 0
+            weighted_pos = 0.0
+            weighted_neg = 0.0
+            f319_count = 0
             for article in arts:
+                w = _article_time_source_weight(article, now_utc)
+                if 'F319' in str(article.get('source') or '').upper():
+                    f319_count += 1
                 try:
                     per_symbol = json.loads(article.get('sentiment_by_symbol') or '{}')
                 except (TypeError, ValueError):
                     per_symbol = {}
                 art_sentiment = per_symbol.get(str(sym).upper(), article.get('sentiment'))
-                pos_cnt += int(art_sentiment == 'Tích cực')
-                neg_cnt += int(art_sentiment == 'Tiêu cực')
-            sentiment = 'Tích cực' if pos_cnt > neg_cnt else ('Tiêu cực' if neg_cnt > pos_cnt else 'Trung tính')
+                if art_sentiment == 'Tích cực':
+                    weighted_pos += w
+                elif art_sentiment == 'Tiêu cực':
+                    weighted_neg += w
+
+            if weighted_pos > weighted_neg * 1.10:
+                sentiment = 'Tích cực'
+            elif weighted_neg > weighted_pos * 1.10:
+                sentiment = 'Tiêu cực'
+            else:
+                sentiment = 'Trung tính'
+
             pr = 'Đột biến' if len(arts) >= 5 else ('Cao' if len(arts) >= 3 else ('Trung bình' if len(arts) >= 2 else 'Thấp'))
-            buzz_list = [str(a.get('retail_buzz') or '') for a in arts if a.get('retail_buzz') and a.get('retail_buzz') not in ('Chưa phân loại', 'Chưa đủ dữ liệu')]
+            buzz_list = [
+                str(a.get('retail_buzz') or '') for a in arts
+                if a.get('retail_buzz') and a.get('retail_buzz') not in ('Chưa phân loại', 'Chưa đủ dữ liệu')
+            ]
             buzz = buzz_list[0] if buzz_list else ('Quan tâm cao trên mặt báo' if len(arts) >= 3 else 'Quan sát thông tin')
-            intents = sorted(set(str(a.get('lai_intent') or '') for a in arts if a.get('lai_intent') and a.get('lai_intent') != 'Chưa đủ bằng chứng'))
+            if f319_count >= 2 and 'F319' not in buzz:
+                buzz = f"{buzz} (Sôi nổi trên F319)"
+
+            intents = sorted(set(
+                str(a.get('lai_intent') or '') for a in arts
+                if a.get('lai_intent') and a.get('lai_intent') != 'Chưa đủ bằng chứng'
+            ))
             intent = '; '.join(intents[:2]) if intents else 'Quan sát phản ứng giá sau tin'
-            warnings = [str(a.get('warning') or '') for a in arts if a.get('warning') and 'Tin chưa đủ bằng chứng' not in str(a.get('warning'))]
+            warnings = [
+                str(a.get('warning') or '') for a in arts
+                if a.get('warning') and 'Tin chưa đủ bằng chứng' not in str(a.get('warning'))
+            ]
             warning = warnings[0] if warnings else 'Đối chiếu dòng tiền thực và mốc VWAP trước khi hành động.'
-            snap = c.execute("SELECT metrics_json, vwap_position FROM stock_snapshots WHERE UPPER(symbol)=? ORDER BY id DESC LIMIT 1", (str(sym).upper(),)).fetchone()
+
+            # Ma trận Phản xạ (Reflexivity State Machine): Đối chiếu Tin tức + Đám đông vs Vi cấu trúc Bảng điện
+            snap = c.execute(
+                "SELECT metrics_json, vwap_position, net_flow_billion, is_real_deal FROM stock_snapshots WHERE UPPER(symbol)=? ORDER BY id DESC LIMIT 1",
+                (str(sym).upper(),)
+            ).fetchone()
             if snap:
                 try:
                     metrics = json.loads(snap['metrics_json'] or '{}')
@@ -154,20 +256,38 @@ def _rebuild_media_summary(watchlist=None, hours=48):
                 bottom = float(metrics.get('bottom_score') or 0)
                 top = float(metrics.get('top_score') or 0)
                 vol_ratio = float(metrics.get('vol_ratio') or 0)
-                if sentiment == 'Tích cực' and (top >= 60 or (vol_ratio >= 1.25 and vwap_position == 'Dưới VWAP')):
-                    intent, warning = ('Tin tích cực nhưng cấu trúc có rủi ro phân phối (candidate)', 'Không mua đuổi; kiểm tra vùng đỉnh, VWAP và xác nhận cung.')
-                elif sentiment == 'Tiêu cực' and bottom >= 58 and vwap_position == 'Trên VWAP':
-                    intent, warning = ('Tin tiêu cực nhưng giá giữ cấu trúc: hấp thụ/rũ cung candidate', 'Chưa xác nhận gom hàng; cần giữ hỗ trợ và có cầu theo sau.')
-                elif sentiment == 'Tích cực' and vol_ratio >= 1.2 and vwap_position == 'Trên VWAP' and top < 60:
+                raw_net_flow = metrics.get('net_flow_billion')
+                if raw_net_flow is None:
+                    raw_net_flow = snap['net_flow_billion']
+                net_flow = float(raw_net_flow or 0.0)
+                is_real = bool(metrics.get('is_real_deal') or snap['is_real_deal'])
+
+                # Kịch bản 1: Bẫy Hưng phấn / Phân phối trên tin tốt (Crowded Euphoria / Bull Trap)
+                if sentiment == 'Tích cực' and (top >= 60 or (vol_ratio >= 1.25 and vwap_position == 'Dưới VWAP') or (is_real and net_flow < -2.0)):
+                    intent = 'Tin tích cực nhưng cấu trúc có rủi ro phân phối (Bull Trap / Phản xạ ngược candidate)'
+                    warning = f'Không mua đuổi ({pr} tin); kiểm tra vùng đỉnh, VWAP và xác nhận cung.'
+                # Kịch bản 2: Rũ cung / Hấp thụ trên tin xấu (Contrarian Absorption / Shakeout)
+                elif sentiment == 'Tiêu cực' and (bottom >= 58 or (is_real and net_flow > 1.0)) and vwap_position == 'Trên VWAP':
+                    intent = 'Tin tiêu cực nhưng giá giữ cấu trúc: hấp thụ/rũ cung candidate'
+                    warning = 'Chưa xác nhận gom hàng; cần giữ hỗ trợ và có cầu theo sau.'
+                # Kịch bản 3: Phản xạ thuận chiều tăng có xác nhận (Self-Reinforcing Markup)
+                elif sentiment == 'Tích cực' and vol_ratio >= 1.2 and vwap_position == 'Trên VWAP' and top < 60 and (not is_real or net_flow >= 0):
                     intent = 'Tin tích cực được giá/volume xác nhận bước đầu (markup candidate)'
+                    warning = 'Tâm lý và dòng tiền đồng thuận bước đầu; tránh mua đuổi nếu giá đã xa VWAP.'
+                # Kịch bản 4: Phản xạ thuận chiều giảm / Bán tháo (Self-Reinforcing Markdown)
                 elif sentiment == 'Tiêu cực' and vol_ratio >= 1.3 and vwap_position == 'Dưới VWAP':
                     intent = 'Tin tiêu cực đi cùng suy yếu giá/volume (markdown candidate)'
+                    warning = 'Không bắt đáy sớm khi cả tâm lý truyền thông lẫn cấu trúc giá/volume đều suy yếu.'
+                # Kịch bản 5: Tích lũy trong im lặng (Silent Accumulation)
                 elif len(arts) <= 1 and float(metrics.get('supply_decay_score') or 0) >= 60:
                     intent = 'Ít tin và cung suy giảm: tích lũy im lặng candidate; cần xác nhận'
+                    warning = 'Nhỏ lẻ ít chú ý; chờ tín hiệu dòng tiền thực vượt VWAP để xác nhận.'
+
             c.execute(
                 "INSERT INTO media_symbol_daily(recorded_at,symbol,article_count,pr_level,retail_buzz,sentiment,lai_intent,warning) VALUES(datetime('now'),?,?,?,?,?,?,?)",
                 (sym, len(arts), pr, buzz, sentiment, intent, warning)
             )
+
 
 def crawl_media(watchlist, hours=48, extra_rss=''):
     query_text = ' OR '.join(watchlist[:15])
@@ -177,7 +297,8 @@ def crawl_media(watchlist, hours=48, extra_rss=''):
     ]
     if extra_rss.strip():
         urls.append(('Custom RSS', extra_rss.strip()))
-    collected = []; errors = []
+    collected = []
+    errors = []
     for source, url in urls:
         items, error = fetch_rss(url, source, hours)
         if error:
@@ -211,11 +332,19 @@ def crawl_media(watchlist, hours=48, extra_rss=''):
     _rebuild_media_summary(watchlist, hours=hours)
     return len(dedup), errors
 
+
 def recent_media(hours=48, symbol=None, limit=200):
     refresh_existing_media_classifications()
     if symbol:
-        return query("SELECT * FROM media_articles WHERE datetime(COALESCE(published_at, crawled_at)) >= datetime('now',?) AND symbols_json LIKE ? ORDER BY published_at DESC LIMIT ?", (f'-{hours} hours', f'%"{symbol}"%', limit))
-    return query("SELECT * FROM media_articles WHERE datetime(COALESCE(published_at, crawled_at)) >= datetime('now',?) ORDER BY published_at DESC LIMIT ?", (f'-{hours} hours', limit))
+        return query(
+            "SELECT * FROM media_articles WHERE datetime(COALESCE(published_at, crawled_at)) >= datetime('now',?) AND symbols_json LIKE ? ORDER BY published_at DESC LIMIT ?",
+            (f'-{hours} hours', f'%"{symbol}"%', limit)
+        )
+    return query(
+        "SELECT * FROM media_articles WHERE datetime(COALESCE(published_at, crawled_at)) >= datetime('now',?) ORDER BY published_at DESC LIMIT ?",
+        (f'-{hours} hours', limit)
+    )
+
 
 def media_summary():
     refresh_existing_media_classifications()
