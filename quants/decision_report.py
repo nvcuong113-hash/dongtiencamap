@@ -78,20 +78,19 @@ def _compute_continuous_linear_score(r: dict, score: float, quality: float, macr
     flow_persist = _num(r.get('flow_persistence_3_sessions_pct'))
     vwap_pos = str(r.get('vwap_position') or '')
 
-    # 1. RS liên tục (-12 đến +12) thay vì bậc thang +10/-10
+    # 1. RS liên tục (-12 đến +12)
     rs_component = round(12.0 * _clamp((rs / 3.5), -1.0, 1.0), 2) if rs is not None else 0.0
 
-    # 2. Biến động giá liên tục có kiểm soát FOMO (-6 đến +6)
+    # 2. Biến động giá liên tục có kiểm soát FOMO khi tăng quá nóng (-6 đến +6)
     if change is not None:
         if change > 5.5:
-            # Đu trần/gần trần trong phiên làm giảm lợi thế vị thế mua mới
             change_component = round(6.0 - min(3.0, (change - 5.5) * 1.5), 2)
         else:
             change_component = round(6.0 * _clamp(change / 3.5, -1.0, 1.0), 2)
     else:
         change_component = 0.0
 
-    # 3. Volume có hướng (Directional Volume: -8 đến +8)
+    # 3. Volume có hướng (Directional Volume: -7 đến +6.5)
     vr = volratio if volratio is not None else 1.0
     vol_excess = _clamp(vr - 1.0, -0.8, 1.2)
     is_bullish_bar = (change is not None and change > 0) and ('Trên VWAP' in vwap_pos or vwap_pos == 'Tại VWAP')
@@ -105,26 +104,25 @@ def _compute_continuous_linear_score(r: dict, score: float, quality: float, macr
         else:
             vol_component = 0.0
     else:
-        # Volume thấp (cạn cung): Tốt nếu biên độ hẹp và giữ trên hỗ trợ, xấu nếu rơi tự do
         if change is not None and -1.2 <= change <= 1.0 and bottom_sc >= 55:
-            vol_component = round(2.5 * abs(vol_excess), 2)  # No-supply / Test cung tốt
+            vol_component = round(2.5 * abs(vol_excess), 2)  # Test cung cạn vol tốt
         else:
             vol_component = round(2.0 * vol_excess, 2)
 
-    # 4. Cấu trúc Đáy/Đỉnh & R:R (-8 đến +8)
+    # 4. Cấu trúc Đáy/Đỉnh & R:R
     structure_net = _clamp((bottom_sc - top_sc) / 45.0, -1.0, 1.0) * 5.5
     rr_val = levels.get('rr') if levels else None
     rr_bonus = _clamp(((rr_val or 1.0) - 1.5) * 2.0, -2.5, 2.5) if rr_val is not None else 0.0
     structure_component = round(structure_net + rr_bonus, 2)
 
-    # 5. Độ bền dòng tiền thực (-5 đến +5)
+    # 5. Độ bền dòng tiền thực
     flow_component = 0.0
     if flow_real and net_flow is not None:
         flow_dir = 1.0 if net_flow > 0 else (-1.0 if net_flow < 0 else 0.0)
         persist_factor = ((flow_persist or 50.0) / 100.0)
         flow_component = round(flow_dir * 5.0 * persist_factor, 2)
 
-    # 6. Điều chỉnh vĩ mô (-6 đến +6)
+    # 6. Điều chỉnh vĩ mô
     macro_component = round(2.0 * macro_risk, 2)
 
     base = 0.32 * score + 0.22 * quality
@@ -161,7 +159,6 @@ def build_decision_report(rows, index=None, regime='UNKNOWN', macro=None, capita
         delta = _num(m.get('change_pct'))
         if delta is None:
             continue
-        # Trọng số liên tục theo biên độ thay đổi thay vì chỉ +1/-1 cứng
         scaled_impact = _clamp(abs(delta) / 0.8, 0.35, 1.25)
         if any(k in name for k in ('DXY', 'US10Y', 'YIELD', 'USD/VND', 'USDVND', 'BRENT')):
             macro_risk += -scaled_impact if delta > 0 else (scaled_impact if delta < 0 else 0.0)
@@ -216,7 +213,6 @@ def build_decision_report(rows, index=None, regime='UNKNOWN', macro=None, capita
         linear_score = comp['linear_score']
         macro_component = comp['macro_component']
 
-        # Cho phép cả kịch bản Breakout (volratio >= 1.0, change > 0) VÀ kịch bản Spring/Test cung cạn vol (bottom_score >= 68, giữ trên hỗ trợ)
         is_breakout_setup = (change is not None and change > 0 and volratio is not None and volratio >= 1.0)
         is_absorption_setup = ((_num(r.get('bottom_score')) or 0) >= 68 and (change is not None and change >= -0.5) and (volratio is not None and volratio >= 0.65))
 
@@ -245,7 +241,6 @@ def build_decision_report(rows, index=None, regime='UNKNOWN', macro=None, capita
             per_share = max(0.0, levels['entry_trigger'] - levels['stop_invalidation'])
             if per_share > 0:
                 raw_shares = int(risk_budget / per_share / 100) * 100
-                # Giới hạn thêm theo thanh khoản an toàn (max_safe_order_mil) từ engine.py nếu có
                 max_order_mil = _num(r.get('max_safe_order_mil'))
                 if max_order_mil and max_order_mil > 0 and levels['entry_trigger'] > 0:
                     liq_cap_shares = int((max_order_mil * 1_000_000) / levels['entry_trigger'] / 100) * 100
