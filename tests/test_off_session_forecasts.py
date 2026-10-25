@@ -1,0 +1,306 @@
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import pytest
+from quants import ai_engine, engine, db
+from quants.calendar_vn import latest_completed_trading_day, is_live_market_window
+from quants.providers import _vndirect_daily_quote_is_usable
+
+
+TZ = ZoneInfo("Asia/Ho_Chi_Minh")
+
+
+@pytest.fixture
+def isolated_db(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB_PATH", Path(tmp_path) / "off-session.sqlite3")
+    db.init_db()
+    return db.DB_PATH
+
+
+def test_weekend_latest_completed_session_is_friday():
+    sunday = datetime(2026, 10, 25, 10, 0, tzinfo=TZ)
+    assert latest_completed_trading_day(sunday).isoformat() == "2026-10-23"
+    assert not is_live_market_window(sunday)
+
+
+def test_daily_fallback_on_weekend_accepts_only_latest_completed_bar():
+    from datetime import timezone
+
+    sunday = datetime(2026, 10, 25, 10, 0, tzinfo=TZ)
+    friday_bar = datetime(2026, 10, 23, 0, 0, tzinfo=timezone.utc).timestamp()
+    thursday_bar = datetime(2026, 10, 22, 0, 0, tzinfo=timezone.utc).timestamp()
+    assert _vndirect_daily_quote_is_usable(friday_bar, sunday) is True
+    assert _vndirect_daily_quote_is_usable(thursday_bar, sunday) is False
+
+
+def test_closed_session_uses_verified_daily_ohlcv_not_stale_quote_cache():
+    sunday = datetime(2026, 10, 25, 10, 0, tzinfo=TZ)
+    bars = [
+        {"date": "2026-10-21", "close": 9_700, "high": 9_800, "low": 9_600, "volume": 900_000},
+        {"date": "2026-10-22", "close": 9_800, "high": 9_900, "low": 9_700, "volume": 950_000},
+        {"date": "2026-10-23", "close": 10_000, "high": 10_100, "low": 9_750, "volume": 1_100_000},
+    ]
+    stale_quote = {
+        "price": 9_000, "ref_price": 8_900, "change_pct": 1.1,
+        "volume": 0, "volume_available": False, "provider": "VPS",
+        "decision_usable": True, "vwap": 9_100, "vwap_available": True,
+    }
+    quote, normalized, base_date, reason = engine._normalize_closed_session_quote(stale_quote, bars, sunday)
+    assert normalized is True
+    assert base_date == "2026-10-23"
+    assert quote["price"] == 10_000
+    assert quote["ref_price"] == 9_800
+    assert quote["volume"] == 1_100_000
+    assert quote["vwap"] is None
+    assert quote["freshness"] == "HISTORICAL_COMPLETED_SESSION"
+    assert "2026-10-23" in reason
+
+    usable, gate_reason = engine._forecast_data_gate(sunday, quote, bars, True, False, normalized)
+    assert usable is True
+    assert "đã xác minh" in gate_reason
+
+
+def test_stale_history_does_not_unlock_closed_session_forecast():
+    sunday = datetime(2026, 10, 25, 10, 0, tzinfo=TZ)
+    bars = [
+        {"date": "2026-10-21", "close": 9_700, "high": 9_800, "low": 9_600, "volume": 900_000},
+        {"date": "2026-10-22", "close": 9_800, "high": 9_900, "low": 9_700, "volume": 950_000},
+    ]
+    quote, normalized, _, _ = engine._normalize_closed_session_quote({"price": 9_800}, bars, sunday)
+    assert normalized is False
+    usable, reason = engine._forecast_data_gate(sunday, quote, bars, True, False, normalized)
+    assert usable is False
+    assert "cần 2026-10-23" in reason
+
+
+def test_enforce_predictions_forecasts_closed_session_but_blocks_new_position(isolated_db, monkeypatch):
+    monkeypatch.setattr(ai_engine, "_load_today_cached_ai_predictions", lambda: {})
+    row = {
+        "symbol": "ABC", "trade_date": "2026-10-23", "price": 10_000,
+        "volume": 1_100_000, "volume_available": True, "index_valid": True,
+        "session_current": False, "market_open": False, "forecast_data_usable": True,
+        "forecast_data_reason": "Dự báo từ phiên đóng cửa đã xác minh 2026-10-23",
+        "forecast_base_type": "LAST_COMPLETED_SESSION",
+        "is_real_deal": False, "flow_coverage_pct": None,
+        "history_available": True, "structure_available": True,
+        "support": 9_500, "resistance": 10_500,
+        "bottom_score": 65, "top_score": 30, "signal_score": 65,
+        "p_win": 60, "rs_vni": 1.2, "vol_ratio": 1.1,
+        "flow_confidence": "THẤP", "action": "QUAN SÁT", "rr_ratio": 2,
+    }
+    out = ai_engine.enforce_predictions([row], {})[0]
+    assert out["pred_t2"] is not None
+    assert out["pred_t3"] is not None
+    assert out["pred_t7"] is not None
+    assert "CHỜ PHIÊN GIAO DỊCH" in out["ai_action"]
+    assert out["position_size_suggestion"].startswith("0% NAV")
+
+
+def test_save_prediction_audit_accepts_verified_closed_session_forecast(isolated_db):
+    row = {
+        "symbol": "ABC", "trade_date": "2026-10-23", "price": 10_000,
+        "volume": 1_100_000, "volume_available": True, "index_valid": True,
+        "session_current": False, "market_open": False, "forecast_data_usable": True,
+        "action": "QUAN SÁT", "ai_action": "CHỜ PHIÊN GIAO DỊCH",
+        "pred_t2": 1.0, "pred_t3": 1.5, "pred_t7": 2.0,
+        "_prediction_sources": {2: "Fallback định lượng", 3: "Fallback định lượng", 7: "Fallback định lượng"},
+        "ai_provider": "Fallback định lượng", "ai_model": "deterministic-fallback",
+    }
+    saved = ai_engine.save_prediction_audit([row], "Sideway")
+    assert saved == 3
+
+
+def test_market_regime_uses_watchlist_breadth_and_discloses_narrow_rally():
+    index = {"valid": True, "decision_usable": True, "change_pct": 1.4}
+    rows = [
+        {"symbol": f"A{i}", "price": 10_000, "change_pct": 1.0 if i < 3 else -0.2,
+         "weekly_trend": "Dưới MA20W"}
+        for i in range(8)
+    ]
+    regime = engine.classify_market_regime(index, rows)
+    assert "đà tăng hẹp" in regime.lower() or "breadth yếu" in regime.lower()
+
+
+def test_vnindex_does_not_trust_untimestamped_vps_cache_on_weekend(monkeypatch):
+    from datetime import timezone
+    from quants import providers
+
+    sunday = datetime(2026, 10, 25, 10, 0, tzinfo=TZ)
+    friday_ts = datetime(2026, 10, 23, 0, 0, tzinfo=timezone.utc).timestamp()
+    thursday_ts = datetime(2026, 10, 22, 0, 0, tzinfo=timezone.utc).timestamp()
+    calls = []
+
+    def fake_get_json(url, timeout=None):
+        calls.append(url)
+        return {"c": [2000, 2010], "v": [10, 20], "t": [thursday_ts, friday_ts]}
+
+    monkeypatch.setattr(providers, "get_json", fake_get_json)
+    result, errors = providers.fetch_vnindex(now=sunday)
+    assert result["valid"] is True
+    assert result["provider"] == "VNDIRECT-Daily"
+    assert result["quote_date"] == "2026-10-23"
+    assert len(calls) == 1
+    assert "bgapidatafeed.vps.com.vn" not in calls[0]
+
+
+def test_vnindex_stale_daily_bar_does_not_unlock_forecast(monkeypatch):
+    from datetime import timezone
+    from quants import providers
+
+    sunday = datetime(2026, 10, 25, 10, 0, tzinfo=TZ)
+    thursday_ts = datetime(2026, 10, 22, 0, 0, tzinfo=timezone.utc).timestamp()
+    monkeypatch.setattr(providers, "get_json", lambda *args, **kwargs: {
+        "c": [2000, 2010], "v": [10, 20], "t": [thursday_ts - 86400, thursday_ts]
+    })
+    result, _ = providers.fetch_vnindex(now=sunday)
+    assert result["valid"] is False
+    assert result["decision_usable"] is False
+
+
+def test_missing_volume_ratio_never_labels_low_volume_as_supply_dryup():
+    row = {
+        "price": 10_000, "high": 10_100, "low": 9_900, "change_pct": 0.1,
+        "volume": 1_000_000, "volume_available": True, "vol_ratio": None,
+        "history_available": True, "support": 9_900, "resistance": 11_000,
+        "retest_count": 3, "supply_decay_score": 80, "rs_vni": 1.0,
+        "is_real_deal": True, "flow_coverage_pct": 50, "buy_ratio": 60,
+    }
+    _, _, early_tag, _ = engine.compute_bottom_top_detectors(row)
+    assert "thiếu xác nhận volume" in early_tag.lower()
+    assert "cạn cung" not in early_tag.lower()
+
+
+def test_empirical_intraday_profile_requires_five_prior_sessions():
+    class FakeCursor:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def fetchall(self):
+            return self.rows
+
+    class FakeConnection:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def execute(self, *_args):
+            return FakeCursor(self.rows)
+
+    now = datetime(2026, 10, 26, 10, 0, tzinfo=TZ)
+    short = []
+    for day in ("2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23"):
+        short.append({"trade_date": day, "ts": f"{day}T10:00:00+07:00", "volume": 400})
+        short.append({"trade_date": day, "ts": f"{day}T14:59:00+07:00", "volume": 1000})
+    ratio, count = engine._empirical_intraday_volume_progress(FakeConnection(short), now, "ABC")
+    assert ratio is None
+    assert count == 4
+
+
+def test_empirical_intraday_profile_uses_prior_session_median_not_generic_curve():
+    class FakeCursor:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def fetchall(self):
+            return self.rows
+
+    class FakeConnection:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def execute(self, *_args):
+            return FakeCursor(self.rows)
+
+    now = datetime(2026, 10, 23, 10, 0, tzinfo=TZ)
+    historical = []
+    days = ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-19"]
+    for i, day in enumerate(days):
+        opening_progress = 300 + i * 20
+        final_volume = 1000
+        historical.extend([
+            {"trade_date": day, "ts": f"{day}T10:00:00+07:00", "volume": opening_progress},
+            {"trade_date": day, "ts": f"{day}T14:59:00+07:00", "volume": final_volume},
+        ])
+    ratio, count = engine._empirical_intraday_volume_progress(FakeConnection(historical), now, "ABC")
+    assert count == 6
+    assert ratio == pytest.approx(0.35)
+
+
+def test_purged_calibration_split_removes_overlapping_training_labels():
+    from datetime import date, timedelta
+    from quants.learning import _purged_time_split
+    from quants.calendar_vn import add_trading_days
+
+    sessions = []
+    day = date(2026, 1, 5)
+    while len(sessions) < 45:
+        if day.weekday() < 5:
+            sessions.append(day)
+        day += timedelta(days=1)
+    records = [{"id": i, "created_at": f"{d.isoformat()}T16:00:00", "trade_date": d.isoformat(), "p_win": 60,
+                "predicted_pct": 1.0, "actual": 0.5} for i, d in enumerate(sessions)]
+    train, holdout, meta = _purged_time_split(records, horizon=7, train_fraction=0.8)
+    first_test = date.fromisoformat(meta["test_start_date"])
+    assert holdout
+    assert all(add_trading_days(date.fromisoformat(row["trade_date"]), 7) < first_test for row in train)
+    assert meta["purged_train_samples"] > 0
+
+
+def test_run_ai_eligibility_uses_valid_completed_session_offline(monkeypatch):
+    row = {
+        "symbol": "ABC", "trade_date": "2026-10-23", "price": 10_000,
+        "volume": 1_000_000, "volume_available": True, "index_valid": True,
+        "session_current": False, "market_open": False, "forecast_data_usable": True,
+        "forecast_data_reason": "Dữ liệu đóng cửa được xác minh", "forecast_base_type": "LAST_COMPLETED_SESSION",
+        "change_pct": 1.0, "signal_score": 60,
+    }
+    monkeypatch.setattr(ai_engine, "_load_today_cached_ai_predictions", lambda *_args: {})
+    monkeypatch.setattr(ai_engine.time, "sleep", lambda *_args: None)
+    monkeypatch.setattr(ai_engine, "_generate_with_fallback", lambda *args, **kwargs: (
+        '{"ABC":{"vsa":"Ứng viên","action":"QUAN SÁT","pred_t2_pct":1.0,'
+        '"pred_t3_pct":1.2,"pred_t7_pct":1.8,"rationale":"fixture"}}',
+        "Fixture", "fixture-model"
+    ))
+    result = ai_engine.run_ai([row], "Sideway", [], provider="Fixture")
+    assert "ABC" in result
+    assert result["ABC"]["pred_t2_pct"] == 1.0
+
+
+def test_compute_quant_can_score_verified_friday_close_on_sunday(isolated_db, monkeypatch):
+    from datetime import date, timedelta
+
+    sunday = datetime(2026, 10, 25, 10, 0, tzinfo=TZ)
+    bars = []
+    day = date(2026, 8, 1)
+    idx = 0
+    while day <= date(2026, 10, 23):
+        if day.weekday() < 5:
+            close = 10_000 + idx * 10
+            bars.append({
+                "date": day.isoformat(), "close": close, "high": close * 1.015,
+                "low": close * 0.985, "volume": 500_000 + idx * 2_000,
+            })
+            idx += 1
+        day += timedelta(days=1)
+    original_last = bars[-1]
+    feed = {"ABC": {
+        "symbol": "ABC", "price": 8_800, "ref_price": 8_700, "change_pct": 1.15,
+        "volume": 0, "volume_available": False, "vwap": 8_900, "vwap_available": True,
+        "high": 9_000, "low": 8_600, "foreign_net": None, "source_label": "VPS cache",
+        "provider": "VPS", "decision_usable": True,
+    }}
+    monkeypatch.setattr(engine, "fetch_stock_feeds", lambda *_args: (feed, []))
+    monkeypatch.setattr(engine, "fetch_history", lambda *_args: (bars, "fixture", []))
+    monkeypatch.setattr(engine, "fetch_deal_flow", lambda *_args: None)
+    monkeypatch.setattr(engine, "_store_rows", lambda *_args: None)
+    rows, errors = engine.compute_quant(
+        ["ABC"], {"valid": True, "decision_usable": True, "change_pct": 0.4}, sunday
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["trade_date"] == "2026-10-23"
+    assert row["price"] == original_last["close"]
+    assert row["forecast_base_type"] == "LAST_COMPLETED_SESSION"
+    assert row["forecast_data_usable"] is True
+    assert row["session_current"] is False
+    assert row["action"] != "CHỜ DỮ LIỆU"
