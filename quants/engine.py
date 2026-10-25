@@ -14,6 +14,9 @@ if not hasattr(_reversal_mod, "classify_trend_state"):
 from .reversal import classify_trend_state, count_independent_retests, compute_reversal_features, media_divergence_score
 from .practical_flow import summarize_flow_history, classify_practical_flow, aggregate_sector_rotation
 from .model_stack import model_ensemble
+
+try:
+    from .calendar_vn import u_shape_ratio as _raw_u_shape_ratio
 except ImportError:
     def _raw_u_shape_ratio(now: datetime):
         if now.weekday() >= 5:
@@ -28,7 +31,6 @@ except ImportError:
         if h <= 14.75:
             return "Phiên Chiều", max(0.55, min(1.0, 0.55 + (h - 13.0) / 3.9))
         return "Đóng Cửa", 1.0
-
 
 def _effective_session_state(now: datetime, latest_bar_date: str | None = None) -> tuple[str, str, float]:
     """PATCH: Xác định ngày giao dịch thực tế (không tạo ngày giao dịch giả vào Thứ Bảy/Chủ Nhật)
