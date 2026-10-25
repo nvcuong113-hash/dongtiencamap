@@ -160,4 +160,43 @@ def media_divergence_score(
             base += 10.0
         return clamp(base, 0.0, 100.0)
 
-    if sentiment <= -
+    if sentiment <= -0.25 and rel >= 1.0:
+        base = 50.0 + min(50.0, ((abs(sentiment) * 25.0) + rel * 8.0) * crowding_amp)
+        if is_real_deal and flow > 0:
+            base += 8.0
+        return clamp(base, 0.0, 100.0)
+
+    return clamp(abs(sentiment * rel) * 8.0 * crowding_amp, 0.0, 49.0)
+
+
+def evaluate_forward_events(bars: list[dict], horizon: int = 10, threshold_pct: float = 5.0) -> list[dict]:
+    """Offline event labels/MFE/MAE. Future bars are used only for evaluation, never live features."""
+    if horizon < 1 or threshold_pct <= 0:
+        raise ValueError("horizon must be positive and threshold_pct must be positive")
+    clean = [b for b in bars if _num(b.get("close")) > 0]
+    out = []
+    for i, bar in enumerate(clean):
+        base = _num(bar.get("close"))
+        future = clean[i + 1:i + 1 + horizon]
+        if not future:
+            continue
+        highs = [_num(x.get("high"), _num(x.get("close"))) for x in future]
+        lows = [_num(x.get("low"), _num(x.get("close"))) for x in future]
+        mfe = (max(highs) / base - 1) * 100
+        mae = (min(lows) / base - 1) * 100
+        bottom_lead = next((j + 1 for j, value in enumerate(highs) if value >= base * (1 + threshold_pct / 100)), None)
+        top_lead = next((j + 1 for j, value in enumerate(lows) if value <= base * (1 - threshold_pct / 100)), None)
+        out.append({
+            "date": bar.get("date"),
+            "base_price": base,
+            "forward_max_return_pct": round(mfe, 3),
+            "forward_min_return_pct": round(mae, 3),
+            "mfe_pct": round(mfe, 3),
+            "mae_pct": round(mae, 3),
+            "bottom_event": bool(mfe >= threshold_pct),
+            "top_event": bool(mae <= -threshold_pct),
+            "bottom_lead_time_sessions": bottom_lead,
+            "top_lead_time_sessions": top_lead,
+            "horizon_sessions": len(future),
+        })
+    return out
