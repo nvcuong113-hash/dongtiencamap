@@ -540,12 +540,16 @@ def _historical_reversal_memory(c, symbol, trade_date, current_price, support, r
     return result
 
 
-def _media_context(c, symbol, trade_date, rs_vni):
-    empty = {'media_article_count_7d': 0, 'media_sentiment_score_7d': 0.0,
-             'media_attention_change': None, 'media_price_divergence': 0.0}
+def _media_context(c, symbol, trade_date, rs_vni, net_flow_billion=None, is_real_deal=False):
+    empty = {
+        'media_article_count_7d': 0,
+        'media_sentiment_score_7d': 0.0,
+        'media_attention_change': None,
+        'media_price_divergence': 0.0,
+    }
     try:
         articles = c.execute(
-            "SELECT published_at, crawled_at, sentiment FROM media_articles WHERE symbols_json LIKE ? AND datetime(COALESCE(published_at,crawled_at)) >= datetime('now','-14 days')",
+            "SELECT published_at, crawled_at, sentiment, sentiment_by_symbol FROM media_articles WHERE symbols_json LIKE ? AND datetime(COALESCE(published_at,crawled_at)) >= datetime('now','-14 days')",
             (f'%"{symbol}"%',),
         ).fetchall()
         history_rows = c.execute(
@@ -555,8 +559,12 @@ def _media_context(c, symbol, trade_date, rs_vni):
         if not articles:
             return empty
         from datetime import timezone
-        cutoff = datetime.now(timezone.utc) - timedelta(days=7)
-        recent, previous = [], []
+        now_utc = datetime.now(timezone.utc)
+        cutoff = now_utc - timedelta(days=7)
+        recent_weighted_sum = 0.0
+        recent_weight_total = 0.0
+        recent_count = 0
+        previous_count = 0
         sentiment_map = {'Tích cực': 1.0, 'Tiêu cực': -1.0, 'Trung tính': 0.0}
         for raw in articles:
             item = dict(raw)
@@ -567,12 +575,24 @@ def _media_context(c, symbol, trade_date, rs_vni):
                     parsed = parsed.replace(tzinfo=timezone.utc)
             except (TypeError, ValueError):
                 continue
-            target = recent if parsed >= cutoff else previous
-            target.append(sentiment_map.get(str(item.get('sentiment') or ''), 0.0))
-        if not recent and not previous:
+            try:
+                per_sym = json.loads(item.get('sentiment_by_symbol') or '{}')
+            except (TypeError, ValueError):
+                per_sym = {}
+            label = per_sym.get(str(symbol).upper(), item.get('sentiment') or '')
+            s_val = sentiment_map.get(str(label), 0.0)
+            if parsed >= cutoff:
+                recent_count += 1
+                age_days = max(0.0, (now_utc - parsed).total_seconds() / 86400.0)
+                w = max(0.35, 0.5 ** (age_days / 3.5))
+                recent_weighted_sum += s_val * w
+                recent_weight_total += w
+            else:
+                previous_count += 1
+        if recent_count == 0 and previous_count == 0:
             return empty
-        sentiment = sum(recent) / len(recent) if recent else 0.0
-        attention_change = ((len(recent) - len(previous)) / max(1, len(previous))) * 100 if previous else None
+        sentiment = (recent_weighted_sum / recent_weight_total) if recent_weight_total > 0 else 0.0
+        attention_change = ((recent_count - previous_count) / max(1, previous_count)) * 100 if previous_count else None
         rel = float(rs_vni or 0.0)
         if history_rows:
             vals = []; seen = set()
@@ -585,11 +605,18 @@ def _media_context(c, symbol, trade_date, rs_vni):
                     break
             if vals:
                 rel = sum(vals)
+        clamped_att = round(_clamp(attention_change, -1000, 1000), 1) if attention_change is not None else None
         return {
-            'media_article_count_7d': len(recent),
+            'media_article_count_7d': recent_count,
             'media_sentiment_score_7d': round(sentiment, 3),
-            'media_attention_change': round(_clamp(attention_change, -1000, 1000), 1) if attention_change is not None else None,
-            'media_price_divergence': media_divergence_score(sentiment, rel),
+            'media_attention_change': clamped_att,
+            'media_price_divergence': media_divergence_score(
+                sentiment,
+                rel,
+                attention_change_pct=clamped_att,
+                net_flow_billion=net_flow_billion,
+                is_real_deal=is_real_deal,
+            ),
         }
     except Exception:
         return empty
@@ -721,7 +748,14 @@ def compute_quant(symbols, index_quote, now: datetime):
             r['rs_sector'] = round(r['change_pct'] - sec_avg.get(r['sector'], 0.0), 2)
             r.update(sector_rotation.get(r['sector'], {}))
             r['trend_state'] = classify_trend_state(r.get('price'), r.get('ma10w'), r.get('ma20w'), r.get('ret5'), r.get('weekly_trend'))
-            r.update(_media_context(c, r['symbol'], t_date, r.get('rs_vni')))
+            r.update(_media_context(
+                c,
+                r['symbol'],
+                t_date,
+                r.get('rs_vni'),
+                net_flow_billion=r.get('net_flow_billion'),
+                is_real_deal=bool(r.get('is_real_deal')),
+            ))
             memory = _historical_reversal_memory(c, r['symbol'], t_date, float(r.get('price') or 0), r.get('support'), r.get('resistance'))
             r.update(memory)
             b_sc, t_sc, early_tag, eff_sc = compute_bottom_top_detectors(r)
