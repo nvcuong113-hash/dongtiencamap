@@ -1,16 +1,19 @@
 from __future__ import annotations
+import importlib
 import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from .config import SECTORS
 from .db import connect, query
 from .providers import fetch_stock_feeds, fetch_history, fetch_deal_flow
+from . import reversal as _reversal_mod
+
+if not hasattr(_reversal_mod, "classify_trend_state"):
+    _reversal_mod = importlib.reload(_reversal_mod)
+
 from .reversal import classify_trend_state, count_independent_retests, compute_reversal_features, media_divergence_score
 from .practical_flow import summarize_flow_history, classify_practical_flow, aggregate_sector_rotation
 from .model_stack import model_ensemble
-
-try:
-    from .calendar_vn import u_shape_ratio as _raw_u_shape_ratio
 except ImportError:
     def _raw_u_shape_ratio(now: datetime):
         if now.weekday() >= 5:
