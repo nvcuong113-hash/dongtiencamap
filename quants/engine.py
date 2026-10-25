@@ -1,17 +1,16 @@
 from __future__ import annotations
-import importlib
 import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from .config import SECTORS
 from .db import connect, query
 from .providers import fetch_stock_feeds, fetch_history, fetch_deal_flow
-from . import reversal as _reversal_mod
-
-if not hasattr(_reversal_mod, "classify_trend_state"):
-    _reversal_mod = importlib.reload(_reversal_mod)
-
-from .reversal import classify_trend_state, count_independent_retests, compute_reversal_features, media_divergence_score
+from .reversal import (
+    classify_trend_state,
+    count_independent_retests,
+    compute_reversal_features,
+    media_divergence_score,
+)
 from .practical_flow import summarize_flow_history, classify_practical_flow, aggregate_sector_rotation
 from .model_stack import model_ensemble
 
@@ -31,7 +30,7 @@ except ImportError:
         if h <= 14.75:
             return "Phiên Chiều", max(0.55, min(1.0, 0.55 + (h - 13.0) / 3.9))
         return "Đóng Cửa", 1.0
-
+        
 def _effective_session_state(now: datetime, latest_bar_date: str | None = None) -> tuple[str, str, float]:
     """PATCH: Xác định ngày giao dịch thực tế (không tạo ngày giao dịch giả vào Thứ Bảy/Chủ Nhật)
     và khóa tỷ lệ phóng chiếu volume = 1.0 khi ngoài phiên giao dịch.
