@@ -597,7 +597,21 @@ def _main_wallpaper_css():
     .stApp [data-baseweb="textarea"] > div,
     .stApp [data-baseweb="select"] > div {{ background: #0b1929 !important; }}
     .stApp [data-testid="stHeader"] {{ background: rgba(3, 10, 21, 0.24); }}
-    </style>"""
+    /* Chỉ đổi màu nút trong form đăng nhập */
+div[data-testid="stForm"]:has(input[placeholder="Nhập username..."])
+button[kind="secondaryFormSubmit"],
+div[data-testid="stForm"]:has(input[placeholder="Nhập username..."])
+button[kind="primary"] {
+    background: linear-gradient(135deg, #7C3AED, #6D28D9) !important;
+    border: 1px solid #C4B5FD !important;
+    color: #FFFFFF !important;
+}
+
+div[data-testid="stForm"]:has(input[placeholder="Nhập username..."])
+button:hover {
+    border-color: #DDD6FE !important;
+    color: #FFFFFF !important;
+}</style>"""
 
 
 _main_wallpaper = _main_wallpaper_css()
