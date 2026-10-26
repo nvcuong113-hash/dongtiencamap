@@ -615,7 +615,7 @@ div[data-testid="stForm"] button[data-testid="stFormSubmitButton"]:hover {
     border-color: #DDD6FE !important;
     color: #FFFFFF !important;
 }
-}</style>"""
+}}</style>""")
 
 
 _main_wallpaper = _main_wallpaper_css()
