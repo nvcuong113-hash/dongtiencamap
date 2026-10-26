@@ -871,7 +871,7 @@ tabs = st.tabs([
 ])
 
 with tabs[0]:
-    st.markdown("### 💼 Vị Thế Tài Khoản Thực Tế & Khuyến Nghị Từng Mã")
+    st.markdown("### 💼 DANH MỤC CỦA TÔI")
 
     col_pf_in, col_pf_view = st.columns([1.2, 2.8])
 
