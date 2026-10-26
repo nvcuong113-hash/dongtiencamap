@@ -50,7 +50,7 @@ def show_configurable_table(data, key, **kwargs):
     st.session_state[state_key] = current
 
     # Nút mở popover; danh sách cột bật/tắt bằng checkbox.
-    with st.popover("⚙️ Cột hiển thị", help="Chỉ thay đổi cách hiển thị, không ảnh hưởng dữ liệu hoặc tính toán."):
+    with st.popover("⚙️", help="Chỉ thay đổi cách hiển thị, không ảnh hưởng dữ liệu hoặc tính toán."):
         left, right = st.columns(2)
         if left.button("Hiện tất cả", key=f"show_all_columns_{key}", use_container_width=True):
             st.session_state[state_key] = cols
