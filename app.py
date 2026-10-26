@@ -318,12 +318,12 @@ st.markdown("""
     
 div.stButton > button[kind="primary"],
 div.stFormSubmitButton > button[kind="primary"] {
-    background: linear-gradient(135deg, #7C3AED, #6D28D9);
+    background: linear-gradient(135deg, #0D9488, #0F766E);
     border: 1px solid #C4B5FD;
     color: #ffffff;
 }
     div.stButton > button[kind="primary"]:hover, div.stFormSubmitButton > button[kind="primary"]:hover {
-        background: linear-gradient(135deg, #3b82f6, #2563eb);
+        background: linear-gradient(135deg, #7C3AED, #6D28D9);
         border-color: #93c5fd;
         box-shadow: 0 7px 18px rgba(37, 99, 235, .3);
     }
