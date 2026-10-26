@@ -306,26 +306,29 @@ div.stFormSubmitButton > button[kind="primary"] {
         box-shadow: 0 7px 18px rgba(37, 99, 235, .3);
     }
 
-    /* Floating AI chat launcher: keep the existing popover behavior, move only its trigger */
-    div[data-testid="stPopover"] {
-        position: fixed !important;
-        right: 24px !important;
-        bottom: 24px !important;
-        z-index: 99999 !important;
-        width: auto !important;
-        max-width: calc(100vw - 32px);
-    }
+    
+    /* Floating AI chat launcher: purple theme */
     div[data-testid="stPopover"] > button,
     div[data-testid="stPopover"] button {
         min-height: 3.15rem;
         border-radius: 999px;
         padding: .75rem 1.15rem;
-        border: 1px solid #93c5fd;
-        background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        border: 1px solid #C4B5FD;
+        background: linear-gradient(135deg, #7C3AED, #6D28D9);
         color: #ffffff;
         font-weight: 750;
-        box-shadow: 0 8px 26px rgba(37, 99, 235, .38);
+        box-shadow: 0 8px 26px rgba(124, 58, 237, .38);
         white-space: nowrap;
+    }
+
+    div[data-testid="stPopover"] > button:hover,
+    div[data-testid="stPopover"] button:hover {
+        background: linear-gradient(135deg, #8B5CF6, #6D28D9);
+        border-color: #DDD6FE;
+        box-shadow: 0 10px 30px rgba(124, 58, 237, .48);
+        transform: translateY(-1px);
+    }
+
     }
     div[data-testid="stPopover"] > button:hover,
     div[data-testid="stPopover"] button:hover {
