@@ -1039,7 +1039,7 @@ with tabs[0]:
             st.info("Chưa có mã cổ phiếu nào trong danh mục.")
 
     st.divider()
-    st.markdown("### Radar Cơ Hội Sớm Trong Danh Mục Theo Dõi (Watchlist Highlights)")
+    st.markdown("### Tín hiệu Cơ Hội Sớm (Watchlist Highlights)")
     if st.session_state.rows:
         r_col1, r_col2 = st.columns(2)
 
