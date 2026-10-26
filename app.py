@@ -813,7 +813,7 @@ if error_list:
 
 c_btn1, c_btn2, c_btn3 = st.columns([2, 1.5, 1.5])
 with c_btn1:
-    if st.button("⚡ ĐỒNG BỘ TOÀN DIỆN (Dữ liệu + Lọc Đáy/Đỉnh + Chạy AI)", type="primary", width="stretch"):
+    if st.button("⚡ ĐỒNG BỘ TOÀN DIỆN ", type="primary", width="stretch"):
         with st.spinner("Đang quét vi cấu trúc song song, tính R:R thực chiến và chạy AI 2 tầng..."):
             rows, errors = compute_quant(st.session_state.active_watchlist, index, datetime.now(TZ))
             macro_list, _ = fetch_macro()
