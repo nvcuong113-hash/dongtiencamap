@@ -107,3 +107,81 @@ def test_media_dedup_keeps_symbol_context_from_ticker_query(tmp_path, monkeypatc
     assert count == 1
     recent = media.recent_media(hours=48, symbol='IDC')
     assert len(recent) == 1
+
+
+def test_media_runtime_migrates_persistent_legacy_db_without_init_db(tmp_path, monkeypatch):
+    """Reproduce Streamlit hot-deploy: cached init_db result, old DB schema, new media code."""
+    import sqlite3
+    path = tmp_path / 'persistent-legacy.sqlite3'
+    c = sqlite3.connect(path)
+    c.executescript('''
+        CREATE TABLE media_articles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, url_hash TEXT, published_at TEXT,
+            crawled_at TEXT, fetched_at TEXT, source TEXT, title TEXT, summary TEXT, url TEXT,
+            symbols TEXT, symbols_json TEXT, raw_text TEXT, sentiment TEXT, sentiment_score REAL,
+            pr_level TEXT, retail_buzz TEXT, lai_intent TEXT, warning TEXT, analyzed_by TEXT,
+            sentiment_by_symbol TEXT
+        );
+        CREATE TABLE media_symbol_daily (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, recorded_at TEXT NOT NULL, symbol TEXT NOT NULL,
+            article_count INTEGER DEFAULT 0, pr_level TEXT, retail_buzz TEXT, sentiment TEXT,
+            lai_intent TEXT, warning TEXT
+        );
+        CREATE TABLE stock_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, symbol TEXT, metrics_json TEXT,
+            vwap_position TEXT, net_flow_billion REAL, is_real_deal INTEGER
+        );
+    ''')
+    published = datetime.now(timezone.utc).isoformat()
+    c.execute('''INSERT INTO media_articles(
+        url_hash,published_at,crawled_at,fetched_at,source,title,summary,url,symbols,symbols_json,
+        raw_text,sentiment,pr_level,retail_buzz,lai_intent,warning,sentiment_by_symbol
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (
+        'legacy-hash', published, published, published, 'Legacy', 'IDC tin cũ', 'Tóm tắt',
+        'https://legacy.test/story', '["IDC"]', '["IDC"]', 'IDC tin cũ', 'Trung tính',
+        'Đã tổng hợp', 'Quan sát', 'Quan sát', 'Chưa xác nhận', '{"IDC":"Trung tính"}'
+    ))
+    c.commit()
+    c.close()
+    monkeypatch.setattr(db, 'DB_PATH', path)
+
+    # Do not call db.init_db(): the deployed app may retain a cached initializer after hot deploy.
+    published_now = datetime.now(timezone.utc).isoformat()
+    article = {'source': 'fixture', 'title': 'IDC công bố lợi nhuận tăng mạnh',
+               'url': 'https://example.test/legacy-migration-new',
+               'summary': 'Kết quả kinh doanh IDC tăng mạnh', 'published_at': published_now}
+    monkeypatch.setattr(media, 'fetch_rss', lambda url, source, hours: ([{**article, 'source': source}], None))
+
+    inserted, errors = media.crawl_media(['IDC'], hours=48)
+    assert inserted >= 1
+    assert not errors
+    summary = media.media_summary()
+    assert not summary.empty
+    assert 'IDC' in set(summary['symbol'])
+
+    with db.connect() as c:
+        article_columns = {r['name'] for r in c.execute('PRAGMA table_info(media_articles)')}
+        daily_columns = {r['name'] for r in c.execute('PRAGMA table_info(media_symbol_daily)')}
+        assert {'event_type', 'event_confidence', 'source_reliability', 'novelty_score', 'attention_score'} <= article_columns
+        assert {'attention_score', 'baseline_count', 'independent_sources'} <= daily_columns
+        assert c.execute("SELECT COUNT(*) FROM media_articles WHERE title='IDC tin cũ'").fetchone()[0] == 1
+        assert c.execute('SELECT COUNT(*) FROM media_articles').fetchone()[0] >= 2
+        assert c.execute('SELECT COUNT(*) FROM media_symbol_daily WHERE symbol=\'IDC\'').fetchone()[0] >= 1
+
+
+def test_runtime_media_migration_is_idempotent(tmp_path, monkeypatch):
+    import sqlite3
+    path = tmp_path / 'idempotent-media-migration.sqlite3'
+    c = sqlite3.connect(path)
+    c.execute('CREATE TABLE media_articles(id INTEGER PRIMARY KEY, title TEXT, url TEXT)')
+    c.execute('CREATE TABLE media_symbol_daily(id INTEGER PRIMARY KEY, symbol TEXT)')
+    c.commit(); c.close()
+    monkeypatch.setattr(db, 'DB_PATH', path)
+
+    media._ensure_media_schema()
+    media._ensure_media_schema()
+    with db.connect() as c:
+        article_columns = [r['name'] for r in c.execute('PRAGMA table_info(media_articles)')]
+        daily_columns = [r['name'] for r in c.execute('PRAGMA table_info(media_symbol_daily)')]
+        assert article_columns.count('event_type') == 1
+        assert daily_columns.count('attention_score') == 1
