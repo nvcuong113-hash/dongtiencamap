@@ -293,13 +293,13 @@ st.markdown("""
         outline: 2px solid #93c5fd;
         outline-offset: 2px;
     }
-    div.stButton > button[kind="primary"], div.stFormSubmitButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #2563eb, #1d4ed8);
-        border: 1px solid #60a5fa;
-        color: #ffffff;
-        font-weight: 750;
-        box-shadow: 0 5px 15px rgba(37, 99, 235, .22);
-    }
+    
+div.stButton > button[kind="primary"],
+div.stFormSubmitButton > button[kind="primary"] {
+    background: linear-gradient(135deg, #7C3AED, #6D28D9);
+    border: 1px solid #C4B5FD;
+    color: #ffffff;
+}
     div.stButton > button[kind="primary"]:hover, div.stFormSubmitButton > button[kind="primary"]:hover {
         background: linear-gradient(135deg, #3b82f6, #2563eb);
         border-color: #93c5fd;
