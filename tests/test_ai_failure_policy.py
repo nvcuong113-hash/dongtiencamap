@@ -162,8 +162,9 @@ def test_gemini_timeout_goes_to_provider_fallback_without_retrying_all_models(mo
 
 
 def test_gemini_model_chain_uses_supported_models_and_excludes_shutdown_model():
-    assert ai_engine.GEMINI_MODELS[0] == 'gemini-3.6-flash'
+    assert ai_engine.GEMINI_MODELS[0] == 'gemini-3.8-flash'
     assert 'gemini-2.0-flash' not in ai_engine.GEMINI_MODELS
+    assert 'gemini-2.5-flash' not in ai_engine.GEMINI_MODELS
 
 
 def test_run_ai_does_not_repeat_whole_batch_when_response_has_no_parseable_symbols(monkeypatch):
