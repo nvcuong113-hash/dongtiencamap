@@ -490,8 +490,8 @@ def render_login_screen():
     with col_l2:
         st.markdown(
             "<div style='text-align: center; margin-top: 50px; margin-bottom: 25px;'>"
-            "<h2 style='color:#00695C; margin-bottom: 4px;'>🔒 SMART MONEY FLOW</h2>"
-            "<p style='color:#39FF14; font-size: 0.95rem;'>Hệ thống giao dịch định lượng thực chiến, theo dòng cá mập của nvcuong</p>"
+            "<h2 style='color:#00C853; margin-bottom: 4px;'>🔒 SMART MONEY FLOW</h2>"
+            "<p style='color:#BB46F5; font-size: 0.95rem;'>Hệ thống giao dịch định lượng thực chiến, theo dòng cá mập của nvcuong</p>"
             "</div>",
             unsafe_allow_html=True
         )
