@@ -296,7 +296,7 @@ st.markdown("""
     
 div.stButton > button[kind="primary"],
 div.stFormSubmitButton > button[kind="primary"] {
-    background: linear-gradient(135deg, #7C3AED, #6D28D9);
+    background: linear-gradient(135deg, #0D9488, #0F766E);
     border: 1px solid #C4B5FD;
     color: #ffffff;
 }
@@ -506,7 +506,7 @@ def render_login_screen():
         st.markdown(
             "<div style='text-align: center; margin-top: 50px; margin-bottom: 25px;'>"
             "<h2 style='color:#00C853; margin-bottom: 4px;'>🔒 SMART MONEY FLOW</h2>"
-            "<p style='color:#BB46F5; font-size: 0.95rem;'>Hệ thống giao dịch định lượng thực chiến, theo dòng cá mập của nvcuong</p>"
+            "<p style='color:#B2EBF2; font-size: 0.95rem;'>Hệ thống giao dịch định lượng thực chiến, theo dòng cá mập của nvcuong</p>"
             "</div>",
             unsafe_allow_html=True
         )
