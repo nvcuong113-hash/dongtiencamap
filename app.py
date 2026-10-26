@@ -343,7 +343,7 @@ div.stFormSubmitButton > button[kind="primary"] {
         border-radius: 999px;
         padding: .75rem 1.15rem;
         border: 1px solid #93c5fd;
-        background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        background: linear-gradient(135deg, #7C3AED, #6D28D9);
         color: #ffffff;
         font-weight: 750;
         box-shadow: 0 8px 26px rgba(37, 99, 235, .38);
