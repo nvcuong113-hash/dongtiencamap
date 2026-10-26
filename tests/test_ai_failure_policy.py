@@ -16,6 +16,8 @@ def reset_ai_provider_state(monkeypatch):
 def test_provider_errors_are_classified_without_calling_everything_overload():
     assert ai_engine._provider_error_kind('429 RESOURCE_EXHAUSTED quota exceeded') == 'quota'
     assert ai_engine._provider_error_kind('429 Rate limit reached') == 'rate_limit'
+    assert ai_engine._provider_error_kind('429 RESOURCE_EXHAUSTED') == 'rate_limit'
+    assert ai_engine._provider_error_kind('429 requests per day limit exceeded') == 'quota'
     assert ai_engine._provider_error_kind('503 UNAVAILABLE') == 'overload'
     assert ai_engine._provider_error_kind('Read timed out') == 'timeout'
     assert ai_engine._provider_error_kind('401 invalid API key') == 'auth'
@@ -23,10 +25,23 @@ def test_provider_errors_are_classified_without_calling_everything_overload():
 
 
 def test_user_facing_error_distinguishes_rate_limit_quota_auth_and_timeout():
-    assert 'hạn mức/quota' in ai_engine._summarize_provider_failure('RESOURCE_EXHAUSTED')
-    assert 'giới hạn tốc độ' in ai_engine._summarize_provider_failure('429 Rate limit reached')
+    assert 'RPM/TPM hoặc quota project' in ai_engine._summarize_provider_failure('RESOURCE_EXHAUSTED')
+    assert 'RPM/TPM hoặc quota project' in ai_engine._summarize_provider_failure('429 Rate limit reached')
+    assert 'quota theo ngày' in ai_engine._summarize_provider_failure('requests per day limit exceeded')
     assert 'API key' in ai_engine._summarize_provider_failure('401 API key invalid')
     assert 'hết thời gian chờ' in ai_engine._summarize_provider_failure('Read timeout')
+
+
+def test_fallback_explains_when_openai_api_key_is_not_configured(monkeypatch):
+    monkeypatch.setattr(ai_engine, '_call_gemini', lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        ai_engine.AIUnavailable('Gemini trả HTTP 429/RESOURCE_EXHAUSTED')
+    ))
+    monkeypatch.setattr(ai_engine, '_call_openai', lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        ai_engine.AIUnavailable('Thiếu OPENAI_API_KEY.')
+    ))
+    monkeypatch.setattr(ai_engine, 'event', lambda *args, **kwargs: None)
+    with pytest.raises(ai_engine.AIUnavailable, match='chưa cấu hình OPENAI_API_KEY'):
+        ai_engine._generate_with_fallback('Gemini', 'short prompt')
 
 
 def _fake_google(monkeypatch, generate_content):
@@ -94,7 +109,7 @@ def test_gemini_rate_limit_opens_temporary_circuit_without_model_fanout(monkeypa
 
     state = _fake_google(monkeypatch, generate)
     monkeypatch.setattr(ai_engine, 'GEMINI_MODELS', ['gemini-a', 'gemini-b', 'gemini-c'])
-    with pytest.raises(ai_engine.AIUnavailable, match='giới hạn tốc độ'):
+    with pytest.raises(ai_engine.AIUnavailable, match='RESOURCE_EXHAUSTED'):
         ai_engine._call_gemini('prompt')
     assert len(state['calls']) == 1
     assert ai_engine._provider_is_cooling_down('Gemini')
@@ -162,7 +177,8 @@ def test_gemini_timeout_goes_to_provider_fallback_without_retrying_all_models(mo
 
 
 def test_gemini_model_chain_uses_supported_models_and_excludes_shutdown_model():
-    assert ai_engine.GEMINI_MODELS[0] == 'gemini-3.8-flash'
+    assert ai_engine.GEMINI_MODELS[0] == 'gemini-3.5-flash-lite'
+    assert 'gemini-3.8-flash' in ai_engine.GEMINI_MODELS
     assert 'gemini-2.0-flash' not in ai_engine.GEMINI_MODELS
     assert 'gemini-2.5-flash' not in ai_engine.GEMINI_MODELS
 

@@ -158,6 +158,42 @@ def test_vnindex_stale_daily_bar_does_not_unlock_forecast(monkeypatch):
     assert result["decision_usable"] is False
 
 
+def test_vps_index_value_in_million_vnd_is_normalized_to_billion():
+    from quants.providers import _index_value_billion
+
+    # VPS index-detail's `value` field can be returned in million VND.
+    assert _index_value_billion({"value": 15_000_000}) == 15_000.0
+
+
+def test_vps_index_value_already_in_vnd_is_normalized_to_billion():
+    from quants.providers import _index_value_billion
+
+    assert _index_value_billion({"totalValue": 15_000_000_000_000}) == 15_000.0
+    assert _index_value_billion({"value": 15_000_000_000_000}) == 15_000.0
+
+
+def test_vps_index_value_missing_is_not_fabricated_as_zero():
+    from quants.providers import _index_value_billion
+
+    assert _index_value_billion({"value": 0}) is None
+
+
+def test_live_vnindex_feed_maps_value_and_volume_fields(monkeypatch):
+    from quants import providers
+
+    monday_live = datetime(2026, 10, 26, 10, 0, tzinfo=TZ)
+    monkeypatch.setattr(providers, "get_json", lambda *args, **kwargs: [{
+        "mc": "10", "cIndex": 1773.92, "oIndex": 1774.10,
+        "vol": 245_322_360, "value": 15_000_000, "time": "10:00:00",
+    }])
+    result, errors = providers.fetch_vnindex(now=monday_live)
+    assert errors == []
+    assert result["price"] == 1773.92
+    assert result["volume"] == 245_322_360
+    assert result["value_billion"] == 15_000.0
+    assert result["valid"] is True
+
+
 def test_missing_volume_ratio_never_labels_low_volume_as_supply_dryup():
     row = {
         "price": 10_000, "high": 10_100, "low": 9_900, "change_pct": 0.1,
