@@ -459,7 +459,7 @@ def render_login_screen():
     with col_l2:
         st.markdown(
             "<div style='text-align: center; margin-top: 50px; margin-bottom: 25px;'>"
-            "<h2 style='color:#adc6ff; margin-bottom: 4px;'>🔒 QUANTS PRO V16.4 TERMINAL</h2>"
+            "<h2 style='color:#adc6ff; margin-bottom: 4px;'>🔒 SMART MONEY FLOW </h2>"
             "<p style='color:#94a3b8; font-size: 0.95rem;'>Hệ thống giao dịch định lượng thực chiến, phát hiện Đáy/Đỉnh sớm & bóc tách dòng tiền Big Boys</p>"
             "</div>",
             unsafe_allow_html=True
