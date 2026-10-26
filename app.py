@@ -351,7 +351,7 @@ div.stFormSubmitButton > button[kind="primary"] {
     }
     div[data-testid="stPopover"] > button:hover,
     div[data-testid="stPopover"] button:hover {
-        background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+        background: linear-gradient(135deg, #7C3AED, #6D28D9);
         border-color: #bfdbfe;
         box-shadow: 0 10px 30px rgba(37, 99, 235, .48);
         transform: translateY(-1px);
