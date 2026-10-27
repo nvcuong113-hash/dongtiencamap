@@ -268,7 +268,20 @@ st.markdown("""
     div[data-testid="stMetric"] label { color: #9fb4ce !important; font-size: .78rem; letter-spacing: .035em; }
     div[data-testid="stMetricValue"] { color: #f1f7ff; font-weight: 750; }
     .portfolio-card { background: #0c1a2c; border: 1px solid #294563; border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+    
+/* Tên thẻ KPI */
+/* Giá trị chính: tổng tài sản, VN-INDEX, hiệu suất... */
+div[data-testid="stMetricValue"] {
+    color: #f1f7ff !important;
+    font-size: 1.65rem !important;
+    font-weight: 750 !important;
+    line-height: 1.2 !important;
+}
 
+/* Giá trị phụ: biến động, lãi/lỗ bên dưới */
+div[data-testid="stMetricDelta"] {
+    font-size: 0.8rem !important;
+}
     /* Consistent button system: primary = main action, secondary = supporting action */
     div.stButton > button, div.stFormSubmitButton > button {
         min-height: 2.65rem;
