@@ -345,7 +345,7 @@ div.stFormSubmitButton > button[kind="primary"] {
     div[data-testid="stPopover"] {
         position: fixed !important;
         right: 24px !important;
-        bottom: 80px !important;
+        bottom: 120px !important;
         z-index: 99999 !important;
         width: auto !important;
         max-width: calc(100vw - 32px);
