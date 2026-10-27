@@ -6,3 +6,4 @@ google-genai>=1.0
 openai>=1.40
 
 extra-streamlit-components>=0.1.71
+plotly>=5.18.0
