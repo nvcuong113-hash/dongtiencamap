@@ -43,7 +43,14 @@ class ComputeQuantReversalIntegrationTests(unittest.TestCase):
         for key in ('trend_state', 'downtrend_exhaustion', 'support_test_quality',
                     'demand_confirmation', 'distribution_risk', 'failed_rebound_risk',
                     'media_price_divergence', 'bottom_signal_memory', 'top_signal_memory',
-                    'heuristic_score', 'p_win_status', 'calibrated_p_win'):
+                    'daily_pattern_status', 'daily_bottom_pattern_score', 'daily_top_pattern_score',
+                    'case_archetype', 'archetype_bottom_score', 'archetype_data_gaps',
+                    'rs_vni_5d', 'rs_vni_observations_5d', 'ma20d', 'ma50d',
+                    'heuristic_score', 'p_win_status', 'calibrated_p_win',
+                    'runup_60d_pct', 'runup_120d_pct', 'extended_runup_context_candidate',
+                    'climax_run_horizon', 'post_climax_absorption_watch',
+                    'post_climax_absorption_event_date', 'post_climax_absorption_event_age_sessions',
+                    'failed_advance_rejection'):
             self.assertIn(key, row)
         self.assertEqual(row['p_win_status'], 'HEURISTIC_NOT_CALIBRATED')
         self.assertIsNone(row['calibrated_p_win'])
@@ -70,6 +77,42 @@ class ComputeQuantReversalIntegrationTests(unittest.TestCase):
         self.assertGreater(context['media_price_divergence'], 50)
         # With no prior-week baseline, attention change is unknown rather than fabricated as +100%.
         self.assertIsNone(context['media_attention_change'])
+
+    def test_media_context_ignores_lpb_volleyball_query_false_positive(self):
+        from datetime import datetime, timezone
+        recent = datetime.now(timezone.utc).isoformat()
+        with db.connect() as c:
+            c.execute("""INSERT INTO media_articles(url_hash,published_at,crawled_at,source,title,url,summary,raw_text,symbols_json,sentiment,event_type)
+                         VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                      ('hash-lpb-sport', recent, recent, 'Google News LPB',
+                       'Lịch thi đấu giai đoạn 2 giải bóng chuyền nam vô địch quốc gia 2026',
+                       'https://example.invalid/lpb-sport',
+                       'Lịch thi đấu bóng chuyền hôm nay',
+                       'Lịch thi đấu giai đoạn 2 giải bóng chuyền nam vô địch quốc gia 2026',
+                       '["LPB"]', 'Tích cực', 'GENERAL'))
+        context = engine._media_context('LPB', '2026-10-27', -2.5)
+        self.assertEqual(context['media_article_count_7d'], 0)
+        self.assertEqual(context['media_sentiment_score_7d'], 0.0)
+        self.assertEqual(context['media_price_divergence'], 0.0)
+
+    def test_historical_memory_calculates_multisession_relative_strength(self):
+        with db.connect() as c:
+            for day in ("2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22"):
+                c.execute(
+                    "INSERT INTO stock_snapshots(ts,trade_date,symbol,metrics_json) VALUES(?,?,?,?)",
+                    (day, day, 'ABC', json.dumps({
+                        'rs_vni': 0.5, 'change_pct': -0.5,
+                        'bottom_score': 40, 'top_score': 20,
+                    })),
+                )
+            memory = engine._historical_reversal_memory(
+                c, 'ABC', '2026-10-23', 9500, 9400, 10000,
+                current_rs_vni=1.0, current_change_pct=-2.0,
+            )
+        self.assertEqual(memory['rs_vni_5d'], 3.0)
+        self.assertEqual(memory['rs_vni_positive_sessions_5d_pct'], 100.0)
+        self.assertEqual(memory['down_market_resilience_5d_pct'], 100.0)
+        self.assertEqual(memory['rs_vni_observations_5d'], 5)
 
     def test_historical_signal_memory_reads_prior_days_and_decays(self):
         with db.connect() as c:
