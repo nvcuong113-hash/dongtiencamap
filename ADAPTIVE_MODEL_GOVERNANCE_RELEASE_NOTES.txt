@@ -1,0 +1,16 @@
+Adaptive Model Governance safety patch
+
+Changed:
+- quants/learning.py: candidate-only calibration training; explicit approve and rollback; status visibility.
+- tests/test_adaptive_governance.py: approval/rollback guardrail tests.
+- ADAPTIVE_MODEL_GOVERNANCE.md: operating procedure and safety boundaries.
+
+Safety behavior:
+1. Automated audit can propose a probability calibrator candidate, but cannot replace the active model.
+2. Explicit approve_calibrator('T+2'/'T+3'/'T+7', approved_by='...') is required to promote.
+3. Promotion rechecks >=20 holdout records and at least 2% Brier improvement, then backs up the prior active calibrator.
+4. rollback_calibrator(...) restores the previous active model; no backup means no change.
+5. Reversal thresholds/weights/signal rules are not auto-adjusted.
+
+Validation on this working tree: pytest -q => 181 passed; python -m compileall -q quants tests => passed.
+This is regression validation, not proof of live trading performance or historical reversal-detector efficacy.
