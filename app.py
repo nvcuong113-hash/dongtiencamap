@@ -186,7 +186,7 @@ def configure_radar_columns(frame: pd.DataFrame, user_id: int, username: str | N
     # This is a normal Streamlit button, not a popover trigger. The CSS used for the
     # floating AI launcher applies to stPopover globally, so a second popover is hidden
     # behind the AI chat bubble. Keeping this control inline makes it consistently visible.
-    button_label = "⚙️ Cấu hình cột hiển thị" + ("  ▲" if st.session_state[panel_key] else "  ▼")
+    button_label = "⚙️" + ("  ▲" if st.session_state[panel_key] else "  ▼")
     if st.button(
         button_label,
         key=f"toggle_radar_columns_panel_{safe_user}",
