@@ -16,7 +16,7 @@ from quants.db import (
     get_user_preferences, get_user_preference, save_user_preference,
     list_all_users, update_user_status, delete_user_account
 )
-from quants.providers import fetch_vnindex, fetch_macro
+from quants.providers import fetch_vnindex, fetch_macro, fetch_history
 from quants.market_display import format_vnindex_delta
 from quants.engine import compute_quant, classify_market_regime
 from quants.decision_report import build_decision_report, apply_decision_gates
@@ -26,6 +26,7 @@ from quants.chat_support import build_chat_prompt
 from quants.table_config import normalize_visible_columns, parse_saved_visible_columns, serialize_visible_columns
 from quants.user_settings import normalize_watchlist
 from quants.audit import settle_predictions, build_performance, adaptive_feedback
+from quants.vsa_chart import prepare_vsa_bars, extract_chart_levels, build_vsa_plotly_figure
 
 def show_configurable_table(data, key, **kwargs):
     """Cấu hình cột chỉ ở lớp hiển thị; không thay đổi dữ liệu nguồn hay logic nghiệp vụ."""
@@ -239,6 +240,121 @@ def configure_radar_columns(frame: pd.DataFrame, user_id: int, username: str | N
 
     visible = normalize_visible_columns(available, st.session_state.get(state_key, available))
     return frame.loc[:, visible]
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_symbol_history(symbol: str, days: int = 180):
+    """Cache lightweight history per symbol for 5 minutes to avoid redundant API calls when switching charts."""
+    return fetch_history(symbol, days=days)
+
+
+def render_vsa_chart_station(filtered_symbols: list[str], all_rows: list[dict], decision_report: dict | None = None):
+    """Render the interactive VSA & Combat R:R candlestick chart station below the Radar table."""
+    if not all_rows:
+        return
+
+    rows_by_sym = {
+        str(r.get("symbol") or "").strip().upper(): r
+        for r in all_rows
+        if isinstance(r, dict) and r.get("symbol")
+    }
+    decision_by_sym = {
+        str(item.get("Mã") or "").strip().upper(): item
+        for item in (decision_report or {}).get("rows", [])
+        if isinstance(item, dict) and item.get("Mã")
+    }
+
+    available_syms = [s for s in filtered_symbols if s in rows_by_sym] or list(rows_by_sym.keys())
+    if not available_syms:
+        return
+
+    st.markdown("---")
+    st.markdown("#### 📈 Trạm Phân Tích Biểu Đồ Nến VSA & Khung R:R Thực Chiến")
+    st.caption(
+        "Chọn mã cổ phiếu để soi trực quan cấu trúc Nến VSA, đường VWAP, MA20, "
+        "vùng Mua/Cắt lỗ/Mục tiêu (R:R) và xung lực Volume mà không ảnh hưởng dữ liệu bảng Radar."
+    )
+
+    ctrl1, ctrl2, ctrl3 = st.columns([2.2, 1.2, 2.6])
+    with ctrl1:
+        def _format_sym_option(sym: str) -> str:
+            r = rows_by_sym.get(sym, {})
+            px = r.get("price")
+            chg = r.get("change_pct")
+            wy = r.get("wyckoff") or ""
+            px_str = f"{px:,.0f}đ" if isinstance(px, (int, float)) else "N/A"
+            chg_str = f"{chg:+.2f}%" if isinstance(chg, (int, float)) else ""
+            return f"{sym} — {px_str} ({chg_str}) | {wy}"
+
+        selected_sym = st.selectbox(
+            "🔍 Chọn mã cổ phiếu hiển thị biểu đồ:",
+            options=available_syms,
+            format_func=_format_sym_option,
+            key="radar_vsa_chart_selected_symbol",
+        )
+    with ctrl2:
+        lookback_sessions = st.selectbox(
+            "Số phiên hiển thị:",
+            options=[40, 60, 90, 120, 160],
+            index=2,
+            format_func=lambda x: f"{x} phiên gần nhất",
+            key="radar_vsa_chart_lookback",
+        )
+    with ctrl3:
+        cur_row = rows_by_sym.get(selected_sym, {})
+        cur_dec = decision_by_sym.get(selected_sym, {})
+        gate_status = cur_dec.get("Trạng thái quyết định") or cur_row.get("decision_gate_status") or "Đang theo dõi"
+        st.info(
+            f"**Kịch bản Wyckoff:** `{cur_row.get('wyckoff', 'N/A')}`  \n"
+            f"**Cổng quyết định:** `{gate_status}`"
+        )
+
+    levels = extract_chart_levels(cur_row, cur_dec)
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
+    m1.metric(
+        "Giá Khớp / VWAP",
+        f"{levels['price']:,.0f} đ" if levels["price"] else "N/A",
+        f"VWAP: {levels['vwap']:,.0f} đ" if levels["vwap"] else "Không có VWAP thực",
+    )
+    m2.metric(
+        "Hỗ Trợ 20P",
+        f"{levels['support']:,.0f} đ" if levels["support"] else "---",
+        f"Retest: {int(cur_row.get('retest_count') or 0)} lần",
+    )
+    m3.metric(
+        "Kháng Cự 20P",
+        f"{levels['resistance']:,.0f} đ" if levels["resistance"] else "---",
+        f"ATR 14P: {cur_row.get('atr_pct', 0):.2f}%" if cur_row.get("atr_pct") else None,
+    )
+    m4.metric(
+        "🛑 Điểm Cắt Lỗ (Stop)",
+        f"{levels['stop_loss']:,.0f} đ" if levels["stop_loss"] else "---",
+        f"-{cur_dec.get('Rủi ro %'):.2f}%" if isinstance(cur_dec.get("Rủi ro %"), (int, float)) else None,
+        delta_color="inverse",
+    )
+    m5.metric(
+        "🎯 Mục Tiêu (Target)",
+        f"{levels['target_price']:,.0f} đ" if levels["target_price"] else "---",
+        f"R:R = {cur_row.get('rr_ratio'):.2f}x" if isinstance(cur_row.get("rr_ratio"), (int, float)) else None,
+    )
+    m6.metric(
+        "Điểm Đáy / Đỉnh Sớm",
+        f"{cur_row.get('bottom_score', 0):.0f} / {cur_row.get('top_score', 0):.0f}",
+        str(cur_row.get("liquidity_tier") or "Thanh khoản N/A"),
+    )
+
+    try:
+        bars, hist_provider, _ = _cached_symbol_history(selected_sym, days=220)
+        prepared = prepare_vsa_bars(bars, cur_row, lookback=lookback_sessions)
+        fig = build_vsa_plotly_figure(selected_sym, prepared, cur_row, cur_dec)
+        st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
+        st.caption(
+            f"Nguồn lịch sử nến: {hist_provider} • Kế hoạch thực chiến: {cur_row.get('combat_plan') or 'Chưa đủ dữ liệu cấu trúc'} "
+            f"• Nhận định VSA: {cur_row.get('ai_vsa') or 'Chưa chạy AI'}"
+        )
+    except Exception as chart_err:
+        st.warning(f"Không thể dựng biểu đồ VSA cho mã {selected_sym}: {chart_err}")
+
 
 st.set_page_config(
     page_title="QUANTS PRO V16.4 - Combat Trading Terminal",
@@ -1411,6 +1527,18 @@ with tabs[1]:
         _render_pinned_table(radar_display_df)
         # CSV export intentionally keeps the full filtered dataset, regardless of visible columns.
         st.download_button("⬇️ Xuất dữ liệu CSV", view_df.to_csv(index=False).encode("utf-8-sig"), "quants_radar_full.csv", "text/csv")
+
+        # TRẠM BIỂU ĐỒ NẾN VSA & KHUNG R:R TƯƠNG TÁC (PLOTLY)
+        filtered_syms_for_chart = [
+            str(s).strip().upper()
+            for s in view_df["Mã CP"].dropna().tolist()
+            if str(s).strip()
+        ] if "Mã CP" in view_df.columns else []
+        render_vsa_chart_station(
+            filtered_syms_for_chart,
+            st.session_state.rows,
+            st.session_state.get("decision_report"),
+        )
     else:
         st.info("Chưa có dữ liệu snapshot. Vui lòng bấm nút **⚡ ĐỒNG BỘ TOÀN DIỆN** ở trên.")
 
