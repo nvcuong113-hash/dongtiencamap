@@ -340,3 +340,41 @@ def test_compute_quant_can_score_verified_friday_close_on_sunday(isolated_db, mo
     assert row["forecast_data_usable"] is True
     assert row["session_current"] is False
     assert row["action"] != "CHỜ DỮ LIỆU"
+
+
+def test_vps_stock_time_only_timestamp_is_accepted_only_when_fresh_in_live_window():
+    from quants.providers import _quote_from_raw
+
+    now = datetime(2026, 10, 26, 10, 0, tzinfo=TZ)
+    raw = {
+        "sym": "GEG", "lastPrice": 11850, "r": 11950,
+        "totalVolume": 100000, "time": "09:59:00",
+    }
+    quote = _quote_from_raw(raw, "VPS", now=now)
+    assert quote is not None
+    assert quote["decision_usable"] is True
+    assert quote["freshness"] == "SOURCE_TIME_OF_DAY_ASSUMED_TODAY"
+    assert quote["freshness_verified"] is False
+    assert quote["freshness_age_seconds"] == pytest.approx(60.0)
+
+
+def test_vps_stock_time_only_timestamp_stale_or_off_session_is_blocked():
+    from quants.providers import _quote_from_raw
+
+    live_now = datetime(2026, 10, 26, 10, 0, tzinfo=TZ)
+    stale = _quote_from_raw({
+        "sym": "GEG", "lastPrice": 11850, "r": 11950,
+        "totalVolume": 100000, "time": "09:50:00",
+    }, "VPS", now=live_now)
+    assert stale is not None
+    assert stale["decision_usable"] is False
+    assert stale["freshness"] == "SOURCE_TIMESTAMP_STALE"
+
+    sunday = datetime(2026, 10, 25, 10, 0, tzinfo=TZ)
+    off_session = _quote_from_raw({
+        "sym": "GEG", "lastPrice": 11850, "r": 11950,
+        "totalVolume": 100000, "time": "09:59:00",
+    }, "VPS", now=sunday)
+    assert off_session is not None
+    assert off_session["decision_usable"] is False
+    assert off_session["freshness"] == "SOURCE_TIMESTAMP_UNAVAILABLE"
