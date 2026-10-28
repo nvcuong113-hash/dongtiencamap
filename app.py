@@ -1701,7 +1701,7 @@ with tabs[3]:
                     if metrics:
                         m1, m2, m3, m4 = st.columns(4)
                         sample_count = metrics.get("sample_count")
-                        m1.metric("Mẫu đã quyết toán", sample_count if sample_count is not None else "—")
+                        m1.metric("Mẫu dự đoán", sample_count if sample_count is not None else "—")
                         win_rate = metrics.get("win_rate_pct")
                         m2.metric("Win Rate", f"{float(win_rate):.2f}%" if pd.notna(win_rate) else "—")
                         avg_return = metrics.get("avg_return_pct")
