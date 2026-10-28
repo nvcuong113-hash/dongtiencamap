@@ -1,0 +1,11 @@
+--extra-index-url https://vnstocks.com/api/packages
+vnstock==5.2.1
+streamlit>=1.38,<2
+pandas>=2.1,<3
+requests>=2.31,<3
+yfinance>=0.2.40
+google-genai>=1.0
+openai>=1.40
+
+extra-streamlit-components>=0.1.71
+plotly>=5.18.0
