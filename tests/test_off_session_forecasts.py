@@ -184,7 +184,8 @@ def test_live_vnindex_feed_maps_value_and_volume_fields(monkeypatch):
     monday_live = datetime(2026, 10, 26, 10, 0, tzinfo=TZ)
     monkeypatch.setattr(providers, "get_json", lambda *args, **kwargs: [{
         "mc": "10", "cIndex": 1773.92, "oIndex": 1774.10,
-        "vol": 245_322_360, "value": 15_000_000, "time": "10:00:00",
+        "vol": 245_322_360, "value": 15_000_000,
+        "timestamp": "2026-10-26T10:00:00+07:00", "time": "10:00:00",
     }])
     result, errors = providers.fetch_vnindex(now=monday_live)
     assert errors == []
