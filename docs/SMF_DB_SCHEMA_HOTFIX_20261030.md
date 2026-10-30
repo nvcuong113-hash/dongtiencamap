@@ -1,48 +1,21 @@
-# QUANTS PRO — Database users schema hotfix (2026-10-30)
+# QUANTS PRO — Database schema hotfixes (2026-10-30)
 
-## Incident
-The Streamlit admin panel failed in `app.py` while calling `list_all_users()`:
+## Prior incident: users schema
+The V16.5 release repaired legacy `users` schemas with missing `status` and `cash_balance` columns. The new release retains that fix.
 
-```sql
-SELECT id, username, full_name, role, status, cash_balance, created_at
-FROM users ORDER BY id DESC
-```
+## Current incident: stock snapshot / foreign flow
+The latest runtime traceback fails in `quants/engine.py::_foreign_5d()` while executing a query over `stock_snapshots.trade_date` and `stock_snapshots.foreign_net_today`. The screenshot redacts the original SQLite message, so the exact missing object (table vs column) cannot be proven from the screenshot alone.
 
-Streamlit redacted the underlying `sqlite3.OperationalError`, so the precise SQLite message is unavailable in the screenshot. The failing query requires the `users.cash_balance` column (and the other selected columns). The likely cause is a legacy/runtime SQLite schema that predates the current users contract, combined with a cached `init_db()` result.
-
-The uploaded deployment archive's bundled `data/quants_pro.sqlite3` is not the live cloud database: it contains only empty media tables, and `data/*.sqlite3` is gitignored. Therefore the runtime database schema could not be read directly from that archive.
-
-## Fixes
-
-1. Added `DB_SCHEMA_VERSION` in `quants/db.py` and used it as the `st.cache_resource` argument in `app.py`. The new key forces Streamlit to run `init_db()` again after deployment instead of reusing the old cached initialization result.
-2. Added `_ensure_users_schema_compatibility()` as an idempotent defensive migration. It checks and adds missing users columns (including `status` and `cash_balance`) without dropping, recreating, or overwriting existing account rows or password hashes.
-3. `list_all_users()`, `register_user()` and `authenticate_user()` invoke the compatibility check before their SQL statements. This also protects the app if a later Streamlit rerun reuses a previously cached initialization result.
-4. Added a visible build marker: `USERS-SCHEMA-FIX-20261030`.
-5. Restored the P0 shared data-quality/orchestration source files that were absent from the uploaded deployment archive even though its test `test_smf_v2_data_quality.py` imported them. This prevents full test collection from failing and keeps the prior shadow-only P0 behavior intact.
-
-## Data safety
-
-- No live user database was modified during this work.
-- Migration was rehearsed on temporary copies only.
-- Existing usernames and password hashes were asserted unchanged in the legacy-schema regression test.
-- The release archive intentionally excludes SQLite database files. Preserve the existing production database; do not replace it with the empty bundled test database from the input archive.
+## Fixes in V16.6
+1. Bump `DB_SCHEMA_VERSION` so Streamlit does not reuse the previous cached initialization result.
+2. Add `ensure_stock_snapshots_schema_compatibility()`: creates the table if absent and adds every missing column from the canonical `stock_snapshots` schema, without deleting or rewriting existing rows.
+3. Call the compatibility guard immediately before `_foreign_5d()` executes its SQL. This protects the compute path even if Streamlit's startup cache is stale.
+4. Use SQLite `rowid` ordering when an old table has no explicit `id` column.
+5. New columns in old databases remain NULL until fresh verified data is written. The migration does not fabricate historical foreign net values as zero.
+6. Update build marker to `SNAPSHOT-SCHEMA-FIX-20261030`.
 
 ## Validation
+Regression tests cover (a) a legacy snapshot table without `foreign_net_today`, (b) no `stock_snapshots` table, (c) a table without explicit `id`, (d) idempotent reruns, (e) preservation of existing observations, and (f) foreign-flow aggregation after verified values are populated. Full-suite results: 288 passed, 1 skipped.
 
-- `pytest -q`: **284 passed, 1 skipped**.
-- `python -m compileall -q app.py quants tests`: passed.
-- Legacy `users` table without `cash_balance`: repaired on demand; existing admin row and password hash preserved.
-- Legacy `users` table without both `status` and `cash_balance`: registration/authentication path repairs schema; pending account remains pending.
-- Temporary copy of the bundled SQLite database: `init_db()` created the missing runtime tables/columns; existing media tables/row counts retained.
-
-## Deployment
-
-1. Commit the source patch to the same Git branch connected to Streamlit Cloud.
-2. Do not upload or replace the production SQLite database. The application performs the additive migration on startup.
-3. Wait for Streamlit Cloud to finish that deployment, then verify the footer displays `Build: USERS-SCHEMA-FIX-20261030`.
-4. Sign in as Admin and open the user-management panel. It should render without the pandas `DatabaseError`.
-5. If the build marker is absent, the running app is still on a different branch/commit; confirm the connected repository and branch before changing data.
-
-## Rollback
-
-Rollback the source commit if an unrelated regression appears. The migration is additive and does not delete rows or columns, so restoring the previous source does not require restoring an earlier database copy. Keep a normal production backup before any deployment that changes application code.
+## Data safety
+Only additive DDL is used. No production database was edited during development. Deploy the source code to the same branch connected to Streamlit Cloud; do not replace the production SQLite database with the ZIP's small bundled placeholder database.
