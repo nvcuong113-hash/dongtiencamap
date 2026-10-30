@@ -136,6 +136,7 @@ CREATE TABLE IF NOT EXISTS user_preferences(
 );
 '''
 
+DB_SCHEMA_VERSION = "20261030_users_cash_balance_repair_v1"
 SESSION_TTL_DAYS = 7
 PASSWORD_HASH_ITERATIONS = 310_000
 
@@ -545,6 +546,7 @@ def init_db():
 
 
 def register_user(username: str, password: str, full_name: str = "") -> tuple[bool, str]:
+    _ensure_users_schema_compatibility()
     username = username.strip().lower()
     if not username or len(username) < 3:
         return False, "Tên đăng nhập phải có ít nhất 3 ký tự."
@@ -565,6 +567,7 @@ def register_user(username: str, password: str, full_name: str = "") -> tuple[bo
         return False, f"Lỗi hệ thống: {e}"
 
 def authenticate_user(username: str, password: str) -> tuple[dict | None, str]:
+    _ensure_users_schema_compatibility()
     username = username.strip().lower()
     with connect() as c:
         row = c.execute(
@@ -587,7 +590,51 @@ def authenticate_user(username: str, password: str) -> tuple[dict | None, str]:
             return None, "🚫 Tài khoản của bạn đã bị khóa hoặc từ chối quyền truy cập."
         return user_dict, "OK"
 
+def _ensure_users_schema_compatibility() -> None:
+    """Repair essential legacy users columns even when Streamlit init cache is stale.
+
+    This is deliberately narrow and idempotent: it only adds absent columns,
+    preserves existing account rows and never recreates or overwrites credentials.
+    """
+    with connect() as c:
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                full_name TEXT,
+                role TEXT DEFAULT 'USER',
+                status TEXT DEFAULT 'APPROVED',
+                cash_balance REAL DEFAULT 0.0,
+                created_at TEXT
+            )"""
+        )
+        existing = {row["name"] for row in c.execute('PRAGMA table_info("users")').fetchall()}
+        migrations = {
+            "username": "TEXT",
+            "password_hash": "TEXT",
+            "full_name": "TEXT",
+            "role": "TEXT DEFAULT 'USER'",
+            "status": "TEXT DEFAULT 'APPROVED'",
+            "cash_balance": "REAL DEFAULT 0.0",
+            "created_at": "TEXT",
+        }
+        for column, definition in migrations.items():
+            if column not in existing:
+                c.execute(f'ALTER TABLE users ADD COLUMN "{column}" {definition}')
+                existing.add(column)
+        required = {"id", "username", "full_name", "role", "status", "cash_balance", "created_at"}
+        missing = required - existing
+        if missing:
+            raise sqlite3.DatabaseError(
+                "users schema is incompatible; missing columns: " + ", ".join(sorted(missing))
+            )
+        c.execute("UPDATE users SET status='APPROVED' WHERE status IS NULL")
+
 def list_all_users() -> pd.DataFrame:
+    # Defensive repair covers deployments where Streamlit cached the previous
+    # init_db() result under an unchanged cache key.
+    _ensure_users_schema_compatibility()
     return query("SELECT id, username, full_name, role, status, cash_balance, created_at FROM users ORDER BY id DESC")
 
 def update_user_status(user_id: int, new_status: str, new_role: str | None = None) -> bool:

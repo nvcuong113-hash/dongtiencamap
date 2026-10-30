@@ -20,8 +20,7 @@ from .practical_flow import summarize_flow_history, classify_practical_flow, agg
 from .model_stack import model_ensemble
 from .calendar_vn import is_trading_day, latest_completed_trading_day, is_live_market_window, is_exchange_trading_phase
 from .smf_v2.flags import shadow_enabled as smf_v2_shadow_enabled
-from .smf_v2.market_structure import analyze_market_structure
-from .smf_v2.vsa import analyze_vsa
+from .smf_v2.orchestrator import analyze_shadow_engines
 from .smf_v2.persistence import persist_market_bars
 
 try:
@@ -1495,12 +1494,12 @@ def compute_quant(symbols, index_quote, now: datetime):
             r['daily_pattern_evidence'] = ' | '.join(pattern_evidence) if pattern_evidence else 'Chưa có mẫu hình xác nhận'
             if smf_v2_shadow_enabled():
                 try:
-                    r['smf_v2_market_structure'] = analyze_market_structure(
+                    smf_v2_analysis = analyze_shadow_engines(
                         feature_bars, as_of_date=trade_date
                     )
-                    r['smf_v2_vsa'] = analyze_vsa(
-                        feature_bars, as_of_date=trade_date
-                    )
+                    r['smf_v2_market_structure'] = smf_v2_analysis['market_structure']
+                    r['smf_v2_vsa'] = smf_v2_analysis['vsa']
+                    r['smf_v2_data_quality'] = smf_v2_analysis['data_quality']
                 except Exception as structure_error:
                     r['smf_v2_market_structure'] = {
                         'engine': 'market_structure_v2', 'engine_version': '2.0.0',
@@ -1511,6 +1510,10 @@ def compute_quant(symbols, index_quote, now: datetime):
                         'engine': 'vsa_volume_v2', 'engine_version': '2.1.0',
                         'status': 'ERROR', 'reason': type(structure_error).__name__,
                         'causal': True, 'future_data_used': False,
+                    }
+                    r['smf_v2_data_quality'] = {
+                        'status': 'ERROR',
+                        'quality_reasons': [f'Không chạy được SMF V2 QC: {type(structure_error).__name__}'],
                     }
             forecast_ok, forecast_reason = _forecast_data_gate(
                 now, q, bars, index_valid, r['session_current'], normalized_closed
