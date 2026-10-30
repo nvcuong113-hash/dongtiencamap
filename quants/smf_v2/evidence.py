@@ -1,0 +1,243 @@
+"""Evidence extraction and independent-group aggregation for SMF V2 shadow mode."""
+from __future__ import annotations
+
+from collections import defaultdict
+from hashlib import sha256
+from typing import Any, Iterable
+
+from .contracts import EvidenceRecord, _finite_number, _iso_date
+
+
+BULLISH_VOLUME_FLAGS = (
+    "stopping_volume_event", "flush_reversal_candidate", "post_climax_absorption_watch",
+    "no_supply_candidate",
+)
+BEARISH_VOLUME_FLAGS = (
+    "high_volume_rejection", "high_volume_no_progress",
+)
+BULLISH_MOMENTUM_FLAGS = ("bullish_rsi_divergence", "bullish_macd_divergence")
+BEARISH_MOMENTUM_FLAGS = ("bearish_rsi_divergence", "bearish_macd_divergence")
+BULLISH_PRICE_PATTERN_FLAGS = (
+    "vcp_candidate", "pocket_pivot_candidate", "pivot_breakout_confirmed",
+    "tight_range_base_candidate",
+)
+BEARISH_PRICE_PATTERN_FLAGS = (
+    "double_top_candidate", "head_shoulders_candidate", "failed_advance_rejection",
+    "ma20_weak_retest_failure", "ma10_ma20_breakdown",
+)
+
+
+def _evidence_id(symbol: str, trade_date: str | None, group: str, feature: str, polarity: str) -> str:
+    raw = "|".join((symbol, trade_date or "", group, feature, polarity))
+    return sha256(raw.encode("utf-8")).hexdigest()[:20]
+
+
+def _record(row: dict[str, Any], group: str, feature: str, polarity: str,
+            quality: str, strength: str, summary: str, source_fields: Iterable[str],
+            source_name: str | None = None, contributes: bool = True) -> EvidenceRecord:
+    symbol = str(row.get("symbol") or "").strip().upper()
+    session_date = _iso_date(row.get("trade_date") or row.get("latest_bar_date"))
+    return EvidenceRecord(
+        evidence_id=_evidence_id(symbol, session_date, group, feature, polarity),
+        symbol=symbol,
+        session_date=session_date,
+        engine="legacy_adapter_v2",
+        evidence_group=group,
+        feature=feature,
+        polarity=polarity,
+        quality_status=quality,
+        strength_label=strength,
+        summary=summary,
+        source_fields=tuple(source_fields),
+        source_name=source_name,
+        contributes_to_consensus=contributes,
+    )
+
+
+def extract_row_evidence(row: dict[str, Any]) -> list[EvidenceRecord]:
+    """Map only explicit legacy fields into V2 evidence; never infer shark identity."""
+    if not isinstance(row, dict):
+        return []
+    symbol = str(row.get("symbol") or "").strip().upper()
+    if not symbol:
+        return []
+    output: list[EvidenceRecord] = []
+
+    # Group 1: V2 structure engine owns the independent structure vote. The old
+    # trend_state remains visible as a diagnostic but cannot vote in parallel.
+    trend = str(row.get("trend_state") or "UNKNOWN").upper()
+    if trend != "UNKNOWN":
+        output.append(_record(
+            row, "LEGACY_TREND_DIAGNOSTIC", "legacy_trend_state", "UNKNOWN",
+            "PARTIAL", "UNKNOWN", f"Trend legacy: {trend}; không bỏ phiếu riêng",
+            ("trend_state", "ma10w", "ma20w", "ret5"), row.get("source_label"), False,
+        ))
+
+    structure = row.get("smf_v2_market_structure") or {}
+    if isinstance(structure, dict) and structure.get("status") == "AVAILABLE":
+        bias = str(structure.get("bias") or "UNKNOWN").upper()
+        polarity = bias if bias in {"BULLISH", "BEARISH", "NEUTRAL"} else "UNKNOWN"
+        last_event = str(structure.get("latest_event") or "NONE")
+        swing_high = structure.get("last_swing_high") or {}
+        swing_low = structure.get("last_swing_low") or {}
+        output.append(_record(
+            row, "PRICE_ACTION", "causal_swing_structure", polarity,
+            "VERIFIED", "MEDIUM",
+            f"Cấu trúc V2: {bias}; sự kiện {last_event}; kháng cự swing {swing_high.get('price')}; hỗ trợ swing {swing_low.get('price')}",
+            ("smf_v2_market_structure.bias", "smf_v2_market_structure.events",
+             "smf_v2_market_structure.last_swing_high", "smf_v2_market_structure.last_swing_low"),
+            "market_structure_v2", True,
+        ))
+
+    # Group 2: relative strength vs benchmark. VN-index and sector RS are correlated
+    # views of relative performance; they intentionally produce a single group vote.
+    rs_vni = _finite_number(row.get("rs_vni"))
+    rs_sector = _finite_number(row.get("rs_sector"))
+    if rs_vni is not None or rs_sector is not None:
+        values = [v for v in (rs_vni, rs_sector) if v is not None]
+        polarity = "BULLISH" if all(v > 0 for v in values) else (
+            "BEARISH" if all(v < 0 for v in values) else "NEUTRAL"
+        )
+        sources = tuple(k for k, v in (("rs_vni", rs_vni), ("rs_sector", rs_sector)) if v is not None)
+        output.append(_record(
+            row, "RELATIVE_STRENGTH", "relative_strength", polarity,
+            "VERIFIED" if (rs_vni is not None and row.get("index_valid") is True
+                            and row.get("quote_freshness_verified") is True) else "PARTIAL",
+            "MEDIUM" if len(values) == 2 else "LOW",
+            "RS cùng chiều dương" if polarity == "BULLISH" else "RS cùng chiều âm" if polarity == "BEARISH" else "RS phân hóa/trung tính",
+            sources, row.get("rs_sector_source") or "VN-Index/sector benchmark", True,
+        ))
+
+    # Group 3: VSA/volume behavior. Multiple related flags within the same family
+    # produce one vote, never one vote per candle/pattern label.
+    active_bull_volume = [name for name in BULLISH_VOLUME_FLAGS if row.get(name) is True]
+    active_bear_volume = [name for name in BEARISH_VOLUME_FLAGS if row.get(name) is True]
+    if active_bull_volume or active_bear_volume:
+        if active_bull_volume and active_bear_volume:
+            polarity = "CONFLICTED"
+        elif active_bull_volume:
+            polarity = "BULLISH"
+        else:
+            polarity = "BEARISH"
+        volume_verified = (
+            row.get("volume_available") is True
+            and row.get("daily_pattern_status") == "AVAILABLE"
+        )
+        output.append(_record(
+            row, "VOLUME_BEHAVIOR", "vsa_volume_cluster", polarity,
+            "VERIFIED" if volume_verified else "UNVERIFIED",
+            "MEDIUM" if volume_verified and len(active_bull_volume) + len(active_bear_volume) >= 2 else "LOW",
+            "VSA/volume flags: " + ", ".join(active_bull_volume + active_bear_volume),
+            tuple(active_bull_volume + active_bear_volume) + ("volume_available", "daily_pattern_status"),
+            row.get("source_label"), volume_verified,
+        ))
+
+    # Group 4: momentum divergence is separate from volume behavior, but both RSI
+    # and MACD divergence remain one group because they use overlapping price history.
+    active_bull_momentum = [name for name in BULLISH_MOMENTUM_FLAGS if row.get(name) is True]
+    active_bear_momentum = [name for name in BEARISH_MOMENTUM_FLAGS if row.get(name) is True]
+    if active_bull_momentum or active_bear_momentum:
+        polarity = "CONFLICTED" if active_bull_momentum and active_bear_momentum else (
+            "BULLISH" if active_bull_momentum else "BEARISH"
+        )
+        history_ok = row.get("history_available") is True and row.get("daily_pattern_status") == "AVAILABLE"
+        output.append(_record(
+            row, "PRICE_ACTION", "momentum_divergence_cluster", polarity,
+            "VERIFIED" if history_ok else "PARTIAL", "MEDIUM" if history_ok else "LOW",
+            "Phân kỳ: " + ", ".join(active_bull_momentum + active_bear_momentum),
+            tuple(active_bull_momentum + active_bear_momentum) + ("history_available", "daily_pattern_status"),
+            row.get("source_label"), history_ok,
+        ))
+
+    # Group 5: price patterns. Candidate flags are grouped by structural pattern
+    # family; candidate status alone is not confirmation of a reversal.
+    active_bull_patterns = [name for name in BULLISH_PRICE_PATTERN_FLAGS if row.get(name) is True]
+    active_bear_patterns = [name for name in BEARISH_PRICE_PATTERN_FLAGS if row.get(name) is True]
+    if active_bull_patterns or active_bear_patterns:
+        polarity = "CONFLICTED" if active_bull_patterns and active_bear_patterns else (
+            "BULLISH" if active_bull_patterns else "BEARISH"
+        )
+        history_ok = row.get("history_available") is True and row.get("daily_pattern_status") == "AVAILABLE"
+        output.append(_record(
+            row, "PRICE_ACTION", "price_pattern_cluster", polarity,
+            "VERIFIED" if history_ok else "PARTIAL", "MEDIUM" if history_ok else "LOW",
+            "Mẫu hình cấu trúc giá: " + ", ".join(active_bull_patterns + active_bear_patterns),
+            tuple(active_bull_patterns + active_bear_patterns) + ("history_available", "daily_pattern_status"),
+            row.get("source_label"), history_ok,
+        ))
+
+    # Group 6: order flow only casts a directional vote when the legacy contract
+    # confirms actual deals and minimum coverage. Proxy values remain visible but
+    # cannot contribute to consensus.
+    flow = _finite_number(row.get("net_flow_billion"))
+    coverage = _finite_number(row.get("flow_coverage_pct"))
+    real_flow = row.get("is_real_deal") is True and coverage is not None and coverage >= 35.0 and flow is not None
+    if real_flow:
+        polarity = "BULLISH" if flow > 0 else "BEARISH" if flow < 0 else "NEUTRAL"
+        output.append(_record(
+            row, "ORDER_FLOW", "verified_net_flow", polarity, "VERIFIED", "MEDIUM",
+            f"Deal-flow thực {flow:.2f} tỷ; độ phủ {coverage:.1f}%",
+            ("net_flow_billion", "flow_coverage_pct", "is_real_deal", "flow_status"),
+            row.get("flow_source"), True,
+        ))
+    elif flow is not None:
+        output.append(_record(
+            row, "ORDER_FLOW", "proxy_net_flow", "UNKNOWN", "PROXY", "UNKNOWN",
+            f"Flow proxy {flow:.2f} tỷ; không được tính là bằng chứng dòng tiền thực",
+            ("net_flow_billion", "flow_status", "flow_source"), row.get("flow_source"), False,
+        ))
+    else:
+        output.append(_record(
+            row, "ORDER_FLOW", "flow_unavailable", "UNKNOWN", "UNAVAILABLE", "UNKNOWN",
+            "Không có dữ liệu flow đủ điều kiện", ("flow_status", "flow_source"), None, False,
+        ))
+
+    # Group 7: the legacy Top/Bottom/Signal scores are preserved as diagnostics only.
+    # They are composite outputs built from overlapping indicators, not independent votes.
+    bottom = _finite_number(row.get("bottom_score"))
+    top = _finite_number(row.get("top_score"))
+    if bottom is not None or top is not None:
+        output.append(_record(
+            row, "LEGACY_COMPOSITE", "legacy_top_bottom_scores", "UNKNOWN", "PARTIAL", "UNKNOWN",
+            f"Điểm composite legacy: bottom={bottom}, top={top}; không cộng vào đồng thuận V2",
+            tuple(k for k, v in (("bottom_score", bottom), ("top_score", top), ("signal_score", row.get("signal_score"))) if v is not None),
+            "legacy_engine", False,
+        ))
+    return output
+
+
+def aggregate_independent_groups(records: Iterable[EvidenceRecord]) -> dict[str, Any]:
+    """Aggregate at most one vote per independent evidence group."""
+    grouped: dict[str, list[EvidenceRecord]] = defaultdict(list)
+    for item in records:
+        if item.contributes_to_consensus and item.quality_status == "VERIFIED" and item.polarity in {"BULLISH", "BEARISH", "NEUTRAL"}:
+            grouped[item.evidence_group].append(item)
+
+    votes: dict[str, str] = {}
+    conflicts: list[str] = []
+    for group, items in grouped.items():
+        polarities = {item.polarity for item in items}
+        if "BULLISH" in polarities and "BEARISH" in polarities:
+            votes[group] = "CONFLICTED"
+            conflicts.append(group)
+        elif "BULLISH" in polarities:
+            votes[group] = "BULLISH"
+        elif "BEARISH" in polarities:
+            votes[group] = "BEARISH"
+        else:
+            votes[group] = "NEUTRAL"
+
+    bullish = sum(v == "BULLISH" for v in votes.values())
+    bearish = sum(v == "BEARISH" for v in votes.values())
+    neutral = sum(v in {"NEUTRAL", "CONFLICTED"} for v in votes.values())
+    return {
+        "independent_group_count": len(votes),
+        "bullish_group_count": bullish,
+        "bearish_group_count": bearish,
+        "neutral_or_conflicted_group_count": neutral,
+        "conflicted_groups": sorted(conflicts),
+        "group_votes": dict(sorted(votes.items())),
+        "status": "INSUFFICIENT_INDEPENDENT_EVIDENCE" if len(votes) < 2 else "SHADOW_EVIDENCE_ONLY",
+        "is_trade_signal": False,
+        "calibrated_probability": None,
+    }
