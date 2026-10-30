@@ -1,8 +1,8 @@
 # Smart Money Flow — Architecture Blueprint V2
 
 **Baseline:** deployment ZIP `dongtiencamap-main(20261030-143021).zip`  
-**Initial migration release:** V2.0 Shadow Evidence Registry  
-**Status:** sidecar enabled; legacy decision path remains authoritative.
+**Initial migration release:** V2.1 Shared Data Quality & Orchestration  
+**Status:** P0 foundation delivered in shadow mode; legacy decision path remains authoritative.
 
 ## 1. Decision for the migration
 
@@ -69,7 +69,18 @@ flowchart TD
 
 The V2 sidecar is parallel to the decision path: it observes the quant row after its core fields are calculated, but its output is not fed into AI or the legacy decision gates in this release.
 
-## 3. Target architecture
+
+## 2.1 P0 foundation delivered in release 2.1
+
+- `quants/smf_v2/data_quality.py` provides shared daily OHLCV normalization and explicit quality counters.
+- `quants/smf_v2/orchestrator.py` provides a thin boundary that invokes Market Structure and VSA independently and returns shared data-quality metadata.
+- `quants/engine.py` now attaches `smf_v2_data_quality` alongside the existing structure and VSA results. Existing result keys are preserved.
+- Both engines fail closed when an explicit `as_of_date` is malformed. They return `INVALID_AS_OF_DATE` rather than silently analyzing an unbounded series.
+- The Shadow report exposes `bar_data_quality`.
+- No legacy score, AI prompt, decision gate, forecast field, or database schema was changed.
+
+Validation for release 2.1: 282 tests passed, 1 skipped; compile check passed; `init_db()` was rehearsed against a temporary copy of the supplied backup and created the missing V2 tables without deleting existing rows. See `docs/SMF_P0_FOUNDATION_RELEASE.md`.
+\n## 3. Target architecture
 
 ```mermaid
 flowchart TB
