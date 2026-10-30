@@ -1,16 +1,3 @@
-QUANTS PRO V16.7 — DEPLOY STEPS
+SUPERSEDED — DO NOT USE FOR NEW DEPLOYMENTS
 
-1. Download and extract the PATCH archive at the root of the GitHub repository.
-2. Commit and push all changed files to the branch connected to Streamlit Community Cloud.
-3. Do NOT replace, upload or commit the SQLite DB from this ZIP. The packaged data/quants_pro.sqlite3 is an empty local placeholder, not production data.
-4. Wait for Streamlit Cloud to rebuild from the GitHub commit.
-5. Verify footer: V16.7 / AUTH-SESSION-SCHEMA-FIX-20261031.
-6. Because legacy sessions without a trustworthy created_at are invalidated, sign in again once to create a fresh session. User accounts and password hashes are preserved.
-
-If Manage app is not visible:
-A. Open https://share.streamlit.io and sign in with the account that owns or has write access to the connected GitHub repository.
-B. Switch to the workspace matching that GitHub repository owner.
-C. Find the app and use the app row's three-dot menu. For the Cloud logs from the running app, Manage app is at the lower-right only for a signed-in developer account with access.
-D. The three-dot icon at the upper-right inside the app is the Streamlit app chrome, not the Community Cloud Manage app button.
-
-Rollback: restore the previous Git commit. Do not restore/overwrite the production SQLite file.
+This V16.7 deployment note is retained only for release history. Use DEPLOY_DB_BOOTSTRAP_ADMIN_V168_20261031.txt for the current V16.8 release.

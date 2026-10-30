@@ -5,17 +5,39 @@ from datetime import datetime
 import pandas as pd
 from pandas.io.formats.style import Styler
 import streamlit as st
+
+st.set_page_config(
+    page_title="QUANTS PRO V16.8 - Combat Trading Terminal",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
 import streamlit.components.v1 as components
 import extra_streamlit_components as stx
 
 from quants.config import APP_NAME, DEFAULT_WATCHLIST, SECTORS, TZ, DB_PATH
 from quants.db import (
-    DB_SCHEMA_VERSION, init_db, query, connect, event,
+    ensure_database_ready, query, connect, event,
     register_user, authenticate_user, create_auth_session, get_user_by_session, revoke_auth_session,
     get_user_portfolio, save_user_portfolio,
     get_user_preferences, get_user_preference, save_user_preference,
     list_all_users, update_user_status, delete_user_account
 )
+
+# Database bootstrap must precede every application-module import that may read
+# SQLite. It is deliberately NOT cached: readiness checks are cheap and detect a
+# replaced/empty/wrong-path DB even during Streamlit hot reloads.
+_DB_BOOTSTRAP_ERROR = None
+_DB_BOOTSTRAP_STATUS = None
+try:
+    _DB_BOOTSTRAP_STATUS = ensure_database_ready()
+except Exception as _bootstrap_exc:
+    _DB_BOOTSTRAP_ERROR = _bootstrap_exc
+    st.error("Database bootstrap thất bại. Ứng dụng đã dừng để tránh đọc/ghi nhầm database.")
+    st.code(f"DB_PATH: {DB_PATH}\n{type(_bootstrap_exc).__name__}: {_bootstrap_exc}")
+    st.stop()
+
 from quants.providers import fetch_vnindex, fetch_macro, fetch_history
 from quants.market_display import format_vnindex_delta
 from quants.engine import compute_quant, classify_market_regime
@@ -363,13 +385,6 @@ def render_vsa_chart_station(filtered_symbols: list[str], all_rows: list[dict], 
         st.warning(f"Không thể dựng biểu đồ VSA cho mã {selected_sym}: {chart_err}")
 
 
-st.set_page_config(
-    page_title="QUANTS PRO V16.7 - Combat Trading Terminal",
-    page_icon="📈",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
-
 st.markdown("""
 <style>
     :root { color-scheme: dark; }
@@ -555,18 +570,6 @@ div.stFormSubmitButton > button[kind="primary"] {
 </style>
 """, unsafe_allow_html=True)
 
-# Bump this token whenever a release adds database columns or tables. It becomes
-# part of Streamlit's cache key so a deployment cannot reuse the pre-migration result.
-_DB_SCHEMA_CACHE_VERSION = DB_SCHEMA_VERSION
-
-@st.cache_resource
-def _ensure_db_initialized(schema_cache_version: str):
-    init_db()
-    return True
-
-_ensure_db_initialized(_DB_SCHEMA_CACHE_VERSION)
-
-
 def _load_user_personal_settings(user_id: int) -> None:
     """Load settings by immutable database user ID at login/session restoration."""
     preferences = get_user_preferences(int(user_id))
@@ -661,6 +664,13 @@ def render_login_screen():
 
     col_l1, col_l2, col_l3 = st.columns([1, 1.6, 1])
     with col_l2:
+        if (_DB_BOOTSTRAP_STATUS or {}).get("admin_setup_required"):
+            st.warning(
+                "Tài khoản admin đã được khởi tạo nhưng chưa có mật khẩu do chưa cấu hình secret. "
+                "Hãy thiết lập QUANTS_INITIAL_ADMIN_PASSWORD (lần đầu) hoặc "
+                "QUANTS_ADMIN_RESET_PASSWORD (reset một lần) trong Streamlit Cloud → App settings → Secrets. "
+                "Sau khi reset thành công, hãy xóa secret reset để tránh giữ cấu hình nhạy cảm."
+            )
         st.markdown(
             "<div style='text-align: center; margin-top: 50px; margin-bottom: 25px;'>"
             "<h2 style='color:#00C853; margin-bottom: 4px;'>🔒 SMART MONEY FLOW</h2>"
@@ -2084,7 +2094,7 @@ with tabs[3]:
                                 else:
                                     st.error(result.get("reason", "Rollback thất bại."))
 
-st.caption(f"Hệ thống QUANTS PRO V16.7 • Build: AUTH-SESSION-SCHEMA-FIX-20261031 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
+st.caption(f"Hệ thống QUANTS PRO V16.8 • Build: DB-BOOTSTRAP-ADMIN-INIT-20261031 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
 
 with st.popover("💬 Trợ Lý AI Trực Tuyến"):
     st.markdown("#### 🤖 Trợ Lý Định Lượng AI (Bảng điện + Danh mục + Media + Vĩ mô)")

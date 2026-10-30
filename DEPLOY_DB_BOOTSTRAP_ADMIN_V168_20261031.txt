@@ -1,0 +1,20 @@
+QUANTS PRO V16.8 — DEPLOYMENT
+Build marker: DB-BOOTSTRAP-ADMIN-INIT-20261031
+
+1. Apply the patch ZIP at repository root, preserving paths. Do not change Streamlit's main module from app.py.
+2. Confirm `quants/config.py`, `quants/db.py`, `app.py`, `worker.py` and `quants/mcp_server.py` are updated on the deployed branch.
+3. Do NOT overwrite or upload a production SQLite database from the source archive.
+4. Deploy. Bootstrap now runs before other QUANTS modules import and query SQLite.
+5. Verify footer: QUANTS PRO V16.8 / DB-BOOTSTRAP-ADMIN-INIT-20261031.
+6. If a new Admin is being created, set this in Streamlit Cloud > App settings > Secrets (TOML, no code fences):
+   QUANTS_INITIAL_ADMIN_PASSWORD = "A-Unique-Strong-Password"
+7. If Admin exists but password is unknown, set this one-time key:
+   QUANTS_ADMIN_RESET_PASSWORD = "A-Different-Strong-Password"
+   Save/deploy, log in as admin, then remove the reset key. Same reset value is only applied once.
+8. Verify login, Admin user panel, watchlist/dashboard, macro/media panels and full sync.
+9. If bootstrap fails, the app stops before importing modules that query the DB and displays DB_PATH plus the migration exception. Send that exact message for diagnosis.
+
+IMPORTANT
+- The release archives intentionally do not contain SQLite database files.
+- Default DB_PATH is absolute and anchored to the repository root.
+- Streamlit Community Cloud local disk may be ephemeral; use persistent storage/PostgreSQL for data that must survive rebuilds.

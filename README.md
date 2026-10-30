@@ -31,7 +31,7 @@ OPENAI_API_KEY = "your-openai-key"
 Never commit API keys. Rotate any key pasted into chat or a public repository.
 
 ## SQLite and deployment
-Default database: `./data/quants_pro.sqlite3`; override with `QUANTS_DB_PATH`. SQLite is suitable for one Streamlit process and local/persistent disks. Streamlit Community Cloud's local filesystem may not be durable across rebuild/restarts. For persistent use, deploy on a VPS with a persistent volume or migrate DB access to PostgreSQL. The included worker should run on a persistent host (e.g. cron), not as a background daemon in Streamlit Community Cloud.
+Default database: `<project-root>/data/quants_pro.sqlite3` (resolved independently of the process working directory). If the previous relative-path database exists only at the parent checkout `data/` path, startup keeps using that existing file; if multiple candidate databases exist, startup refuses to guess and requires explicit `QUANTS_DB_PATH`. Override with `QUANTS_DB_PATH` (absolute path recommended for persistent volumes). Startup validates the schema and runs additive migrations before importing database consumers. SQLite is suitable for one Streamlit process and local/persistent disks. Streamlit Community Cloud's local filesystem may not be durable across rebuild/restarts. For persistent use, deploy on a VPS with a persistent volume or migrate DB access to PostgreSQL. The included worker should run on a persistent host (e.g. cron), not as a background daemon in Streamlit Community Cloud.
 
 ## Optional worker commands
 ```bash

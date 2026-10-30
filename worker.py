@@ -2,7 +2,7 @@
 import argparse
 from datetime import datetime
 from quants.config import DEFAULT_WATCHLIST, TZ
-from quants.db import init_db, event
+from quants.db import ensure_database_ready, event
 from quants.providers import fetch_vnindex, fetch_macro
 from quants.engine import compute_quant, classify_market_regime
 from quants.ai_engine import run_ai, enforce_predictions, save_prediction_audit, persist_forecast_rows
@@ -11,7 +11,7 @@ from quants.media import crawl_media
 from quants.audit import settle_predictions, build_performance
 
 def run_once(job='quant'):
-    init_db(); now=datetime.now(TZ)
+    ensure_database_ready(); now=datetime.now(TZ)
     if job=='quant':
         index,errors=fetch_vnindex(); rows,errs=compute_quant(DEFAULT_WATCHLIST,index,now)
         event('INFO','worker',f'quant job saved {len(rows)} symbols',{'provider':index.get('provider'),'errors':errors+errs})
