@@ -291,7 +291,7 @@ def test_worker_forecast_job_runs_complete_pipeline_without_external_calls(monke
     calls = []
     index = {"valid": True, "decision_usable": True, "change_pct": 0.4, "provider": "fixture"}
     rows = [{"symbol": "ABC", "trade_date": "2026-10-23", "price": 10_000}]
-    monkeypatch.setattr(worker, "init_db", lambda: calls.append("init"))
+    monkeypatch.setattr(worker, "ensure_database_ready", lambda: calls.append("bootstrap"))
     monkeypatch.setattr(worker, "fetch_vnindex", lambda: (index, []))
     monkeypatch.setattr(worker, "compute_quant", lambda *args: (rows, []))
     monkeypatch.setattr(worker, "fetch_macro", lambda: ([], []))
@@ -300,7 +300,7 @@ def test_worker_forecast_job_runs_complete_pipeline_without_external_calls(monke
     monkeypatch.setattr(worker, "save_prediction_audit", lambda r, regime: calls.append(("audit", regime)) or 3)
     monkeypatch.setattr(worker, "event", lambda *args, **kwargs: None)
     worker.run_once("forecast")
-    assert calls[0] == "init"
+    assert calls[0] == "bootstrap"
     assert "ai" in calls and "enforce" in calls
     assert any(isinstance(c, tuple) and c[0] == "audit" for c in calls)
 
