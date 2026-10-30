@@ -364,7 +364,7 @@ def render_vsa_chart_station(filtered_symbols: list[str], all_rows: list[dict], 
 
 
 st.set_page_config(
-    page_title="QUANTS PRO V16.4 - Combat Trading Terminal",
+    page_title="QUANTS PRO V16.7 - Combat Trading Terminal",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -2084,7 +2084,7 @@ with tabs[3]:
                                 else:
                                     st.error(result.get("reason", "Rollback thất bại."))
 
-st.caption(f"Hệ thống QUANTS PRO V16.6 • Build: SNAPSHOT-SCHEMA-FIX-20261030 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
+st.caption(f"Hệ thống QUANTS PRO V16.7 • Build: AUTH-SESSION-SCHEMA-FIX-20261031 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
 
 with st.popover("💬 Trợ Lý AI Trực Tuyến"):
     st.markdown("#### 🤖 Trợ Lý Định Lượng AI (Bảng điện + Danh mục + Media + Vĩ mô)")
