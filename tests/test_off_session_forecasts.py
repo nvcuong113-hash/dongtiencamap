@@ -518,3 +518,12 @@ def test_vps_stock_time_only_timestamp_stale_or_off_session_is_blocked():
     assert off_session is not None
     assert off_session["decision_usable"] is False
     assert off_session["freshness"] == "SOURCE_TIMESTAMP_UNAVAILABLE"
+
+
+def test_live_market_window_starts_at_0915_not_0909():
+    before = datetime(2026, 10, 30, 9, 14, tzinfo=ZoneInfo('Asia/Ho_Chi_Minh'))
+    at_open = datetime(2026, 10, 30, 9, 15, tzinfo=ZoneInfo('Asia/Ho_Chi_Minh'))
+    assert not is_live_market_window(before)
+    assert is_live_market_window(at_open)
+    assert not is_exchange_trading_phase(before)
+    assert is_exchange_trading_phase(at_open)

@@ -202,3 +202,76 @@ def test_snapshot_insert_skips_optional_columns_missing_from_runtime_schema(tmp_
         assert row['ts'] == '2026-10-29T10:00:00+07:00'
         assert row['symbol'] == 'IDC'
         assert row['recorded_at'] == row['ts']
+
+
+def test_init_db_backfills_audit_ledger_from_historical_stock_snapshots(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, 'DB_PATH', tmp_path / 'snapshot_backfill.sqlite3')
+    db.init_db()
+    with db.connect() as c:
+        c.execute("""INSERT INTO stock_snapshots(
+            ts, trade_date, symbol, price, pred_t2, pred_t3, pred_t7,
+            source_label, metrics_json, wyckoff_phase
+        ) VALUES(?,?,?,?,?,?,?,?,?,?)""", (
+            '2026-10-20T15:00:00+07:00', '2026-10-20', 'IDC', 33000,
+            1.2, 2.3, 4.5, 'VNstock-KBS', '{"forecast_data_usable": true}', 'Accumulation'
+        ))
+    db.init_db()
+    with db.connect() as c:
+        rows = c.execute("SELECT trade_date,symbol,horizon,base_price,predicted_pct,status,ai_provider FROM predictions ORDER BY horizon").fetchall()
+        assert len(rows) == 3
+        assert [r['horizon'] for r in rows] == [2, 3, 7]
+        assert all(r['status'] == 'OPEN' for r in rows)
+        assert all(r['ai_provider'] == 'Snapshot backfill' for r in rows)
+        assert [r['predicted_pct'] for r in rows] == [1.2, 2.3, 4.5]
+    # A second initialization must not duplicate the recovered forecast rows.
+    db.init_db()
+    with db.connect() as c:
+        assert c.execute("SELECT COUNT(*) FROM predictions WHERE symbol='IDC'").fetchone()[0] == 3
+
+
+def test_settlement_skips_horizons_not_yet_matured_at_preopen(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, 'DB_PATH', tmp_path / 'immature.sqlite3')
+    db.init_db()
+    with db.connect() as c:
+        c.execute("""INSERT INTO predictions(created_at,trade_date,symbol,horizon,base_price,predicted_pct,status)
+                     VALUES(?,?,?,?,?,?,?)""",
+                  ('2026-10-29T15:00:00+07:00', '2026-10-29', 'BSR', 2, 27650, 1.2, 'OPEN'))
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            frozen = datetime(2026, 10, 30, 8, 8, tzinfo=ZoneInfo('Asia/Ho_Chi_Minh'))
+            return frozen.astimezone(tz) if tz else frozen.replace(tzinfo=None)
+
+    monkeypatch.setattr(audit, 'datetime', FrozenDateTime)
+    monkeypatch.setattr(audit, 'fetch_history', lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError('Không được gọi lịch sử trước khi T+2 hoàn tất')
+    ))
+
+    assert audit.settle_predictions() == 0
+    with db.connect() as c:
+        row = c.execute("SELECT status,actual_pct FROM predictions WHERE symbol='BSR'").fetchone()
+        assert row['status'] == 'OPEN'
+        assert row['actual_pct'] is None
+
+
+def test_init_db_recovers_missing_prediction_from_version_history(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, 'DB_PATH', tmp_path / 'version_backfill.sqlite3')
+    db.init_db()
+    with db.connect() as c:
+        c.execute("""INSERT INTO prediction_versions(
+            created_at,trade_date,symbol,horizon,base_price,predicted_pct,
+            predicted_action,p_win,signal_score,quality_score,regime,
+            ai_provider,ai_model,feature_json,version_hash,is_current,version_type
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+            '2026-10-20T15:00:00+07:00', '2026-10-20', 'BSR', 3, 27000,
+            2.5, 'WATCH', 61, 55, 60, 'Sideway', 'Gemini', 'test-model', '{}',
+            'test-version-hash-1', 1, 'CURRENT_SNAPSHOT'
+        ))
+    db.init_db()
+    with db.connect() as c:
+        row = c.execute("SELECT symbol,horizon,base_price,predicted_pct,status,ai_provider FROM predictions WHERE symbol='BSR'").fetchone()
+        assert row is not None
+        assert row['horizon'] == 3 and row['base_price'] == 27000
+        assert row['predicted_pct'] == 2.5 and row['status'] == 'OPEN'
+        assert row['ai_provider'] == 'Gemini'
