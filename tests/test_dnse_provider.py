@@ -294,6 +294,10 @@ def test_dnse_diagnostics_after_close_treats_stale_quote_as_expected(monkeypatch
     monkeypatch.setattr(dnse_provider, "dnse_use_for_decisions", lambda: False)
     monkeypatch.setattr(dnse_provider, "_get_client", lambda: ProbeClient())
     monkeypatch.setattr(importlib.util, "find_spec", lambda name: types.SimpleNamespace(origin="/venv/site-packages/dnse/__init__.py"))
+    monkeypatch.setattr(dnse_provider, "_dnse_network_probe", lambda base_url: {
+        "dns_ok": True, "tcp_ok": True, "tls_ok": True, "https_ok": True,
+        "error_stage": None, "error": None,
+    })
 
     result = dnse_provider.run_dnse_diagnostics(
         "HPG", now=datetime(2026, 10, 30, 14, 47, tzinfo=TZ)
@@ -316,6 +320,10 @@ def test_dnse_diagnostics_preserves_sdk_import_error(monkeypatch):
     monkeypatch.setitem(sys.modules, "dnse", None)
     monkeypatch.setattr(importlib.metadata, "version", lambda name: "2.4.1", raising=False)
     monkeypatch.setattr(importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(dnse_provider, "_dnse_network_probe", lambda base_url: {
+        "dns_ok": True, "tcp_ok": True, "tls_ok": True, "https_ok": True,
+        "error_stage": None, "error": None,
+    })
     result = dnse_provider.run_dnse_diagnostics(
         "HPG", now=datetime(2026, 10, 30, 14, 47, tzinfo=TZ)
     )
