@@ -1,5 +1,5 @@
 from __future__ import annotations
-import hashlib, hmac, sqlite3, re, os, secrets, json, math
+import hashlib, hmac, sqlite3, re, os, secrets, json, math, threading
 from datetime import datetime, timezone, timedelta
 import pandas as pd
 from .config import DB_PATH
@@ -134,9 +134,15 @@ CREATE TABLE IF NOT EXISTS user_preferences(
     PRIMARY KEY(user_id, preference_key),
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS app_meta(
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 '''
 
-DB_SCHEMA_VERSION = "20261031_auth_session_legacy_schema_repair_v1"
+DB_SCHEMA_VERSION = "20261031_v168_absolute_path_bootstrap_admin_v1"
+_DB_BOOTSTRAP_LOCK = threading.RLock()
 SESSION_TTL_DAYS = 7
 PASSWORD_HASH_ITERATIONS = 310_000
 
@@ -181,23 +187,37 @@ class _ClosingConnection(sqlite3.Connection):
         finally:
             self.close()
 
-def _admin_reset_password() -> str | None:
-    value = os.getenv("QUANTS_ADMIN_RESET_PASSWORD", "").strip()
+def _read_secret(name: str) -> str | None:
+    """Read a secret from environment first, then Streamlit Secrets."""
+    value = os.getenv(name, "").strip()
     if value:
         return value
     try:
         import streamlit as st
-        value = str(st.secrets.get("QUANTS_ADMIN_RESET_PASSWORD", "")).strip()
+        value = str(st.secrets.get(name, "")).strip()
         return value or None
     except Exception:
         return None
 
+
+def _admin_reset_password() -> str | None:
+    return _read_secret("QUANTS_ADMIN_RESET_PASSWORD")
+
+
+def _initial_admin_password() -> str | None:
+    return _read_secret("QUANTS_INITIAL_ADMIN_PASSWORD")
+
+
 def connect():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # Resolve again because tests and controlled maintenance tasks may override
+    # DB_PATH after import. The production default itself is already absolute.
+    database_path = DB_PATH.expanduser().resolve()
+    database_path.parent.mkdir(parents=True, exist_ok=True)
     c = sqlite3.connect(
-        str(DB_PATH), timeout=30, check_same_thread=False, factory=_ClosingConnection
+        str(database_path), timeout=30, check_same_thread=False, factory=_ClosingConnection
     )
     c.row_factory = sqlite3.Row
+    c.execute("PRAGMA busy_timeout=30000")
     return c
 
 def _schema_columns(schema: str) -> dict[str, dict[str, str]]:
@@ -222,13 +242,130 @@ def _schema_columns(schema: str) -> dict[str, dict[str, str]]:
     return tables
 
 def _migrate_legacy_columns(c: sqlite3.Connection) -> None:
+    """Add absent non-primary-key columns without rewriting legacy records."""
     for table, expected_columns in _schema_columns(SCHEMA).items():
         existing = {row["name"] for row in c.execute(f'PRAGMA table_info("{table}")').fetchall()}
         for column, sql_type in expected_columns.items():
-            if column == "id" or column in existing or (table == "users" and column == "status"):
+            if column == "id" or column in existing:
                 continue
             c.execute(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {sql_type}')
             existing.add(column)
+
+
+def _create_indexes_safely(c: sqlite3.Connection) -> None:
+    """Create indexes only when a legacy table contains every indexed column."""
+    definitions = (
+        ("idx_snap_sym_date", "stock_snapshots", ("symbol", "trade_date", "id")),
+        ("idx_market_bars_symbol_date", "market_bars", ("symbol", "session_date", "captured_at")),
+        ("idx_smf_v2_runs_generated", "smf_v2_runs", ("generated_at",)),
+        ("idx_smf_v2_evidence_symbol_date", "smf_v2_evidence", ("symbol", "session_date", "evidence_group")),
+        ("idx_smf_v2_evidence_run", "smf_v2_evidence", ("run_id", "evidence_group")),
+        ("idx_flow_sym_date", "flow_snapshots", ("symbol", "trade_date", "id")),
+        ("idx_pred_status", "predictions", ("status", "horizon", "trade_date")),
+        ("idx_user_port", "user_portfolios", ("user_id",)),
+        ("idx_user_preferences_updated", "user_preferences", ("user_id", "updated_at")),
+        ("idx_media_daily_symbol_time", "media_symbol_daily", ("symbol", "recorded_at")),
+        ("idx_predictions_symbol_horizon_date", "predictions", ("symbol", "horizon", "trade_date")),
+        ("idx_prediction_versions_symbol_horizon_date", "prediction_versions", ("symbol", "horizon", "trade_date", "is_current")),
+        ("idx_auth_sessions_user_created", "auth_sessions", ("user_id", "created_at")),
+    )
+    for name, table, columns in definitions:
+        actual = {row["name"] for row in c.execute(f'PRAGMA table_info("{table}")').fetchall()}
+        if set(columns) <= actual:
+            cols_sql = ", ".join(f'"{column}"' for column in columns)
+            c.execute(f'CREATE INDEX IF NOT EXISTS "{name}" ON "{table}" ({cols_sql})')
+
+
+def _meta_get(c: sqlite3.Connection, key: str) -> str | None:
+    row = c.execute("SELECT value FROM app_meta WHERE key=?", (key,)).fetchone()
+    return str(row["value"]) if row else None
+
+
+def _meta_set(c: sqlite3.Connection, key: str, value: str) -> None:
+    c.execute(
+        "INSERT INTO app_meta(key,value,updated_at) VALUES(?,?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+        (key, str(value), datetime.now(timezone.utc).isoformat()),
+    )
+
+
+def _ensure_users_unique_username(c: sqlite3.Connection) -> None:
+    duplicates = c.execute(
+        "SELECT LOWER(TRIM(username)) AS username_key, COUNT(*) AS n "
+        "FROM users WHERE username IS NOT NULL AND TRIM(username)!='' "
+        "GROUP BY LOWER(TRIM(username)) HAVING COUNT(*)>1 LIMIT 5"
+    ).fetchall()
+    if duplicates:
+        names = ", ".join(str(row["username_key"]) for row in duplicates)
+        raise sqlite3.DatabaseError(
+            "Không thể tạo unique index cho users.username vì có username trùng: " + names
+        )
+    c.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique ON users(username)")
+
+
+def _initialize_admin(c: sqlite3.Connection) -> dict:
+    """Create the canonical admin once; apply a configured reset secret once per value."""
+    now_str = datetime.now(timezone.utc).isoformat()
+    row = c.execute("SELECT id FROM users WHERE LOWER(username)='admin' ORDER BY id LIMIT 1").fetchone()
+    created = row is None
+    initial_password = _initial_admin_password()
+    reset_password = _admin_reset_password()
+    if created:
+        password = initial_password or reset_password or secrets.token_urlsafe(32)
+        c.execute(
+            "INSERT INTO users(username,password_hash,full_name,role,status,cash_balance,created_at) "
+            "VALUES(?,?,?,?,?,?,?)",
+            ("admin", _hash_pw(password), "Quản Trị Viên (Admin)", "ADMIN", "APPROVED", 500000000.0, now_str),
+        )
+        _meta_set(c, "admin_bootstrap_status", "READY" if (initial_password or reset_password) else "RESET_REQUIRED")
+        if not initial_password and not reset_password:
+            c.execute(
+                "INSERT INTO system_events(ts,level,component,message) VALUES(?,?,?,?)",
+                (now_str, "WARN", "auth", "Admin đã được tạo với mật khẩu ngẫu nhiên chưa công bố. Cần cấu hình QUANTS_ADMIN_RESET_PASSWORD để thiết lập mật khẩu quản trị."),
+            )
+        row = c.execute("SELECT id FROM users WHERE LOWER(username)='admin' ORDER BY id LIMIT 1").fetchone()
+    else:
+        c.execute("UPDATE users SET username='admin', role='ADMIN', status='APPROVED' WHERE id=?", (row["id"],))
+
+    if reset_password:
+        previous_hash = _meta_get(c, "admin_reset_secret_hash")
+        same_secret = bool(previous_hash and _verify_pw(reset_password, previous_hash)[0])
+        # Keep only a salted, slow password hash; never store a fast unsalted
+        # fingerprint of a potentially human-chosen reset password.
+        if not same_secret:
+            c.execute("UPDATE users SET password_hash=? WHERE id=?", (_hash_pw(reset_password), row["id"]))
+            _meta_set(c, "admin_reset_secret_hash", _hash_pw(reset_password))
+            _meta_set(c, "admin_bootstrap_status", "READY")
+            c.execute(
+                "INSERT INTO system_events(ts,level,component,message) VALUES(?,?,?,?)",
+                (now_str, "INFO", "auth", "Đã áp dụng cấu hình reset mật khẩu Admin một lần."),
+            )
+    elif initial_password and created:
+        _meta_set(c, "admin_bootstrap_status", "READY")
+
+    return {"created": created, "password_configured": bool(initial_password or reset_password),
+            "setup_required": _meta_get(c, "admin_bootstrap_status") == "RESET_REQUIRED"}
+
+
+def _schema_health(c: sqlite3.Connection) -> dict:
+    expected = _schema_columns(SCHEMA)
+    actual_tables = {row["name"] for row in c.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()}
+    missing_tables = sorted(set(expected) - actual_tables)
+    missing_columns = {}
+    for table, expected_columns in expected.items():
+        if table not in actual_tables:
+            continue
+        actual_columns = {row["name"] for row in c.execute(f'PRAGMA table_info("{table}")').fetchall()}
+        absent = set(expected_columns) - actual_columns
+        # stock_snapshots without id is a supported legacy layout; callers use rowid.
+        if table == "stock_snapshots":
+            absent.discard("id")
+        if absent:
+            missing_columns[table] = sorted(absent)
+    return {"missing_tables": missing_tables, "missing_columns": missing_columns,
+            "healthy": not missing_tables and not missing_columns}
 
 def ensure_stock_snapshots_schema_compatibility(c: sqlite3.Connection | None = None) -> set[str]:
     """Ensure the runtime stock-snapshot table has the current additive schema.
@@ -307,10 +444,10 @@ def _backfill_flow_provenance(c: sqlite3.Connection) -> None:
     """
     flow_cols = {row["name"] for row in c.execute('PRAGMA table_info("flow_snapshots")').fetchall()}
     stock_cols = {row["name"] for row in c.execute('PRAGMA table_info("stock_snapshots")').fetchall()}
-    if not {"flow_status", "flow_source", "quote_freshness", "quote_freshness_verified",
+    if not {"id", "flow_status", "flow_source", "quote_freshness", "quote_freshness_verified",
             "quote_source_timestamp", "quote_provider", "crosscheck_status"} <= flow_cols:
         return
-    if not {"metrics_json", "ts", "symbol", "trade_date"} <= stock_cols:
+    if not {"id", "metrics_json", "ts", "symbol", "trade_date"} <= stock_cols:
         return
     rows = c.execute("""
         SELECT f.id, f.ts, f.trade_date, f.symbol, f.net_flow_billion,
@@ -360,7 +497,7 @@ def _backfill_flow_provenance(c: sqlite3.Connection) -> None:
 def _backfill_prediction_versions(c: sqlite3.Connection) -> None:
     """Preserve existing one-row-per-horizon predictions as explicit baseline versions."""
     columns = {row["name"] for row in c.execute('PRAGMA table_info("predictions")').fetchall()}
-    if not {"created_at", "trade_date", "symbol", "horizon", "base_price", "predicted_pct"} <= columns:
+    if not {"id", "created_at", "trade_date", "symbol", "horizon", "base_price", "predicted_pct"} <= columns:
         return
     rows = c.execute("SELECT * FROM predictions ORDER BY id").fetchall()
     for row in rows:
@@ -402,6 +539,11 @@ def _backfill_predictions_from_versions(c: sqlite3.Connection) -> int:
     revision is used to reconstruct a missing ledger row; if older databases have no
     current marker, the newest revision is used. Outcomes remain unknown/OPEN.
     """
+    columns = {row["name"] for row in c.execute('PRAGMA table_info("prediction_versions")').fetchall()}
+    required = {"id", "is_current", "created_at", "trade_date", "symbol", "horizon",
+                "base_price", "predicted_pct", "version_type", "feature_json"}
+    if not required <= columns:
+        return 0
     rows = c.execute("""
         SELECT * FROM prediction_versions
         ORDER BY COALESCE(is_current, 0) DESC, created_at DESC, id DESC
@@ -540,61 +682,100 @@ def _backfill_predictions_from_snapshots(c: sqlite3.Connection) -> int:
 
 
 def init_db():
-    with connect() as c:
-        c.executescript(SCHEMA)
-        _migrate_legacy_columns(c)
-        _backfill_legacy_values(c)
-        _backfill_flow_provenance(c)
-        _backfill_predictions_from_versions(c)
-        _backfill_predictions_from_snapshots(c)
-        _backfill_prediction_versions(c)
-
-        c.executescript("""
-            CREATE INDEX IF NOT EXISTS idx_snap_sym_date ON stock_snapshots(symbol, trade_date, id);
-            CREATE INDEX IF NOT EXISTS idx_market_bars_symbol_date ON market_bars(symbol, session_date, captured_at);
-            CREATE INDEX IF NOT EXISTS idx_smf_v2_runs_generated ON smf_v2_runs(generated_at);
-            CREATE INDEX IF NOT EXISTS idx_smf_v2_evidence_symbol_date ON smf_v2_evidence(symbol, session_date, evidence_group);
-            CREATE INDEX IF NOT EXISTS idx_smf_v2_evidence_run ON smf_v2_evidence(run_id, evidence_group);
-            CREATE INDEX IF NOT EXISTS idx_flow_sym_date ON flow_snapshots(symbol, trade_date, id);
-            CREATE INDEX IF NOT EXISTS idx_pred_status ON predictions(status, horizon, trade_date);
-            CREATE INDEX IF NOT EXISTS idx_user_port ON user_portfolios(user_id);
-            CREATE INDEX IF NOT EXISTS idx_user_preferences_updated ON user_preferences(user_id, updated_at);
-            CREATE INDEX IF NOT EXISTS idx_media_daily_symbol_time ON media_symbol_daily(symbol, recorded_at);
-            CREATE INDEX IF NOT EXISTS idx_predictions_symbol_horizon_date ON predictions(symbol, horizon, trade_date);
-            CREATE INDEX IF NOT EXISTS idx_prediction_versions_symbol_horizon_date ON prediction_versions(symbol, horizon, trade_date, is_current);
-        """)
-
-        cols = [r["name"] for r in c.execute("PRAGMA table_info(users)").fetchall()]
-        if "status" not in cols:
-            c.execute("ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'APPROVED'")
-        c.execute("UPDATE users SET status = 'APPROVED' WHERE status IS NULL")
-
-        cur = c.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()
-        created_admin = cur is None
-        if created_admin:
-            now_str = datetime.now(timezone.utc).isoformat()
-            default_admin_pw = os.getenv("QUANTS_INITIAL_ADMIN_PASSWORD", "").strip() or _admin_reset_password()
-            if not default_admin_pw:
-                # Never ship a known/default credential. The operator can set
-                # QUANTS_ADMIN_RESET_PASSWORD and rerun init_db to set a usable password.
-                default_admin_pw = secrets.token_urlsafe(32)
-            c.execute(
-                "INSERT INTO users(username, password_hash, full_name, role, status, cash_balance, created_at) VALUES (?,?,?,?,?,?,?)",
-                ("admin", _hash_pw(default_admin_pw), "Quản Trị Viên (Admin)", "ADMIN", "APPROVED", 500000000.0, now_str)
-            )
-            cur = c.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()
-            if not os.getenv("QUANTS_INITIAL_ADMIN_PASSWORD", "").strip() and not _admin_reset_password():
-                c.execute(
-                    "INSERT INTO system_events(ts,level,component,message) VALUES (?,?,?,?)",
-                    (now_str, "WARN", "auth", "Admin được khởi tạo với mật khẩu ngẫu nhiên không công bố. Đặt QUANTS_ADMIN_RESET_PASSWORD rồi khởi động lại để thiết lập mật khẩu quản trị.")
+    """Create/migrate the configured database and seed the admin idempotently."""
+    with _DB_BOOTSTRAP_LOCK:
+        with connect() as c:
+            c.executescript(SCHEMA)
+            # Serialize cross-session/process migrations and the one-time Admin seed.
+            c.execute("BEGIN IMMEDIATE")
+            _migrate_legacy_columns(c)
+            _backfill_legacy_values(c)
+            _backfill_flow_provenance(c)
+            _backfill_predictions_from_versions(c)
+            _backfill_predictions_from_snapshots(c)
+            _backfill_prediction_versions(c)
+            # Some very old tables do not have an id column. Their non-key data is
+            # preserved; indexes that require id are skipped rather than aborting
+            # the entire database bootstrap.
+            _create_indexes_safely(c)
+            _ensure_users_unique_username(c)
+            c.execute("UPDATE users SET status='APPROVED' WHERE status IS NULL")
+            admin_state = _initialize_admin(c)
+            health = _schema_health(c)
+            if not health["healthy"]:
+                raise sqlite3.DatabaseError(
+                    "Database migration chưa hoàn tất: " + json.dumps(health, ensure_ascii=False)
                 )
-        else:
-            c.execute("UPDATE users SET role='ADMIN', status='APPROVED' WHERE username='admin'")
+            _meta_set(c, "db_schema_version", DB_SCHEMA_VERSION)
+            _meta_set(c, "db_path", str(DB_PATH.expanduser().resolve()))
+        return {"db_path": str(DB_PATH.expanduser().resolve()),
+                "schema_version": DB_SCHEMA_VERSION,
+                "admin_created": admin_state["created"],
+                "admin_password_configured": admin_state["password_configured"],
+                "admin_setup_required": admin_state["setup_required"],
+                "status": "READY"}
 
-        reset_password = _admin_reset_password()
-        if reset_password:
-            c.execute("UPDATE users SET password_hash = ? WHERE username = 'admin'", (_hash_pw(reset_password),))
 
+def ensure_database_ready() -> dict:
+    """Uncached, cheap readiness gate for Streamlit app startup.
+
+    It checks the resolved database file itself on every script rerun. If the file
+    was replaced, is empty, has an old schema version, or is missing any declared
+    table/column, the idempotent migration runs before app modules are imported.
+    This prevents Streamlit cache reuse from silently bypassing bootstrap.
+    """
+    with _DB_BOOTSTRAP_LOCK:
+        path = DB_PATH.expanduser().resolve()
+        existed = path.is_file() and path.stat().st_size > 0
+        needs_bootstrap = not existed
+        if existed:
+            try:
+                with connect() as c:
+                    health = _schema_health(c)
+                    table_names = {
+                        row["name"] for row in c.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table'"
+                        ).fetchall()
+                    }
+                    version = _meta_get(c, "db_schema_version") if "app_meta" in table_names else None
+                    admin_exists = False
+                    if "users" in table_names:
+                        user_cols = {row["name"] for row in c.execute('PRAGMA table_info("users")').fetchall()}
+                        if "username" in user_cols:
+                            admin_exists = c.execute(
+                                "SELECT 1 FROM users WHERE LOWER(username)='admin' LIMIT 1"
+                            ).fetchone() is not None
+                    reset_password = _admin_reset_password()
+                    reset_pending = False
+                    if reset_password and "app_meta" in table_names:
+                        previous_hash = _meta_get(c, "admin_reset_secret_hash")
+                        reset_pending = not previous_hash or not _verify_pw(reset_password, previous_hash)[0]
+                    elif reset_password:
+                        reset_pending = True
+                    needs_bootstrap = (
+                        not health["healthy"] or version != DB_SCHEMA_VERSION
+                        or not admin_exists or reset_pending
+                    )
+            except sqlite3.DatabaseError:
+                needs_bootstrap = True
+        result = init_db() if needs_bootstrap else {
+            "db_path": str(path), "schema_version": DB_SCHEMA_VERSION,
+            "admin_created": False, "admin_password_configured": False,
+            "admin_setup_required": False, "status": "READY"}
+        # Re-check after every migration. Never allow the dashboard to run against
+        # a half-created or wrong-path SQLite file.
+        with connect() as c:
+            health = _schema_health(c)
+            if not health["healthy"]:
+                raise sqlite3.DatabaseError(
+                    "Database không đạt schema contract sau bootstrap: "
+                    + json.dumps(health, ensure_ascii=False)
+                )
+            row = c.execute("SELECT value FROM app_meta WHERE key='db_schema_version'").fetchone()
+            if not row or row["value"] != DB_SCHEMA_VERSION:
+                raise sqlite3.DatabaseError("DB schema version chưa được ghi nhận sau bootstrap")
+            result["admin_setup_required"] = _meta_get(c, "admin_bootstrap_status") == "RESET_REQUIRED"
+        return result
 
 def register_user(username: str, password: str, full_name: str = "") -> tuple[bool, str]:
     _ensure_users_schema_compatibility()
@@ -681,6 +862,7 @@ def _ensure_users_schema_compatibility() -> None:
                 "users schema is incompatible; missing columns: " + ", ".join(sorted(missing))
             )
         c.execute("UPDATE users SET status='APPROVED' WHERE status IS NULL")
+        _ensure_users_unique_username(c)
 
 def list_all_users() -> pd.DataFrame:
     # Defensive repair covers deployments where Streamlit cached the previous

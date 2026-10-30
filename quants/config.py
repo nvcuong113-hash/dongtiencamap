@@ -3,9 +3,56 @@ import os
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-APP_NAME = "QUANTS PRO V16.7"
+APP_NAME = "QUANTS PRO V16.8"
 TZ = ZoneInfo(os.getenv("QUANTS_TIMEZONE", "Asia/Ho_Chi_Minh"))
-DB_PATH = Path(os.getenv("QUANTS_DB_PATH", "./data/quants_pro.sqlite3")).expanduser()
+
+# Resolve the default SQLite file relative to this source checkout, never to the
+# process working directory. Streamlit Cloud may start the app with a different
+# CWD after a rebuild; a relative path previously created a second empty DB.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def resolve_db_path(
+    raw_path: str | os.PathLike[str] | None,
+    project_root: Path | None = None,
+    working_dir: Path | None = None,
+) -> Path:
+    """Resolve SQLite path without silently abandoning a pre-existing legacy DB.
+
+    Explicit QUANTS_DB_PATH always wins. Without it, the canonical path is under
+    the source root. If an older release created ./data relative to the parent
+    checkout directory, keep using that existing file when it is the only DB.
+    If two different candidate files exist, fail rather than guess which contains
+    production records; the operator can then set QUANTS_DB_PATH explicitly.
+    """
+    root = (project_root or PROJECT_ROOT).expanduser().resolve()
+    raw = str(raw_path or "").strip()
+    if raw:
+        candidate = Path(raw).expanduser()
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        return candidate.resolve()
+
+    canonical = (root / "data" / "quants_pro.sqlite3").resolve()
+    cwd = (working_dir or Path.cwd()).expanduser().resolve()
+    legacy_candidates = {
+        canonical,
+        (root.parent / "data" / "quants_pro.sqlite3").resolve(),
+        (cwd / "data" / "quants_pro.sqlite3").resolve(),
+    }
+    existing = sorted((path for path in legacy_candidates if path.is_file()), key=str)
+    if len(existing) == 1:
+        return existing[0]
+    if len(existing) > 1:
+        raise RuntimeError(
+            "Phát hiện nhiều SQLite database có thể là dữ liệu production: "
+            + "; ".join(str(path) for path in existing)
+            + ". Không tự chọn để tránh dùng nhầm hoặc bỏ quên dữ liệu; hãy cấu hình QUANTS_DB_PATH trỏ đúng file."
+        )
+    return canonical
+
+
+DB_PATH = resolve_db_path(os.getenv("QUANTS_DB_PATH"))
 REQUEST_TIMEOUT = float(os.getenv("QUANTS_REQUEST_TIMEOUT", "12"))
 USER_AGENT = os.getenv("QUANTS_USER_AGENT", "QUANTS-PRO-V16.1/1.0 (market-data research dashboard)")
 # Market proxies only; they are not substitutes for official Vietnamese macro releases.

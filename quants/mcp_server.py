@@ -5,10 +5,14 @@ The tool surface is read-only and backed by the existing local QUANTS database.
 """
 from __future__ import annotations
 
-from .mcp_tools import dispatch_tool
+from .db import ensure_database_ready
 
 
 def main() -> None:
+    # This standalone process must observe the same database bootstrap contract
+    # as Streamlit before any MCP tool can issue a query.
+    ensure_database_ready()
+    from .mcp_tools import dispatch_tool
     try:
         from mcp.server.fastmcp import FastMCP
     except ImportError as exc:  # pragma: no cover - exercised only in deployment environment
