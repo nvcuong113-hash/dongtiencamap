@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from .config import SECTORS
-from .db import connect, query, event
+from .db import connect, query, event, ensure_stock_snapshots_schema_compatibility
 from .providers import fetch_stock_feeds, fetch_history, fetch_deal_flow, fetch_sector_benchmark_returns
 from . import reversal as _reversal_mod
 
@@ -959,14 +959,16 @@ def _foreign_5d(c, symbol=None, today_net=None, trade_date=None):
         legacy_symbol, legacy_today_net = c, symbol
         with connect() as conn:
             return _foreign_5d(conn, legacy_symbol, legacy_today_net, trade_date=trade_date)
+    snapshot_columns = ensure_stock_snapshots_schema_compatibility(c)
+    ordering = "id DESC" if "id" in snapshot_columns else "rowid DESC"
     if trade_date:
         rows = c.execute(
-            'SELECT trade_date, foreign_net_today FROM stock_snapshots WHERE symbol=? AND trade_date < ? AND foreign_net_today IS NOT NULL ORDER BY trade_date DESC,id DESC LIMIT 80',
+            f'SELECT trade_date, foreign_net_today FROM stock_snapshots WHERE symbol=? AND trade_date < ? AND foreign_net_today IS NOT NULL ORDER BY trade_date DESC,{ordering} LIMIT 80',
             (symbol, trade_date)
         ).fetchall()
     else:
         rows = c.execute(
-            'SELECT trade_date, foreign_net_today FROM stock_snapshots WHERE symbol=? AND foreign_net_today IS NOT NULL ORDER BY trade_date DESC,id DESC LIMIT 80',
+            f'SELECT trade_date, foreign_net_today FROM stock_snapshots WHERE symbol=? AND foreign_net_today IS NOT NULL ORDER BY trade_date DESC,{ordering} LIMIT 80',
             (symbol,)
         ).fetchall()
     from .calendar_vn import is_trading_day, latest_completed_trading_day, is_live_market_window, is_exchange_trading_phase

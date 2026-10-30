@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS user_preferences(
 );
 '''
 
-DB_SCHEMA_VERSION = "20261030_users_cash_balance_repair_v1"
+DB_SCHEMA_VERSION = "20261030_stock_snapshots_foreign_flow_repair_v2"
 SESSION_TTL_DAYS = 7
 PASSWORD_HASH_ITERATIONS = 310_000
 
@@ -229,6 +229,57 @@ def _migrate_legacy_columns(c: sqlite3.Connection) -> None:
                 continue
             c.execute(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {sql_type}')
             existing.add(column)
+
+def ensure_stock_snapshots_schema_compatibility(c: sqlite3.Connection | None = None) -> set[str]:
+    """Ensure the runtime stock-snapshot table has the current additive schema.
+
+    This guard is intentionally independent of Streamlit's cached ``init_db``.
+    It is safe to call from the analytical hot path: CREATE TABLE IF NOT EXISTS
+    and PRAGMA inspection are idempotent, and only absent columns are added.
+    Existing observations are never rewritten; newly added historical values
+    remain NULL (unknown), not synthetic zeroes.
+
+    Pass an existing connection to participate in its transaction. When omitted,
+    the helper manages its own short-lived connection.
+    """
+    if c is None:
+        with connect() as owned:
+            return ensure_stock_snapshots_schema_compatibility(owned)
+
+    match = re.search(
+        r"CREATE TABLE IF NOT EXISTS\s+stock_snapshots\s*\(.*?\);",
+        SCHEMA,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if match is None:
+        raise sqlite3.DatabaseError("stock_snapshots schema definition is missing")
+
+    # Also repairs a database where the table itself was never created.
+    c.execute(match.group(0))
+    expected = _schema_columns(match.group(0)).get("stock_snapshots", {})
+    existing = {
+        row["name"]
+        for row in c.execute('PRAGMA table_info("stock_snapshots")').fetchall()
+    }
+    for column, sql_type in expected.items():
+        # An existing legacy table without an id column is still queryable via
+        # SQLite rowid; do not add a nullable pseudo-primary-key column.
+        if column == "id" or column in existing:
+            continue
+        c.execute(
+            f'ALTER TABLE "stock_snapshots" ADD COLUMN "{column}" {sql_type}'
+        )
+        existing.add(column)
+
+    required = {"symbol", "trade_date", "foreign_net_today"}
+    missing = required - existing
+    if missing:
+        raise sqlite3.DatabaseError(
+            "stock_snapshots schema is incompatible; missing columns: "
+            + ", ".join(sorted(missing))
+        )
+    return existing
+
 
 def _backfill_legacy_values(c: sqlite3.Connection) -> None:
     media_cols = {r["name"] for r in c.execute('PRAGMA table_info("media_articles")').fetchall()}
