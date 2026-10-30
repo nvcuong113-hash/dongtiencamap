@@ -11,53 +11,26 @@ import math
 from statistics import median
 from typing import Any
 
+from .data_quality import normalize_daily_bars, normalize_as_of_date
+
 ENGINE_VERSION = "2.1.0"
-
-
-def _num(value: Any) -> float | None:
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        x = float(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    return x if math.isfinite(x) else None
 
 
 def _day(value: Any) -> str | None:
     try:
-        return date.fromisoformat(str(value)[:10]).isoformat()
+        return date.fromisoformat(str(value).strip()).isoformat()
     except (TypeError, ValueError):
         return None
 
 
 def _clean(bars: list[dict[str, Any]] | None, as_of_date: str | None):
-    cutoff = _day(as_of_date) if as_of_date else None
-    by_day: dict[str, dict[str, float | str | None]] = {}
-    invalid = duplicates = future = 0
-    for raw in bars or []:
-        if not isinstance(raw, dict):
-            invalid += 1
-            continue
-        d = _day(raw.get("date") or raw.get("time") or raw.get("tradingDate"))
-        if not d:
-            invalid += 1
-            continue
-        if cutoff and d > cutoff:
-            future += 1
-            continue
-        o, h, l, c = (_num(raw.get(k)) for k in ("open", "high", "low", "close"))
-        v = _num(raw.get("volume"))
-        if None in (o, h, l, c) or min(o, h, l, c) <= 0 or h < max(o, c, l) or l > min(o, c, h):
-            invalid += 1
-            continue
-        if v is not None and v < 0:
-            v = None
-        if d in by_day:
-            duplicates += 1
-        by_day[d] = {"date": d, "open": o, "high": h, "low": l, "close": c, "volume": v}
-    return [by_day[k] for k in sorted(by_day)], invalid, duplicates, future
-
+    normalized, quality = normalize_daily_bars(bars, as_of_date)
+    return (
+        normalized,
+        quality["invalid_bars_dropped"],
+        quality["duplicate_sessions_collapsed"],
+        quality["future_bars_excluded"],
+    )
 
 def analyze_vsa(
     bars: list[dict[str, Any]] | None,
@@ -66,6 +39,18 @@ def analyze_vsa(
     min_history: int = 40,
 ) -> dict[str, Any]:
     """Analyze latest completed daily bar using only prior-bar baselines."""
+    if as_of_date is not None and normalize_as_of_date(as_of_date) is None:
+        return {
+            "engine": "vsa_volume_v2", "engine_version": ENGINE_VERSION,
+            "as_of_date": None, "latest_observation_date": None,
+            "latest_bar_matches_as_of": False, "causal": True,
+            "future_data_used": False, "bars_received": len(bars or []),
+            "bars_used": 0, "invalid_bars_dropped": 0,
+            "duplicate_sessions_collapsed": 0, "future_bars_excluded": 0,
+            "events": [], "polarity": "UNKNOWN", "strength": "UNKNOWN",
+            "quality_status": "UNAVAILABLE", "status": "INVALID_AS_OF_DATE",
+            "reason": "as_of_date không đúng định dạng YYYY-MM-DD",
+        }
     lookback = max(10, min(int(lookback), 60))
     min_history = max(lookback + 5, int(min_history))
     clean, invalid, duplicates, future = _clean(bars, as_of_date)

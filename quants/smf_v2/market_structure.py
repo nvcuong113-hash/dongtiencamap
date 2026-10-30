@@ -10,66 +10,26 @@ from datetime import date
 import math
 from typing import Any
 
+from .data_quality import normalize_daily_bars, normalize_as_of_date
+
 ENGINE_VERSION = "2.0.0"
-
-
-def _number(value: Any) -> float | None:
-    if value is None or isinstance(value, bool):
-        return None
-    try:
-        result = float(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    return result if math.isfinite(result) else None
 
 
 def _date(value: Any) -> str | None:
     try:
-        return date.fromisoformat(str(value)[:10]).isoformat()
+        return date.fromisoformat(str(value).strip()).isoformat()
     except (TypeError, ValueError):
         return None
 
 
 def _clean_bars(bars: list[dict[str, Any]] | None, as_of_date: str | None):
-    cutoff = _date(as_of_date) if as_of_date else None
-    by_date: dict[str, dict[str, float | str]] = {}
-    invalid = 0
-    duplicates = 0
-    future = 0
-    for raw in bars or []:
-        if not isinstance(raw, dict):
-            invalid += 1
-            continue
-        stamp = _date(raw.get("date") or raw.get("time") or raw.get("tradingDate"))
-        if stamp is None:
-            invalid += 1
-            continue
-        if cutoff and stamp > cutoff:
-            future += 1
-            continue
-        open_ = _number(raw.get("open"))
-        high = _number(raw.get("high"))
-        low = _number(raw.get("low"))
-        close = _number(raw.get("close"))
-        if None in (open_, high, low, close) or min(open_, high, low, close) <= 0:
-            invalid += 1
-            continue
-        if high < max(open_, close, low) or low > min(open_, close, high):
-            invalid += 1
-            continue
-        volume = _number(raw.get("volume"))
-        if volume is not None and volume < 0:
-            volume = None
-        if stamp in by_date:
-            duplicates += 1
-        # Providers may return duplicate dates; retain the last valid observation
-        # for that session and expose the duplicate count for QC.
-        by_date[stamp] = {
-            "date": stamp, "open": open_, "high": high, "low": low,
-            "close": close, "volume": volume,
-        }
-    return [by_date[k] for k in sorted(by_date)], invalid, duplicates, future
-
+    normalized, quality = normalize_daily_bars(bars, as_of_date)
+    return (
+        normalized,
+        quality["invalid_bars_dropped"],
+        quality["duplicate_sessions_collapsed"],
+        quality["future_bars_excluded"],
+    )
 
 def analyze_market_structure(
     bars: list[dict[str, Any]] | None,
@@ -83,6 +43,19 @@ def analyze_market_structure(
     This is a descriptive engine, not a trading signal. `as_of_date` is strongly
     recommended and all later bars are excluded before any feature is calculated.
     """
+    if as_of_date is not None and normalize_as_of_date(as_of_date) is None:
+        return {
+            "engine": "market_structure_v2", "engine_version": ENGINE_VERSION,
+            "as_of_date": None, "latest_observation_date": None,
+            "causal": True, "future_data_used": False,
+            "bars_received": len(bars or []), "bars_used": 0,
+            "invalid_bars_dropped": 0, "duplicate_sessions_collapsed": 0,
+            "future_bars_excluded": 0, "events": [],
+            "last_swing_high": None, "last_swing_low": None,
+            "bias": "UNKNOWN", "latest_event": "NONE",
+            "status": "INVALID_AS_OF_DATE",
+            "reason": "as_of_date không đúng định dạng YYYY-MM-DD",
+        }
     left = max(1, min(int(left_bars), 5))
     right = max(1, min(int(right_bars), 5))
     min_history = max(left + right + 5, int(min_history))

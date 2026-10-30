@@ -48,6 +48,7 @@ def build_shadow_report(rows: list[dict[str, Any]] | None) -> dict[str, Any]:
             "data_envelope": envelope.to_dict(),
             "vsa": row.get("smf_v2_vsa"),
             "market_structure": row.get("smf_v2_market_structure"),
+            "bar_data_quality": row.get("smf_v2_data_quality"),
             "evidence": [item.to_dict() for item in evidence],
             "consensus": consensus,
             "legacy_scores_diagnostic_only": {

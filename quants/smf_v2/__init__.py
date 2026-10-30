@@ -8,5 +8,7 @@ from .contracts import DataEnvelope, EvidenceRecord
 from .shadow import build_shadow_report
 from .market_structure import analyze_market_structure
 from .vsa import analyze_vsa
+from .data_quality import normalize_daily_bars, normalize_as_of_date
+from .orchestrator import analyze_shadow_engines
 
-__all__ = ["DataEnvelope", "EvidenceRecord", "build_shadow_report", "analyze_market_structure", "analyze_vsa"]
+__all__ = ["DataEnvelope", "EvidenceRecord", "build_shadow_report", "analyze_market_structure", "analyze_vsa", "normalize_daily_bars", "normalize_as_of_date", "analyze_shadow_engines"]
