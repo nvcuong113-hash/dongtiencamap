@@ -337,3 +337,99 @@ def test_authenticate_and_register_repair_legacy_user_columns(tmp_path, monkeypa
     with db.connect() as c:
         columns = {row['name'] for row in c.execute('PRAGMA table_info(users)').fetchall()}
         assert {'status', 'cash_balance'} <= columns
+
+
+
+def test_foreign_5d_repairs_legacy_stock_snapshots_missing_foreign_column(tmp_path, monkeypatch):
+    """The exact foreign-flow SELECT must self-heal when startup init_db was cached."""
+    from quants.engine import _foreign_5d
+
+    path = tmp_path / 'legacy_stock_snapshot_no_foreign.sqlite3'
+    conn = sqlite3.connect(path)
+    conn.execute("""CREATE TABLE stock_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT,
+        trade_date TEXT,
+        symbol TEXT,
+        recorded_at TEXT NOT NULL
+    )""")
+    conn.executemany(
+        "INSERT INTO stock_snapshots(ts,trade_date,symbol,recorded_at) VALUES(?,?,?,?)",
+        [
+            ('2026-10-28T15:00:00+07:00', '2026-10-28', 'IDC', 'legacy-1'),
+            ('2026-10-29T15:00:00+07:00', '2026-10-29', 'IDC', 'legacy-2'),
+        ],
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(db, 'DB_PATH', path)
+
+    # Deliberately skip db.init_db() to reproduce the stale Streamlit cache case.
+    with db.connect() as c:
+        total_before_backfill = _foreign_5d(c, 'IDC', 300, trade_date='2026-10-30')
+        assert total_before_backfill == 300  # old rows stay unknown, not zero-filled
+        columns = {r['name'] for r in c.execute('PRAGMA table_info(stock_snapshots)')}
+        assert 'foreign_net_today' in columns
+        # Existing legacy rows and values survive the additive migration.
+        assert c.execute('SELECT COUNT(*) FROM stock_snapshots').fetchone()[0] == 2
+        c.execute("UPDATE stock_snapshots SET foreign_net_today=100 WHERE trade_date='2026-10-28'")
+        c.execute("UPDATE stock_snapshots SET foreign_net_today=200 WHERE trade_date='2026-10-29'")
+        total = _foreign_5d(c, 'IDC', 300, trade_date='2026-10-30')
+        assert total == 600
+
+
+def test_foreign_5d_repairs_missing_stock_snapshots_table(tmp_path, monkeypatch):
+    """A database with no snapshot table must not crash the watchlist compute path."""
+    from quants.engine import _foreign_5d
+
+    path = tmp_path / 'missing_stock_snapshot_table.sqlite3'
+    conn = sqlite3.connect(path)
+    conn.execute('CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT)')
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(db, 'DB_PATH', path)
+
+    with db.connect() as c:
+        assert _foreign_5d(c, 'IDC', 125, trade_date='2026-10-30') == 125
+        columns = {r['name'] for r in c.execute('PRAGMA table_info(stock_snapshots)')}
+        assert {'symbol', 'trade_date', 'foreign_net_today'} <= columns
+        assert c.execute('SELECT COUNT(*) FROM stock_snapshots').fetchone()[0] == 0
+
+
+def test_stock_snapshot_schema_repair_is_idempotent_and_preserves_unknowns(tmp_path, monkeypatch):
+    path = tmp_path / 'snapshot_idempotent.sqlite3'
+    conn = sqlite3.connect(path)
+    conn.execute('CREATE TABLE stock_snapshots (id INTEGER PRIMARY KEY, symbol TEXT, trade_date TEXT)')
+    conn.execute("INSERT INTO stock_snapshots(symbol,trade_date) VALUES('NKG','2026-10-29')")
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(db, 'DB_PATH', path)
+
+    with db.connect() as c:
+        first = db.ensure_stock_snapshots_schema_compatibility(c)
+        second = db.ensure_stock_snapshots_schema_compatibility(c)
+        assert first == second
+        row = c.execute('SELECT symbol,trade_date,foreign_net_today FROM stock_snapshots').fetchone()
+        assert row['symbol'] == 'NKG'
+        assert row['trade_date'] == '2026-10-29'
+        assert row['foreign_net_today'] is None
+
+
+
+def test_foreign_5d_supports_legacy_snapshot_table_without_explicit_id(tmp_path, monkeypatch):
+    """Use SQLite rowid when a pre-contract snapshot table has no id column."""
+    from quants.engine import _foreign_5d
+
+    path = tmp_path / 'legacy_snapshot_without_id.sqlite3'
+    conn = sqlite3.connect(path)
+    conn.execute('CREATE TABLE stock_snapshots (trade_date TEXT, symbol TEXT)')
+    conn.execute("INSERT INTO stock_snapshots(trade_date,symbol) VALUES('2026-10-29','IDC')")
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(db, 'DB_PATH', path)
+
+    with db.connect() as c:
+        assert _foreign_5d(c, 'IDC', 75, trade_date='2026-10-30') == 75
+        cols = {r['name'] for r in c.execute('PRAGMA table_info(stock_snapshots)')}
+        assert 'id' not in cols
+        assert 'foreign_net_today' in cols
