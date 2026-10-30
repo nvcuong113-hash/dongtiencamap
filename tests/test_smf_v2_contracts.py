@@ -92,9 +92,27 @@ class SMFV2ContractTests(unittest.TestCase):
         self.assertEqual(len(momentum), 1)
         self.assertEqual(len(patterns), 1)
         self.assertEqual(volume[0].polarity, "BULLISH")
+        self.assertFalse(volume[0].contributes_to_consensus)
         self.assertEqual(momentum[0].polarity, "BULLISH")
         self.assertEqual(patterns[0].polarity, "BULLISH")
         self.assertEqual({x.evidence_group for x in momentum + patterns}, {"PRICE_ACTION"})
+
+    def test_v2_vsa_is_visible_but_partial_does_not_cast_consensus_vote(self):
+        row = {
+            "symbol": "NKG", "trade_date": "2026-10-30",
+            "smf_v2_vsa": {
+                "status": "AVAILABLE", "events": [{"event": "SELLING_CLIMAX_CANDIDATE"}],
+                "polarity": "BULLISH", "quality_status": "PARTIAL", "strength": "MEDIUM",
+                "quality_reason": "Chưa đối chiếu nguồn thứ hai",
+            },
+        }
+        records = extract_row_evidence(row)
+        vsa = next(x for x in records if x.evidence_group == "VOLUME_VSA")
+        self.assertEqual(vsa.polarity, "BULLISH")
+        self.assertEqual(vsa.quality_status, "PARTIAL")
+        self.assertTrue(vsa.contributes_to_consensus)
+        from quants.smf_v2.evidence import aggregate_independent_groups
+        self.assertEqual(aggregate_independent_groups(records)["independent_group_count"], 0)
 
     def test_legacy_composite_scores_are_diagnostic_only(self):
         row = {"symbol": "IDC", "bottom_score": 90, "top_score": 10, "signal_score": 80, "p_win": 75}
