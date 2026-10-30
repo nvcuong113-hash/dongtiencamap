@@ -10,7 +10,7 @@ import extra_streamlit_components as stx
 
 from quants.config import APP_NAME, DEFAULT_WATCHLIST, SECTORS, TZ, DB_PATH
 from quants.db import (
-    init_db, query, connect, event,
+    DB_SCHEMA_VERSION, init_db, query, connect, event,
     register_user, authenticate_user, create_auth_session, get_user_by_session, revoke_auth_session,
     get_user_portfolio, save_user_portfolio,
     get_user_preferences, get_user_preference, save_user_preference,
@@ -557,7 +557,7 @@ div.stFormSubmitButton > button[kind="primary"] {
 
 # Bump this token whenever a release adds database columns or tables. It becomes
 # part of Streamlit's cache key so a deployment cannot reuse the pre-migration result.
-_DB_SCHEMA_CACHE_VERSION = "media_macro_schema_v2_user_preferences_v1_snapshot_persist_fix_v2"
+_DB_SCHEMA_CACHE_VERSION = DB_SCHEMA_VERSION
 
 @st.cache_resource
 def _ensure_db_initialized(schema_cache_version: str):
@@ -2084,7 +2084,7 @@ with tabs[3]:
                                 else:
                                     st.error(result.get("reason", "Rollback thất bại."))
 
-st.caption(f"Hệ thống QUANTS PRO V16.4 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
+st.caption(f"Hệ thống QUANTS PRO V16.5 • Build: USERS-SCHEMA-FIX-20261030 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
 
 with st.popover("💬 Trợ Lý AI Trực Tuyến"):
     st.markdown("#### 🤖 Trợ Lý Định Lượng AI (Bảng điện + Danh mục + Media + Vĩ mô)")
