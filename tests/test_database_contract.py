@@ -275,3 +275,65 @@ def test_init_db_recovers_missing_prediction_from_version_history(tmp_path, monk
         assert row['horizon'] == 3 and row['base_price'] == 27000
         assert row['predicted_pct'] == 2.5 and row['status'] == 'OPEN'
         assert row['ai_provider'] == 'Gemini'
+
+
+def test_list_all_users_repairs_legacy_cash_balance_when_startup_cache_is_stale(tmp_path, monkeypatch):
+    """Admin panel must self-heal a legacy users table if cached init_db was skipped."""
+    path = tmp_path / 'legacy_users_without_cash_balance.sqlite3'
+    legacy_hash = db._hash_pw('secure-test-password')
+    conn = sqlite3.connect(path)
+    conn.execute('''CREATE TABLE users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        full_name TEXT,
+        role TEXT DEFAULT 'USER',
+        status TEXT DEFAULT 'APPROVED',
+        created_at TEXT
+    )''')
+    conn.execute(
+        "INSERT INTO users(username,password_hash,full_name,role,status,created_at) VALUES(?,?,?,?,?,?)",
+        ('admin', legacy_hash, 'Admin', 'ADMIN', 'APPROVED', '2026-10-30T00:00:00+00:00'),
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(db, 'DB_PATH', path)
+
+    # Intentionally do NOT call init_db(): this reproduces the stale Streamlit cache path.
+    result = db.list_all_users()
+    assert len(result) == 1
+    assert result.iloc[0]['username'] == 'admin'
+    assert result.iloc[0]['cash_balance'] == 0.0
+
+    with db.connect() as c:
+        cols = {row['name'] for row in c.execute('PRAGMA table_info(users)').fetchall()}
+        stored = c.execute('SELECT username,password_hash FROM users WHERE id=1').fetchone()
+        assert 'cash_balance' in cols
+        assert stored['username'] == 'admin'
+        assert stored['password_hash'] == legacy_hash
+
+
+def test_authenticate_and_register_repair_legacy_user_columns(tmp_path, monkeypatch):
+    path = tmp_path / 'legacy_users_auth.sqlite3'
+    conn = sqlite3.connect(path)
+    conn.execute('''CREATE TABLE users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        full_name TEXT,
+        role TEXT DEFAULT 'USER',
+        created_at TEXT
+    )''')
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(db, 'DB_PATH', path)
+
+    created, message = db.register_user('newuser', 'test-password', 'New User')
+    assert created, message
+    # Register places the account in pending state; authentication remains blocked.
+    user, auth_message = db.authenticate_user('newuser', 'test-password')
+    assert user is None
+    assert 'chờ' in auth_message.lower()
+    with db.connect() as c:
+        columns = {row['name'] for row in c.execute('PRAGMA table_info(users)').fetchall()}
+        assert {'status', 'cash_balance'} <= columns
