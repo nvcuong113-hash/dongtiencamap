@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-APP_NAME = "QUANTS PRO V16.1"
+APP_NAME = "QUANTS PRO V16.7"
 TZ = ZoneInfo(os.getenv("QUANTS_TIMEZONE", "Asia/Ho_Chi_Minh"))
 DB_PATH = Path(os.getenv("QUANTS_DB_PATH", "./data/quants_pro.sqlite3")).expanduser()
 REQUEST_TIMEOUT = float(os.getenv("QUANTS_REQUEST_TIMEOUT", "12"))

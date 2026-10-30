@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS user_preferences(
 );
 '''
 
-DB_SCHEMA_VERSION = "20261030_stock_snapshots_foreign_flow_repair_v2"
+DB_SCHEMA_VERSION = "20261031_auth_session_legacy_schema_repair_v1"
 SESSION_TTL_DAYS = 7
 PASSWORD_HASH_ITERATIONS = 310_000
 
@@ -711,7 +711,56 @@ def delete_user_account(user_id: int) -> bool:
     except Exception:
         return False
 
+def _ensure_auth_sessions_schema_compatibility() -> set[str]:
+    """Repair legacy account/session schemas before session-cookie queries.
+
+    Streamlit may reuse a cached init_db() result across deployments. Session
+    restoration therefore performs its own idempotent, additive schema check.
+    Existing account rows and password hashes are never rewritten. Legacy
+    sessions without a trustworthy created_at timestamp are invalidated by
+    get_user_by_session() and require a fresh login.
+    """
+    _ensure_users_schema_compatibility()
+    with connect() as c:
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS auth_sessions (
+                token_hash TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            )"""
+        )
+        existing = {
+            row["name"]
+            for row in c.execute('PRAGMA table_info("auth_sessions")').fetchall()
+        }
+        migrations = {
+            "token_hash": "TEXT",
+            "user_id": "INTEGER",
+            "created_at": "TEXT",
+        }
+        for column, definition in migrations.items():
+            if column not in existing:
+                c.execute(
+                    f'ALTER TABLE "auth_sessions" ADD COLUMN "{column}" {definition}'
+                )
+                existing.add(column)
+        required = {"token_hash", "user_id", "created_at"}
+        missing = required - existing
+        if missing:
+            raise sqlite3.DatabaseError(
+                "auth_sessions schema is incompatible; missing columns: "
+                + ", ".join(sorted(missing))
+            )
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_created "
+            "ON auth_sessions(user_id, created_at)"
+        )
+    return existing
+
+
 def create_auth_session(user_id: int) -> str:
+    _ensure_auth_sessions_schema_compatibility()
     token = secrets.token_urlsafe(32)
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     now_utc = datetime.now(timezone.utc)
@@ -727,6 +776,7 @@ def create_auth_session(user_id: int) -> str:
 def get_user_by_session(token: str) -> dict | None:
     if not token or len(token) > 256:
         return None
+    _ensure_auth_sessions_schema_compatibility()
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     with connect() as c:
         row = c.execute(
@@ -738,14 +788,21 @@ def get_user_by_session(token: str) -> dict | None:
         if not row:
             return None
         try:
-            created_dt = datetime.fromisoformat(str(row["session_created_at"]).replace("Z", "+00:00"))
+            created_raw = row["session_created_at"]
+            if not created_raw:
+                raise ValueError("session timestamp is missing")
+            created_dt = datetime.fromisoformat(str(created_raw).replace("Z", "+00:00"))
             if created_dt.tzinfo is None:
                 created_dt = created_dt.replace(tzinfo=timezone.utc)
-            if datetime.now(timezone.utc) - created_dt > timedelta(days=SESSION_TTL_DAYS):
+            age = datetime.now(timezone.utc) - created_dt
+            if age < -timedelta(minutes=5) or age > timedelta(days=SESSION_TTL_DAYS):
                 c.execute("DELETE FROM auth_sessions WHERE token_hash=?", (token_hash,))
                 return None
-        except Exception:
-            pass
+        except (TypeError, ValueError, OverflowError):
+            # A session without a parseable creation time cannot be safely
+            # trusted for a persistent login. Invalidate it and require login.
+            c.execute("DELETE FROM auth_sessions WHERE token_hash=?", (token_hash,))
+            return None
     if str(row["status"] or "APPROVED").upper() not in ("APPROVED", "ACTIVE"):
         return None
     out = dict(row)
@@ -755,6 +812,7 @@ def get_user_by_session(token: str) -> dict | None:
 def revoke_auth_session(token: str) -> None:
     if not token or len(token) > 256:
         return
+    _ensure_auth_sessions_schema_compatibility()
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
     with connect() as c:
         c.execute("DELETE FROM auth_sessions WHERE token_hash=?", (token_hash,))
