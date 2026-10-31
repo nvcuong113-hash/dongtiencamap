@@ -56,7 +56,7 @@ def test_shadow_report_contains_macro_and_sector_context_without_changing_consen
              "volume": 1000, "volume_available": True, "rs_vni": 0.2}]
     macro = make_series("DXY", [100, 100.1, 100.2, 100.3, 100.4])
     report = build_shadow_report(rows, macro_snapshots=macro)
-    assert report["schema_version"] == "2.5"
+    assert report["schema_version"] == "2.6"
     assert report["decision_impact"] == "NONE"
     assert report["macro_context"]["risk_tone"] == "INSUFFICIENT_DATA"
     assert report["sector_context"]["universe_scope"] == "CURRENT_WATCHLIST_ONLY"

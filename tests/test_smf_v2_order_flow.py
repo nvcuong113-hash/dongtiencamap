@@ -129,7 +129,7 @@ def test_shadow_report_exposes_p3_without_mutating_input_or_decisions():
     original = dict(row)
     report = build_shadow_report([row])
     assert row == original
-    assert report["schema_version"] == "2.5"
+    assert report["schema_version"] == "2.6"
     assert report["decision_impact"] == "NONE"
     instrument = report["instruments"][0]
     assert instrument["order_flow_sample"]["sample_bias"] == "BUY_DOMINANT_SAMPLE"

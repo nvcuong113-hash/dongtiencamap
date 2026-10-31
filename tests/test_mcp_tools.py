@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -40,10 +41,11 @@ def mcp_db(tmp_path, monkeypatch):
         )
         conn.execute("INSERT INTO system_events(ts,level,component,message) VALUES (?,?,?,?)",
                      ("2026-10-29T10:01:00+07:00", "WARN", "providers", "API error api_key=sk-testsecret12345678901234567890"))
+        media_observed_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
         conn.execute(
             """INSERT INTO media_articles (url_hash,published_at,crawled_at,source,title,summary,url,symbols,symbols_json,raw_text,sentiment,sentiment_score,event_type)
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-            ("hash1", "2026-10-29T09:30:00+07:00", "2026-10-29T09:30:00+07:00", "Test RSS",
+            ("hash1", media_observed_at, media_observed_at, "Test RSS",
              "IDC mở rộng khu công nghiệp", "Bản tóm tắt thử nghiệm", "https://example.invalid/news/1",
              "IDC", '["IDC"]', "nội dung dài không được trả về toàn văn", "Trung tính", 0.0, "Company"),
         )
