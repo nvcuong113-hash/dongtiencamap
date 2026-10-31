@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-APP_NAME = "QUANTS PRO V16.9"
+APP_NAME = "QUANTS PRO V17.0"
 TZ = ZoneInfo(os.getenv("QUANTS_TIMEZONE", "Asia/Ho_Chi_Minh"))
 
 # Resolve the default SQLite file relative to this source checkout, never to the

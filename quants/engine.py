@@ -1504,7 +1504,7 @@ def compute_quant(symbols, index_quote, now: datetime):
                     r['smf_v2_data_quality'] = smf_v2_analysis['data_quality']
                 except Exception as structure_error:
                     r['smf_v2_market_structure'] = {
-                        'engine': 'market_structure_v2', 'engine_version': '2.0.0',
+                        'engine': 'market_structure_v2', 'engine_version': '2.2.0',
                         'status': 'ERROR', 'reason': type(structure_error).__name__,
                         'causal': True, 'future_data_used': False,
                     }
