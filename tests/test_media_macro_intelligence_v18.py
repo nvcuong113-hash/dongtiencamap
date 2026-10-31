@@ -236,3 +236,136 @@ def test_shadow_settlement_pairs_overlay_vs_legacy_and_reports_delta(tmp_path, m
     assert perf['paired_sample_count'] == 1
     assert perf['horizons'][2]['delta_vs_legacy_pp'] == 100.0
     assert perf['model_adjustment'] == 'LOCKED_INSUFFICIENT_SAMPLE'
+
+
+def _insert_media_batch_fixture(count, published_at, *, status="PENDING", content_prefix="batch"):
+    with db.connect() as c:
+        for i in range(count):
+            c.execute("""INSERT INTO media_articles(
+                url_hash,published_at,crawled_at,fetched_at,source,title,summary,url,
+                symbols_json,sentiment,sentiment_score,sector_tags,topic_scope,geo_scope,
+                source_family,content_hash,content_quality,semantic_status,source_reliability
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""", (
+                f"{content_prefix}-url-{i}", published_at, published_at, published_at,
+                "CafeF", f"NKG steel market update {i}", f"Steel demand and input prices {i}",
+                f"https://example.test/{content_prefix}/{i}", '["NKG"]', "Tích cực", 0.7,
+                '["Thép"]', "TICKER", "VN", "FINANCIAL_MEDIA",
+                f"{content_prefix}-content-{i}", "RSS_TITLE_SUMMARY", status, 0.85,
+            ))
+
+
+def _valid_semantic_response(prompt):
+    items = json.loads(prompt.split("Dữ liệu:\n", 1)[1])
+    return json.dumps({"items": [{
+        "id": item["id"], "event_type": "DEMAND", "event_status": "ACTUAL",
+        "direction": 1, "causal_chain": "Demand -> utilization -> possible margin impact",
+        "first_order_effect": "Demand improves", "second_order_effect": "Input cost may offset benefit",
+        "beneficiary_sectors": ["Thép"], "adverse_sectors": ["Vận tải"],
+        "time_horizon": "1-2 quarters", "confidence": 0.8,
+        "counter_evidence": "Iron ore cost may rise", "verify": ["HRC price", "Steel output"],
+    } for item in items]}, ensure_ascii=False)
+
+
+def test_media_ai_single_run_drains_batches_until_shared_daily_quota(tmp_path, monkeypatch):
+    _isolated_db(tmp_path, monkeypatch)
+    _insert_media_batch_fixture(20, datetime.now(timezone.utc).isoformat())
+    from quants import ai_engine
+    monkeypatch.setattr(ai_engine, "_setting", lambda key, default="":
+                        "test-key" if key == "GEMINI_API_KEY" else
+                        ("2" if key == "MEDIA_AI_DAILY_CALL_LIMIT" else default))
+    monkeypatch.setattr(ai_engine, "_provider_is_cooling_down", lambda provider: False)
+    calls = []
+    def fake_call(prompt, json_mode=False):
+        calls.append(prompt)
+        return _valid_semantic_response(prompt), "gemini-fixture"
+    monkeypatch.setattr(ai_engine, "_call_gemini", fake_call)
+
+    processed, errors = media.analyze_media_semantics(limit=8)
+
+    assert processed == 16
+    assert len(calls) == 2
+    assert any("ngân sách Media AI" in e for e in errors)
+    with db.connect() as c:
+        counts = {r["semantic_status"]: r["n"] for r in c.execute(
+            "SELECT semantic_status,COUNT(*) n FROM media_articles GROUP BY semantic_status"
+        ).fetchall()}
+        usage = c.execute("SELECT ai_calls,articles_analyzed FROM media_ai_usage").fetchone()
+        legacy = c.execute("SELECT COUNT(*) n FROM media_articles WHERE sentiment='Tích cực' AND sentiment_score=0.7").fetchone()
+    assert counts == {"DONE": 16, "PENDING": 4}
+    assert usage["ai_calls"] == 2 and usage["articles_analyzed"] == 16
+    assert legacy["n"] == 20  # semantic enrichment must not mutate legacy rule/sentiment fields
+
+
+def test_media_ai_failure_does_not_retry_same_batch_or_burn_remaining_quota(tmp_path, monkeypatch):
+    _isolated_db(tmp_path, monkeypatch)
+    _insert_media_batch_fixture(12, datetime.now(timezone.utc).isoformat(), content_prefix="failure")
+    from quants import ai_engine
+    monkeypatch.setattr(ai_engine, "_setting", lambda key, default="":
+                        "test-key" if key == "GEMINI_API_KEY" else
+                        ("2" if key == "MEDIA_AI_DAILY_CALL_LIMIT" else default))
+    monkeypatch.setattr(ai_engine, "_provider_is_cooling_down", lambda provider: False)
+    calls = []
+    def failing_call(prompt, json_mode=False):
+        calls.append(prompt)
+        raise RuntimeError("simulated Gemini overload")
+    monkeypatch.setattr(ai_engine, "_call_gemini", failing_call)
+
+    processed, errors = media.analyze_media_semantics(limit=8)
+
+    assert processed == 0
+    assert len(calls) == 1
+    assert errors and "simulated Gemini overload" in errors[0]
+    with db.connect() as c:
+        counts = {r["semantic_status"]: r["n"] for r in c.execute(
+            "SELECT semantic_status,COUNT(*) n FROM media_articles GROUP BY semantic_status"
+        ).fetchall()}
+        usage = c.execute("SELECT ai_calls,articles_analyzed,last_status FROM media_ai_usage").fetchone()
+    assert counts == {"PENDING": 4, "RETRY": 8}
+    assert usage["ai_calls"] == 1 and usage["articles_analyzed"] == 0
+    assert usage["last_status"] == "PARTIAL"
+
+
+def test_media_intelligence_snapshot_rolls_up_semantics_without_changing_predictions(tmp_path, monkeypatch):
+    _isolated_db(tmp_path, monkeypatch)
+    published = datetime.now(timezone.utc).isoformat()
+    _insert_media_batch_fixture(2, published, status="DONE", content_prefix="snapshot")
+    semantic = json.dumps({
+        "event_type": "DEMAND", "event_status": "ACTUAL", "direction": 2,
+        "confidence": 0.9, "causal_chain": "Demand -> utilization -> steel sales",
+        "beneficiary_sectors": ["Thép"], "adverse_sectors": ["Vận tải"],
+        "counter_evidence": "Input-cost inflation",
+    }, ensure_ascii=False)
+    with db.connect() as c:
+        c.execute("UPDATE media_articles SET semantic_json=?", (semantic,))
+        c.execute("""INSERT INTO predictions(created_at,trade_date,symbol,horizon,base_price,predicted_pct,p_win,status)
+            VALUES(?,?,?,?,?,?,?,?)""", (published, "2026-10-31", "NKG", 2, 10000, 1.5, 0.6, "OPEN"))
+
+    snapshot = media.media_intelligence_snapshot(hours=72)
+    with db.connect() as c:
+        prediction = c.execute("SELECT predicted_pct,p_win,status FROM predictions WHERE symbol='NKG'").fetchone()
+
+    assert snapshot["semantic_articles"] == 2
+    assert snapshot["decision_impact"] == "NONE"
+    assert snapshot["event_clusters"][0]["event_type"] == "DEMAND"
+    assert any(x["sector"] == "Thép" and x["impact"] == "BENEFICIARY" for x in snapshot["sector_impacts"])
+    assert prediction["predicted_pct"] == 1.5 and prediction["p_win"] == 0.6 and prediction["status"] == "OPEN"
+
+
+def test_media_ai_queue_status_reports_backlog_and_shared_quota(tmp_path, monkeypatch):
+    _isolated_db(tmp_path, monkeypatch)
+    now = datetime.now(timezone.utc).isoformat()
+    _insert_media_batch_fixture(3, now, content_prefix="queue")
+    old = "2020-01-01T00:00:00+00:00"
+    _insert_media_batch_fixture(2, old, content_prefix="stale")
+    from quants import ai_engine
+    monkeypatch.setattr(ai_engine, "_setting", lambda key, default="": "3" if key == "MEDIA_AI_DAILY_CALL_LIMIT" else default)
+    with db.connect() as c:
+        c.execute("INSERT INTO media_ai_usage(usage_date,ai_calls,articles_analyzed) VALUES(?,?,?)",
+                  (datetime.now(timezone.utc).date().isoformat(), 1, 8))
+
+    status = media.media_ai_queue_status(hours=72)
+
+    assert status["eligible_pending"] == 3
+    assert status["stale_pending"] == 2
+    assert status["ai_calls"] == 1 and status["daily_limit"] == 3 and status["remaining_calls"] == 2
+    assert status["articles_analyzed_today"] == 8
