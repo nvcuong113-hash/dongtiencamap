@@ -1,0 +1,56 @@
+SMART MONEY FLOW – MEDIA INTELLIGENCE V2
+TEST REPORT
+Date: 2026-10-31
+Base source: dongtiencamap-main(20261031-152941).zip
+
+1. FULL REGRESSION TEST
+Command:
+  pytest -q --disable-warnings --maxfail=1
+Result:
+  389 passed, 1 skipped
+  Duration: 17.03 seconds (worktree run); clean patch application rerun: 17.56 seconds
+
+2. NEW MEDIA V2 TESTS
+Command:
+  pytest -q tests/test_media_intelligence_v2.py --disable-warnings --maxfail=1
+Result:
+  12 passed
+
+Coverage includes:
+- HTML article-body extraction, fulltext-truncated labelling and content-quality classification.
+- Full extracted text up to the 16,000-character bound is passed to Gemini; a tail-marker test detects regressions to summary-only/truncated prompt input.
+- Full-text fetch success; old semantic analysis moved to history; semantic re-queued.
+- Cross-publisher Market Narrative grouping and contradictory evidence.
+- Price/flow alignment only treats provenance-qualified real flow as verified.
+- Early warning for positive media / negative price divergence.
+- Event-study entry uses the first validated close strictly after publication date and deduplicates multiple OHLCV source revisions within one trading session.
+- Additive and idempotent schema migration.
+- Semantic prompt distinguishes fulltext from RSS-only summaries.
+- Unsafe URL / local-network destination rejection.
+- Media research does not mutate legacy prediction records.
+- Legacy article row retained through V181 database bootstrap.
+
+3. STATIC / DATABASE CHECKS
+- `python -m compileall -q quants app.py worker.py`: PASS.
+- Fresh temporary database bootstrap: PASS.
+- Schema version: 20261031_v181_media_intelligence_v2.
+- Schema audit: 24/24 expected tables; no missing table/column; compatible schema.
+- SQLite integrity_check: `ok`.
+- Foreign-key violations: 0.
+- Static SQL audit: 178/178 statements compiled; 0 failed.
+
+4. IMPORTANT TEST BOUNDARIES
+- The new tests use controlled/mock HTTP responses and synthetic SQLite fixtures. Publisher-by-publisher live extraction, Streamlit Community Cloud deployment and live Gemini API behaviour have not been verified in this test run.
+- Historical event-study feature is implemented and tested against fixtures; no claim is made that its predictive accuracy has been established on the user's full production historical dataset.
+- Event study does not include fees, tax, slippage, market impact, benchmark-relative returns, walk-forward or complete survivorship controls.
+- No change was made to the core SMF scoring / P_WIN / P1-P7 / prediction decision path. P2 promotion is intentionally not enabled.
+
+5. INTEGRATION AGAINST A COPY OF THE SUPPLIED SQLITE BACKUP
+- Applied V181 bootstrap on a temporary copy of `quants_pro_backup(20261031-073823).sqlite3`; original backup was read-only/unchanged.
+- Preserved row counts: 1,099 media_articles; 1,905 market_bars; 45 predictions.
+- Existing semantic coverage at backup time: 8 DONE / 1,091 PENDING. Narrative engine returned 8 narrative groups from 8 semantic articles.
+- 11 symbols were aligned to Media + OHLCV; the backup has 0 stock_snapshots and 0 flow_snapshots, so real flow could not be verified.
+- Event study returned 0 eligible samples under the minimum multi-article/multi-source condition. This is insufficient sample coverage, not 0% predictive accuracy.
+
+6. DEPLOYMENT CAUTION
+Back up the production SQLite database before deploying. Apply the patch at the repository root, preserve file paths, restart the app and verify startup/schema version and Media tab. Do not overwrite the production database with any test database.
