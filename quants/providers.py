@@ -1527,6 +1527,14 @@ def fetch_vnindex(now=None):
     return unavailable, errors
 
 def fetch_history(symbol, days=180):
+    """Fetch verified daily OHLCV history without synthesizing missing OHLC fields.
+
+    Market Structure and VSA require a real opening price. Earlier adapter
+    versions dropped provider ``open`` values and silently substituted close for
+    missing high/low, causing the SMF V2 quality gate to reject every bar. This
+    adapter now preserves open from VNDIRECT/TCBS and only returns complete,
+    internally consistent OHLC rows.
+    """
     errors = []
     start = int(time.time()) - days * 86400
     end = int(time.time())
@@ -1541,34 +1549,46 @@ def fetch_history(symbol, days=180):
             if provider == 'TCBS':
                 arr = _list(payload)
                 for x in arr:
+                    if not isinstance(x, dict):
+                        continue
                     dt = str(x.get('tradingDate') or x.get('date') or '')[:10]
-                    close = price(x.get('close'))
-                    high = price(x.get('high') or close)
-                    low = price(x.get('low') or close)
-                    vol = int(n(x.get('volume') or x.get('totalVolume')))
-                    if len(dt) == 10 and close > 0:
-                        bars.append({'date': dt, 'close': close, 'high': high, 'low': low, 'volume': vol})
+                    open_ = price(x.get('open') or x.get('openPrice'))
+                    close = price(x.get('close') or x.get('closePrice'))
+                    high = price(x.get('high') or x.get('highPrice'))
+                    low = price(x.get('low') or x.get('lowPrice'))
+                    vol_raw = x.get('volume') if x.get('volume') not in (None, '') else x.get('totalVolume')
+                    vol = int(n(vol_raw, default=-1))
+                    if (len(dt) == 10 and all(v > 0 for v in (open_, high, low, close))
+                            and high >= max(open_, close, low) and low <= min(open_, close, high)
+                            and vol >= 0):
+                        bars.append({'date': dt, 'open': open_, 'high': high, 'low': low,
+                                     'close': close, 'volume': vol})
             else:
-                closes = payload.get('c', [])
-                highs = payload.get('h', closes)
-                lows = payload.get('l', closes)
-                vols = payload.get('v', [])
-                ts = payload.get('t', [])
-                for i, close in enumerate(closes):
+                opens = payload.get('o', []) if isinstance(payload, dict) else []
+                closes = payload.get('c', []) if isinstance(payload, dict) else []
+                highs = payload.get('h', []) if isinstance(payload, dict) else []
+                lows = payload.get('l', []) if isinstance(payload, dict) else []
+                vols = payload.get('v', []) if isinstance(payload, dict) else []
+                ts = payload.get('t', []) if isinstance(payload, dict) else []
+                for i, close_raw in enumerate(closes):
                     dt = _vndirect_bar_session_date(ts[i]) if i < len(ts) else ''
-                    if dt and n(close) > 0:
-                        bars.append({
-                            'date': dt, 'close': price(close),
-                            'high': price(highs[i] if i < len(highs) else close),
-                            'low': price(lows[i] if i < len(lows) else close),
-                            'volume': int(n(vols[i] if i < len(vols) else 0))
-                        })
+                    open_ = price(opens[i]) if i < len(opens) else 0.0
+                    close = price(close_raw)
+                    high = price(highs[i]) if i < len(highs) else 0.0
+                    low = price(lows[i]) if i < len(lows) else 0.0
+                    vol = int(n(vols[i], default=-1)) if i < len(vols) else -1
+                    if (dt and all(v > 0 for v in (open_, high, low, close))
+                            and high >= max(open_, close, low) and low <= min(open_, close, high)
+                            and vol >= 0):
+                        bars.append({'date': dt, 'open': open_, 'high': high, 'low': low,
+                                     'close': close, 'volume': vol})
             dedup = {b['date']: b for b in bars}
             bars = sorted(dedup.values(), key=lambda z: z['date'])
             if len(bars) >= 5:
                 return bars, provider, []
+            errors.append(f'{symbol} history ({provider}): chỉ có {len(bars)} nến OHLCV hợp lệ')
         except Exception as e:
-            errors.append(f'{symbol} history ({provider}): {e}')
+            errors.append(f'{symbol} history ({provider}): {type(e).__name__}: {e}')
     # DNSE daily OHLC is a final historical fallback. It is not used unless
     # LightSpeed credentials are configured; no synthetic bars are added.
     try:

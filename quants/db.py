@@ -141,7 +141,7 @@ CREATE TABLE IF NOT EXISTS app_meta(
 );
 '''
 
-DB_SCHEMA_VERSION = "20261031_v168_absolute_path_bootstrap_admin_v1"
+DB_SCHEMA_VERSION = "20261031_v169_schema_audit_fk_v1"
 _DB_BOOTSTRAP_LOCK = threading.RLock()
 SESSION_TTL_DAYS = 7
 PASSWORD_HASH_ITERATIONS = 310_000
@@ -218,6 +218,10 @@ def connect():
     )
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA busy_timeout=30000")
+    # SQLite disables FK enforcement per connection by default. Enable it on
+    # every application connection so declared CASCADE/NO ACTION relationships
+    # are actually enforced, not merely documented in sqlite_master.
+    c.execute("PRAGMA foreign_keys=ON")
     return c
 
 def _schema_columns(schema: str) -> dict[str, dict[str, str]]:
@@ -265,6 +269,7 @@ def _create_indexes_safely(c: sqlite3.Connection) -> None:
         ("idx_user_port", "user_portfolios", ("user_id",)),
         ("idx_user_preferences_updated", "user_preferences", ("user_id", "updated_at")),
         ("idx_media_daily_symbol_time", "media_symbol_daily", ("symbol", "recorded_at")),
+        ("idx_macro_factor_id", "macro_snapshots", ("factor", "id")),
         ("idx_predictions_symbol_horizon_date", "predictions", ("symbol", "horizon", "trade_date")),
         ("idx_prediction_versions_symbol_horizon_date", "prediction_versions", ("symbol", "horizon", "trade_date", "is_current")),
         ("idx_auth_sessions_user_created", "auth_sessions", ("user_id", "created_at")),
