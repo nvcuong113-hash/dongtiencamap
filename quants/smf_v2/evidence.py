@@ -6,6 +6,7 @@ from hashlib import sha256
 from typing import Any, Iterable
 
 from .contracts import EvidenceRecord, _finite_number, _iso_date
+from .order_flow import analyze_order_flow_sample
 
 
 BULLISH_VOLUME_FLAGS = (
@@ -157,6 +158,32 @@ def extract_row_evidence(row: dict[str, Any]) -> list[EvidenceRecord]:
             "VSA V3: " + ", ".join(event_codes) + ". " + str(vsa.get("quality_reason") or ""),
             ("smf_v2_vsa.events", "smf_v2_vsa.metrics", "smf_v2_vsa.quality_status"),
             "vsa_volume_v2", True, engine="vsa_volume_v2",
+        ))
+
+    # P3: Community Time & Sales is retained as a sample-only diagnostic. It is
+    # deliberately non-voting because session completeness and investor identity
+    # are not established by the capped sample.
+    order_flow_sample = analyze_order_flow_sample(row)
+    if order_flow_sample.get("sample_available"):
+        sample_bias = str(order_flow_sample.get("polarity") or "UNKNOWN").upper()
+        if sample_bias not in {"BULLISH", "BEARISH", "NEUTRAL"}:
+            sample_bias = "UNKNOWN"
+        sample_rows = order_flow_sample.get("sample_rows_valid")
+        buy_share = order_flow_sample.get("sample_buy_share_pct")
+        classified = order_flow_sample.get("sample_classified_volume_pct")
+        output.append(_record(
+            row, "ORDER_FLOW", "time_sales_sample_imbalance", sample_bias,
+            str(order_flow_sample.get("quality_status") or "UNAVAILABLE"), "LOW",
+            f"Time & Sales sample: bias={order_flow_sample.get('sample_bias')}; "
+            f"rows={sample_rows}; buy_share={buy_share}%; classified_volume={classified}%; "
+            f"status={order_flow_sample.get('status')}. Không phải dữ liệu toàn phiên.",
+            ("trade_sample_report.trade_sample_buy_volume",
+             "trade_sample_report.trade_sample_sell_volume",
+             "trade_sample_report.trade_sample_classified_volume_pct",
+             "trade_sample_report.trade_sample_source_match",
+             "trade_sample_report.trade_sample_latest_age_seconds"),
+            str(order_flow_sample.get("source_reported") or "Vnstock Community Time & Sales sample"),
+            False, engine="order_flow_sample_v1",
         ))
 
     # Legacy VSA flags are retained for comparison only. They are not a second vote.

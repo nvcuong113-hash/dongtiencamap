@@ -7,6 +7,7 @@ from typing import Any
 
 from .contracts import DataEnvelope
 from .evidence import aggregate_independent_groups, extract_row_evidence
+from .order_flow import analyze_order_flow_sample
 
 
 def build_shadow_report(rows: list[dict[str, Any]] | None) -> dict[str, Any]:
@@ -47,6 +48,7 @@ def build_shadow_report(rows: list[dict[str, Any]] | None) -> dict[str, Any]:
             "contract_errors": validation_errors,
             "data_envelope": envelope.to_dict(),
             "vsa": row.get("smf_v2_vsa"),
+            "order_flow_sample": analyze_order_flow_sample(row),
             "market_structure": row.get("smf_v2_market_structure"),
             "bar_data_quality": row.get("smf_v2_data_quality"),
             "evidence": [item.to_dict() for item in evidence],
@@ -62,7 +64,7 @@ def build_shadow_report(rows: list[dict[str, Any]] | None) -> dict[str, Any]:
         all_evidence.extend(evidence)
 
     return {
-        "schema_version": "2.3",
+        "schema_version": "2.4",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "mode": "SHADOW",
         "decision_impact": "NONE",
@@ -73,6 +75,7 @@ def build_shadow_report(rows: list[dict[str, Any]] | None) -> dict[str, Any]:
         "guardrails": [
             "Không thay đổi signal_score, p_win, early_signal hoặc quyết định legacy",
             "Flow proxy không được tính là bằng chứng ORDER_FLOW có hướng",
+            "Time & Sales Community chỉ là mẫu; không bỏ phiếu consensus và không chứng minh dòng tiền tổ chức",
             "Điểm Top/Bottom/Signal legacy chỉ lưu để đối chiếu, không bỏ phiếu độc lập",
             "Không có calibrated_probability hoặc khuyến nghị giao dịch từ shadow report",
         ],
