@@ -1,0 +1,44 @@
+QUANTS PRO V17.0 — P1 MARKET STRUCTURE V2.2 RELEASE TEST REPORT
+Date: 2026-10-31
+
+SOURCE CHANGES
+- Daily + weekly confirmed swing structure.
+- HH/LH and HL/LL classification.
+- Prior-ATR normalized BOS/CHoCH with break distance, relative volume, close location and descriptive quality.
+- Failed upside/downside break detection with one event per new cross.
+- Post-break retest hold/fail/expiry detection with tolerance frozen at breakout time.
+- Weekly ISO aggregation; latest week excluded while any configured trading session remains.
+- MTF confluence based on confirmed swing-state, not event bias alone.
+- Native engine lineage corrected for market_structure_v2 and vsa_volume_v2.
+- SMF V2 dashboard now displays Daily / Weekly structure and recent events.
+- Legacy scores, forecasts, AI prompts and decision gates unchanged.
+- No database schema migration.
+
+TESTS
+- Full pytest suite: 319 passed, 1 skipped.
+- Targeted Market Structure / Evidence contract suite: passed.
+- Python compileall: passed (return code 0).
+- Read-only database schema audit: PASS.
+- Tables: 18/18 present.
+- Static SQL: 121/121 compile.
+- Dynamic/non-literal SQL: 30 inventory items remain documented for manual review.
+- SQLite integrity_check: ok.
+- Foreign key violations: 0.
+- Schema default drift warning remains for media_symbol_daily.recorded_at and symbol (empty strings vs no default); unchanged from V16.9.
+- No migration or write was executed against the uploaded database.
+
+POST-DEPLOY DATABASE REPLAY
+- market_bars: 1,905 rows.
+- 15 symbols; 127 daily bars per symbol.
+- Date range: 2026-05-04 to 2026-10-30.
+- Daily Market Structure available: 15/15.
+- Weekly Market Structure available: 15/15.
+- NKG: bullish event bias within still-downtrending confirmed daily/weekly swing structure.
+- LPB: daily downtrend, weekly range/transition; latest event is a strong BOS_DOWN on 2026-10-30.
+- No predictive edge / top-bottom accuracy / alpha claim.
+
+DEPLOYMENT GATE
+- This patch contains no SQLite migration.
+- The uploaded DB app_meta path points inside the Streamlit source checkout. Streamlit Community Cloud docs say local file persistence is not guaranteed.
+- Do not use a source ZIP's bundled SQLite seed as production data.
+- Do not push to production until durable external database / persistent storage has been selected and runtime DB has been backed up or migrated.

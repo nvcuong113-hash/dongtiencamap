@@ -1,0 +1,30 @@
+QUANTS PRO V17.0 — DEPLOYMENT NOTES
+
+BUILD MARKER
+MARKET-STRUCTURE-P1-20261031
+
+PATCH
+1. Unzip the Patch at repository root, preserving the folder structure.
+2. Commit to a staging branch first.
+3. Run the app against a copy of the uploaded SQLite backup; do not upload that backup into the source tree.
+4. Confirm the SMF V2 tab shows Daily event bias, Daily swing, Weekly swing, MTF confluence, Event context and recent structure events.
+5. Confirm a new Shadow report stores `schema_version=2.2` and evidence engine labels `market_structure_v2` / `vsa_volume_v2`.
+6. Confirm no legacy score, forecast or decision-gate changes.
+
+IMPORTANT — PRODUCTION PERSISTENCE GATE
+The uploaded DB reports:
+  /mount/src/dongtiencamap/data/quants_pro.sqlite3
+
+The uploaded source ZIP also contains a different, small SQLite seed at:
+  data/quants_pro.sqlite3
+
+The seed is not the uploaded production backup. Do not replace or upload it over the production DB.
+
+Streamlit Community Cloud does not guarantee persistence of local file storage. Before any production push/redeploy that may restart the app, migrate runtime DB to a managed persistent database or other durable external store, then verify row counts and backup/restore. Setting QUANTS_DB_PATH to another local path inside the same Community Cloud container does not make that storage durable.
+
+No DB schema migration is included in V17.0. Do not manually run init_db or modify DB files as part of this P1 release.
+
+ROLLBACK
+- Set SMF_V2_SHADOW_ENABLED=0 to turn off Shadow analysis.
+- Revert the Patch files to V16.9 if P1 causes unexpected runtime issues.
+- Because the legacy scoring/decision path is unchanged, P1 does not require recalibrating the legacy model.

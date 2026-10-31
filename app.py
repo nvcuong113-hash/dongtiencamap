@@ -7,7 +7,7 @@ from pandas.io.formats.style import Styler
 import streamlit as st
 
 st.set_page_config(
-    page_title="QUANTS PRO V16.9 - Combat Trading Terminal",
+    page_title="QUANTS PRO V17.0 - Market Structure Intelligence",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -2094,7 +2094,7 @@ with tabs[3]:
                                 else:
                                     st.error(result.get("reason", "Rollback thất bại."))
 
-st.caption(f"Hệ thống QUANTS PRO V16.9 • Build: DATABASE-SCHEMA-AUDIT-20261031 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
+st.caption(f"Hệ thống QUANTS PRO V17.0 • Build: MARKET-STRUCTURE-P1-20261031 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
 
 with st.popover("💬 Trợ Lý AI Trực Tuyến"):
     st.markdown("#### 🤖 Trợ Lý Định Lượng AI (Bảng điện + Danh mục + Media + Vĩ mô)")
@@ -2260,9 +2260,19 @@ with tabs[4]:
         for item in instruments:
             consensus = item.get("consensus") or {}
             envelope = item.get("data_envelope") or {}
+            structure = item.get("market_structure") or {}
+            timeframes = structure.get("timeframes") or {}
+            weekly_structure = timeframes.get("weekly") or {}
+            confluence = structure.get("confluence") or {}
             overview.append({
                 "Mã": item.get("symbol"),
                 "Ngày dữ liệu": item.get("session_date"),
+                "Daily event bias": structure.get("bias"),
+                "Daily swing": structure.get("structure_state"),
+                "Weekly swing": weekly_structure.get("structure_state"),
+                "MTF confluence": confluence.get("status"),
+                "Event context": confluence.get("event_context"),
+                "Sự kiện cấu trúc": structure.get("latest_event"),
                 "Contract": item.get("contract_status"),
                 "Chất lượng quote": envelope.get("quote_quality_status"),
                 "Chất lượng volume": envelope.get("volume_quality_status"),
@@ -2283,6 +2293,51 @@ with tabs[4]:
                 key="smf_v2_evidence_symbol",
             )
             selected = next((item for item in instruments if item.get("symbol") == selected_symbol), {})
+            structure_detail = selected.get("market_structure") or {}
+            with st.expander("🧭 Market Structure V2 — Daily / Weekly", expanded=True):
+                if structure_detail:
+                    tf_detail = structure_detail.get("timeframes") or {}
+                    daily_detail = tf_detail.get("daily") or structure_detail
+                    weekly_detail = tf_detail.get("weekly") or {}
+                    conf_detail = structure_detail.get("confluence") or {}
+                    st.caption(
+                        f"Engine {structure_detail.get('engine_version', 'N/A')} · "
+                        f"As-of {structure_detail.get('as_of_date') or 'N/A'} · "
+                        f"Nhân quả: {structure_detail.get('causal')} · "
+                        f"Future data: {structure_detail.get('future_data_used')}"
+                    )
+                    st.info(
+                        f"MTF: {conf_detail.get('status', 'N/A')} · "
+                        f"Event context: {conf_detail.get('event_context', 'N/A')} · "
+                        f"{conf_detail.get('interpretation', '')}"
+                    )
+                    d1, d2, d3, d4 = st.columns(4)
+                    d1.metric("Daily event bias", daily_detail.get("bias", "N/A"))
+                    d2.metric("Daily swing", daily_detail.get("structure_state", "N/A"))
+                    d3.metric("Weekly event bias", weekly_detail.get("bias", "N/A"))
+                    d4.metric("Weekly swing", weekly_detail.get("structure_state", "N/A"))
+                    if daily_detail.get("reason"):
+                        st.caption(daily_detail.get("reason"))
+                    if weekly_detail.get("reason"):
+                        st.caption("Weekly: " + str(weekly_detail.get("reason")))
+                    structure_events = structure_detail.get("events") or []
+                    if structure_events:
+                        st.markdown("**Sự kiện cấu trúc Daily gần nhất**")
+                        st.dataframe(pd.DataFrame(structure_events[-15:]), width="stretch", hide_index=True)
+                    swings = [
+                        {"Khung": "Daily", "Loại": "Swing High", **(daily_detail.get("last_swing_high") or {})},
+                        {"Khung": "Daily", "Loại": "Swing Low", **(daily_detail.get("last_swing_low") or {})},
+                        {"Khung": "Weekly", "Loại": "Swing High", **(weekly_detail.get("last_swing_high") or {})},
+                        {"Khung": "Weekly", "Loại": "Swing Low", **(weekly_detail.get("last_swing_low") or {})},
+                    ]
+                    swings = [row for row in swings if row.get("price") is not None]
+                    if swings:
+                        st.markdown("**Các swing đã xác nhận**")
+                        st.dataframe(pd.DataFrame(swings), width="stretch", hide_index=True)
+                    if structure_detail.get("active_retest"):
+                        st.caption("Retest đang theo dõi: " + str(structure_detail["active_retest"]))
+                else:
+                    st.info("Chưa có kết quả Market Structure V2 cho mã này.")
             vsa_detail = selected.get("vsa") or {}
             with st.expander("📊 VSA / Volume Engine V2", expanded=True):
                 if vsa_detail:

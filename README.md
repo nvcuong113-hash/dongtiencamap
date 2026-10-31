@@ -1,4 +1,4 @@
-# QUANTS PRO V16.9 — Streamlit Edition
+# QUANTS PRO V17.0 — Market Structure Intelligence
 
 ## What is included
 - Streamlit dashboard inspired by the supplied HTML concepts: Smart Flow Radar, Order Flow, Wyckoff Matrix, Alpha Factor Screener, Media Intelligence, Market Breadth/Sector Rotation, Macro & Backtest, System Health.
