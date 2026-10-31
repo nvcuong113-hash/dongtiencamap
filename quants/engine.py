@@ -1501,6 +1501,7 @@ def compute_quant(symbols, index_quote, now: datetime):
                     )
                     r['smf_v2_market_structure'] = smf_v2_analysis['market_structure']
                     r['smf_v2_vsa'] = smf_v2_analysis['vsa']
+                    r['smf_v2_accumulation_distribution'] = smf_v2_analysis['accumulation_distribution']
                     r['smf_v2_data_quality'] = smf_v2_analysis['data_quality']
                 except Exception as structure_error:
                     r['smf_v2_market_structure'] = {
@@ -1512,6 +1513,12 @@ def compute_quant(symbols, index_quote, now: datetime):
                         'engine': 'vsa_volume_v2', 'engine_version': '3.0.0',
                         'status': 'ERROR', 'reason': type(structure_error).__name__,
                         'causal': True, 'future_data_used': False,
+                    }
+                    r['smf_v2_accumulation_distribution'] = {
+                        'engine': 'accumulation_distribution_v1', 'engine_version': '1.0.0',
+                        'status': 'ERROR', 'quality_status': 'UNAVAILABLE', 'state': 'UNKNOWN',
+                        'causal': True, 'future_data_used': False,
+                        'reason_codes': [f'ENGINE_ERROR_{type(structure_error).__name__}'],
                     }
                     r['smf_v2_data_quality'] = {
                         'status': 'ERROR',
