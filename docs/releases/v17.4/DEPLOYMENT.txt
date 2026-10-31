@@ -1,0 +1,46 @@
+QUANTS PRO V17.4 — DEPLOYMENT GUIDE
+Build: SMF-P6-EVIDENCE-FUSION-20261031
+SMF report schema: 2.6
+Base: V17.3 / SMF schema 2.5
+
+1. IMPORTANT FINDING FROM THE UPLOADED LOG
+The log contains earlier transient startup errors: root app.py missing, package quants / quants.smf_v2 modules missing, import mismatches, and `no such table` database failures. The latest tail through 03:06:57 UTC on 31/10 contains only successful refresh/dependency messages and deprecation warnings; the uploaded backup has an intact DB and a successful SMF run at 03:06:19 UTC.
+These failures are consistent with non-atomic repository updates or placing files under a nested wrapper directory. Use the Full Source ZIP contents directly at the repository root: `app.py`, `quants/`, `requirements.txt` must be root-level.
+
+2. DEPLOYMENT METHOD
+- Preferred: create one Git commit containing the entire V17.4 source delta (or replace the repository from the Full Source contents in one commit). Do not push `app.py` first and upload `quants/` later, or move package directories in separate commits while Streamlit Cloud tracks main.
+- If practical, merge to `main` only after the included GitHub Actions workflow passes.
+- Streamlit Cloud main file must remain `app.py` at repository root.
+- Keep `.streamlit/secrets.toml` only in platform Secrets; never put real secrets in Git.
+- The Patch ZIP contains root-relative paths; extract its contents into the existing V17.3 repository root. The Full Source ZIP is also root-level and does not contain a `dongtiencamap-main/` wrapper directory.
+
+3. DATABASE SAFETY
+- Back up the production DB before deployment.
+- V17.4 introduces NO SQLite schema migration. P6 is stored inside the existing SMF report JSON; do not replace the production DB with any seed DB.
+- The uploaded DB reports DB schema `20261031_v169_schema_audit_fk_v1`, bootstrap status READY, and DB path `/mount/src/dongtiencamap/data/quants_pro.sqlite3`.
+- `QUANTS_DB_PATH` should point to the correct durable database. Streamlit Community Cloud's repository-local filesystem may not persist across rebuilds; use a persistent volume or external DB for durable production records.
+
+4. P5 BUG FIX
+- `fetch_macro()` is now run before loading macro history and building the P5/P6 Shadow report.
+- This fixes the cold-start order where Shadow could say `NO_VALID_MACRO_SNAPSHOTS` before the same sync populated macro_snapshots.
+- Macro remains Yahoo Finance proxy context, not official NHNN/GSO data.
+
+5. AFTER DEPLOY — SMOKE CHECKLIST
+- Footer: `QUANTS PRO V17.4`, build `SMF-P6-EVIDENCE-FUSION-20261031`.
+- Trigger one full sync; latest SMF run must store schema `2.6` and `decision_impact=NONE`.
+- Check P5: with fresh macro data the context should show actual proxy factor count and date (or an explicit provider error).
+- Check P6 per ticker: source families, technical-cluster conflict, cross-source conflict/alignment. No signal or calibrated probability should be displayed.
+- Check database table counts and Admin user remain intact; `users`, `market_bars`, and `smf_v2_runs` must not disappear.
+- Latest Streamlit log should not show `ModuleNotFoundError: quants`, missing `quants.smf_v2.*`, `app.py` missing, or `no such table` errors.
+- `st.iframe` and `width` API updates remove the previous Streamlit deprecation warnings for these UI calls.
+
+6. ROLLBACK
+- Restore V17.3 source and the pre-deploy SQLite backup if runtime or UI validation fails.
+- No reverse schema migration is needed because V17.4 makes no DB schema change.
+
+7. NOT YET RELEASED
+- P7 forecast validation is not promoted: this backup has 45 OPEN predictions, 0 settled predictions, and 0 model_performance rows. Wait for mature T+2/T+3/T+7 realized outcomes before measuring calibration/accuracy.
+- P3 Time & Sales remains unproven live: all 15 instruments have `NO_SAMPLE_PAYLOAD`; no flow_snapshots or stock_snapshots are stored.
+
+8. PACKAGE VERIFICATION
+Both distribution ZIPs are verified after extraction. Full Source has `app.py` and `quants/` at archive root; the Patch contains root-relative changed/new files and was overlaid on the uploaded V17.3 source. Both passed compileall and `python -m pytest -q` (346 passed, 1 skipped). The local runner did not have Streamlit installed, so browser/UI smoke testing remains a post-deploy check.

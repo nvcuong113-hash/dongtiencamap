@@ -1,0 +1,1553 @@
+{
+  "audit_version": "1.0",
+  "database_path": "/mnt/data/quants_pro_backup(20261031-030712).sqlite3",
+  "database_size_bytes": 1884160,
+  "journal_mode": "wal",
+  "sqlite_user_version": 0,
+  "application_connection_foreign_keys": 1,
+  "schema": {
+    "expected_table_count": 18,
+    "actual_table_count": 18,
+    "missing_tables": [],
+    "unexpected_tables": [],
+    "missing_columns": {},
+    "unexpected_columns": {},
+    "type_mismatches": {},
+    "primary_key_mismatches": {},
+    "not_null_mismatches": {},
+    "default_mismatches": {
+      "media_symbol_daily": {
+        "recorded_at": {
+          "expected": null,
+          "actual": "''"
+        },
+        "symbol": {
+          "expected": null,
+          "actual": "''"
+        }
+      }
+    },
+    "foreign_key_mismatches": {},
+    "missing_indexes": {},
+    "index_definition_mismatches": {},
+    "unexpected_indexes": {},
+    "schema_compatible": true,
+    "schema_default_review_required": true
+  },
+  "table_counts": {
+    "app_meta": 4,
+    "auth_sessions": 1,
+    "flow_snapshots": 0,
+    "macro_snapshots": 430,
+    "market_bars": 1905,
+    "media_articles": 0,
+    "media_symbol_daily": 0,
+    "model_performance": 0,
+    "prediction_versions": 45,
+    "predictions": 45,
+    "settings": 0,
+    "smf_v2_evidence": 121,
+    "smf_v2_runs": 1,
+    "stock_snapshots": 0,
+    "system_events": 1,
+    "user_portfolios": 0,
+    "user_preferences": 0,
+    "users": 1
+  },
+  "explicit_indexes": [
+    "idx_auth_sessions_user_created",
+    "idx_flow_sym_date",
+    "idx_macro_factor_id",
+    "idx_market_bars_symbol_date",
+    "idx_media_daily_symbol_time",
+    "idx_pred_status",
+    "idx_prediction_versions_symbol_horizon_date",
+    "idx_predictions_symbol_horizon_date",
+    "idx_smf_v2_evidence_run",
+    "idx_smf_v2_evidence_symbol_date",
+    "idx_smf_v2_runs_generated",
+    "idx_snap_sym_date",
+    "idx_user_port",
+    "idx_user_preferences_updated",
+    "idx_users_username_unique"
+  ],
+  "data_checks": {
+    "integrity_check": [
+      "ok"
+    ],
+    "foreign_key_violations": [],
+    "admin_count": 1,
+    "duplicate_usernames_case_insensitive": [],
+    "prediction_status_counts": {
+      "OPEN": 45
+    },
+    "prediction_invalid_horizons": 0,
+    "prediction_probability_out_of_range": 0,
+    "open_prediction_count": 45,
+    "smf_evidence_orphan_rows": 0,
+    "smf_run_evidence_count_mismatches": [],
+    "smf_engine_counts": {
+      "accumulation_distribution_v1": 15,
+      "legacy_adapter_v2": 78,
+      "market_structure_v2": 15,
+      "vsa_volume_v2": 13
+    },
+    "smf_quality_counts": {
+      "PARTIAL": 75,
+      "UNAVAILABLE": 15,
+      "VERIFIED": 31
+    },
+    "smf_source_feature_counts": [
+      {
+        "source_name": "Lịch sử đóng cửa 2026-10-30 | Hist:VNDIRECT | Flow:BLOCKED: quote chưa xác minh timestamp nguồn",
+        "feature": "legacy_trend_state",
+        "evidence_group": "LEGACY_TREND_DIAGNOSTIC",
+        "quality_status": "PARTIAL",
+        "contributes_to_consensus": 0,
+        "n": 15
+      },
+      {
+        "source_name": "NULL",
+        "feature": "flow_unavailable",
+        "evidence_group": "ORDER_FLOW",
+        "quality_status": "UNAVAILABLE",
+        "contributes_to_consensus": 0,
+        "n": 15
+      },
+      {
+        "source_name": "VN-Index/sector benchmark",
+        "feature": "relative_strength",
+        "evidence_group": "RELATIVE_STRENGTH",
+        "quality_status": "VERIFIED",
+        "contributes_to_consensus": 1,
+        "n": 15
+      },
+      {
+        "source_name": "accumulation_distribution_v1",
+        "feature": "wyckoff_behavior_state",
+        "evidence_group": "ACCUMULATION_DISTRIBUTION",
+        "quality_status": "PARTIAL",
+        "contributes_to_consensus": 0,
+        "n": 15
+      },
+      {
+        "source_name": "legacy_engine",
+        "feature": "legacy_top_bottom_scores",
+        "evidence_group": "LEGACY_COMPOSITE",
+        "quality_status": "PARTIAL",
+        "contributes_to_consensus": 0,
+        "n": 15
+      },
+      {
+        "source_name": "market_structure_v2",
+        "feature": "multi_timeframe_market_structure",
+        "evidence_group": "PRICE_ACTION",
+        "quality_status": "PARTIAL",
+        "contributes_to_consensus": 1,
+        "n": 15
+      },
+      {
+        "source_name": "vsa_volume_v2",
+        "feature": "vsa_effort_result_cluster",
+        "evidence_group": "VOLUME_VSA",
+        "quality_status": "PARTIAL",
+        "contributes_to_consensus": 1,
+        "n": 13
+      },
+      {
+        "source_name": "Lịch sử đóng cửa 2026-10-30 | Hist:VNDIRECT | Flow:BLOCKED: quote chưa xác minh timestamp nguồn",
+        "feature": "price_pattern_cluster",
+        "evidence_group": "PRICE_ACTION",
+        "quality_status": "VERIFIED",
+        "contributes_to_consensus": 1,
+        "n": 10
+      },
+      {
+        "source_name": "Lịch sử đóng cửa 2026-10-30 | Hist:VNDIRECT | Flow:BLOCKED: quote chưa xác minh timestamp nguồn",
+        "feature": "momentum_divergence_cluster",
+        "evidence_group": "PRICE_ACTION",
+        "quality_status": "VERIFIED",
+        "contributes_to_consensus": 1,
+        "n": 6
+      },
+      {
+        "source_name": "Lịch sử đóng cửa 2026-10-30 | Hist:VNDIRECT | Flow:BLOCKED: quote chưa xác minh timestamp nguồn",
+        "feature": "legacy_vsa_flags",
+        "evidence_group": "VOLUME_BEHAVIOR",
+        "quality_status": "PARTIAL",
+        "contributes_to_consensus": 0,
+        "n": 2
+      }
+    ],
+    "smf_native_structure_evidence_count": 15,
+    "smf_native_vsa_evidence_count": 13,
+    "empty_analytical_tables": [
+      "stock_snapshots",
+      "flow_snapshots",
+      "media_articles",
+      "media_symbol_daily",
+      "model_performance"
+    ],
+    "schema_metadata": {
+      "db_schema_version": "20261031_v169_schema_audit_fk_v1",
+      "db_path_recorded": "/mount/src/dongtiencamap/data/quants_pro.sqlite3",
+      "admin_bootstrap_status": "READY"
+    }
+  },
+  "static_sql_audit": {
+    "static_statements": 122,
+    "compiled": 122,
+    "failed_count": 0,
+    "failures": [],
+    "dynamic_statement_count": 30,
+    "dynamic_statements": [
+      {
+        "file": "quants/db.py",
+        "line": 400,
+        "reason": "NON_LITERAL_SQL_ARGUMENT",
+        "expression": "match.group(0)"
+      },
+      {
+        "file": "quants/db.py",
+        "line": 411,
+        "reason": "F_STRING_SQL",
+        "expression": "f'ALTER TABLE \"stock_snapshots\" ADD COLUMN \"{column}\" {sql_type}'"
+      },
+      {
+        "file": "quants/db.py",
+        "line": 255,
+        "reason": "F_STRING_SQL",
+        "expression": "f'ALTER TABLE \"{table}\" ADD COLUMN \"{column}\" {sql_type}'"
+      },
+      {
+        "file": "quants/db.py",
+        "line": 281,
+        "reason": "F_STRING_SQL",
+        "expression": "f'CREATE INDEX IF NOT EXISTS \"{name}\" ON \"{table}\" ({cols_sql})'"
+      },
+      {
+        "file": "quants/db.py",
+        "line": 861,
+        "reason": "F_STRING_SQL",
+        "expression": "f'ALTER TABLE users ADD COLUMN \"{column}\" {definition}'"
+      },
+      {
+        "file": "quants/db.py",
+        "line": 931,
+        "reason": "F_STRING_SQL",
+        "expression": "f'ALTER TABLE \"auth_sessions\" ADD COLUMN \"{column}\" {definition}'"
+      },
+      {
+        "file": "quants/db.py",
+        "line": 251,
+        "reason": "F_STRING_SQL",
+        "expression": "f'PRAGMA table_info(\"{table}\")'"
+      },
+      {
+        "file": "quants/db.py",
+        "line": 278,
+        "reason": "F_STRING_SQL",
+        "expression": "f'PRAGMA table_info(\"{table}\")'"
+      },
+      {
+        "file": "quants/db.py",
+        "line": 365,
+        "reason": "F_STRING_SQL",
+        "expression": "f'PRAGMA table_info(\"{table}\")'"
+      },
+      {
+        "file": "quants/engine.py",
+        "line": 1672,
+        "reason": "F_STRING_SQL",
+        "expression": "f'INSERT INTO \"{table}\" ({quoted_columns}) VALUES ({placeholders})'"
+      },
+      {
+        "file": "quants/engine.py",
+        "line": 965,
+        "reason": "F_STRING_SQL",
+        "expression": "f'SELECT trade_date, foreign_net_today FROM stock_snapshots WHERE symbol=? AND trade_date < ? AND foreign_net_today IS NOT NULL ORDER BY trade_date DESC,{ordering} LIMIT 80'"
+      },
+      {
+        "file": "quants/engine.py",
+        "line": 970,
+        "reason": "F_STRING_SQL",
+        "expression": "f'SELECT trade_date, foreign_net_today FROM stock_snapshots WHERE symbol=? AND foreign_net_today IS NOT NULL ORDER BY trade_date DESC,{ordering} LIMIT 80'"
+      },
+      {
+        "file": "quants/engine.py",
+        "line": 1188,
+        "reason": "F_STRING_SQL",
+        "expression": "f\"\\n            SELECT f.trade_date, f.net_flow_billion\\n            FROM flow_snapshots f\\n            JOIN (\\n                SELECT trade_date, MAX(id) AS max_id\\n              "
+      },
+      {
+        "file": "quants/engine.py",
+        "line": 1706,
+        "reason": "F_STRING_SQL",
+        "expression": "f'UPDATE \"{table}\" SET {assignments} WHERE {key_column}=?'"
+      },
+      {
+        "file": "quants/engine.py",
+        "line": 1620,
+        "reason": "F_STRING_SQL",
+        "expression": "f'PRAGMA table_info(\"{table}\")'"
+      },
+      {
+        "file": "quants/engine.py",
+        "line": 1690,
+        "reason": "F_STRING_SQL",
+        "expression": "f'SELECT {key_column} AS _snapshot_key FROM \"{table}\" WHERE symbol=? AND trade_date=? ORDER BY {key_column} DESC LIMIT 1'"
+      },
+      {
+        "file": "quants/engine.py",
+        "line": 1776,
+        "reason": "F_STRING_SQL",
+        "expression": "f'SAVEPOINT {savepoint}'"
+      },
+      {
+        "file": "quants/engine.py",
+        "line": 1779,
+        "reason": "F_STRING_SQL",
+        "expression": "f'RELEASE SAVEPOINT {savepoint}'"
+      },
+      {
+        "file": "quants/engine.py",
+        "line": 1783,
+        "reason": "F_STRING_SQL",
+        "expression": "f'ROLLBACK TO SAVEPOINT {savepoint}'"
+      },
+      {
+        "file": "quants/engine.py",
+        "line": 1784,
+        "reason": "F_STRING_SQL",
+        "expression": "f'RELEASE SAVEPOINT {savepoint}'"
+      },
+      {
+        "file": "quants/mcp_tools.py",
+        "line": 86,
+        "reason": "F_STRING_SQL",
+        "expression": "f'SELECT s.id,s.ts,s.trade_date,s.symbol,s.sector,s.price,s.change_pct,s.volume,\\n                   s.vwap,s.vwap_position,s.buy_vol,s.sell_vol,s.buy_ratio,s.net_flow_billion,\\n  "
+      },
+      {
+        "file": "quants/mcp_tools.py",
+        "line": 289,
+        "reason": "F_STRING_SQL",
+        "expression": "f'SELECT ts,level,component,message FROM system_events{where} ORDER BY id DESC LIMIT ?'"
+      },
+      {
+        "file": "quants/mcp_tools.py",
+        "line": 377,
+        "reason": "NON_LITERAL_SQL_ARGUMENT",
+        "expression": "'SELECT published_at,crawled_at,source,title,summary,url,symbols_json,sentiment,sentiment_score,pr_level,warning,event_type,event_confidence,source_reliability FROM media_articles "
+      },
+      {
+        "file": "quants/mcp_tools.py",
+        "line": 400,
+        "reason": "F_STRING_SQL",
+        "expression": "f'SELECT m.ts,m.factor,m.value,m.change_pct,m.unit,m.source,m.impact,m.analysis\\n            FROM macro_snapshots m JOIN (\\n                SELECT factor,MAX(id) AS max_id FROM mac"
+      },
+      {
+        "file": "quants/mcp_tools.py",
+        "line": 496,
+        "reason": "NON_LITERAL_SQL_ARGUMENT",
+        "expression": "'SELECT symbol,created_at,settled_at,predicted_pct,actual_pct,abs_error_pct,outcome,predicted_action,status FROM predictions WHERE ' + ' AND '.join(clauses) + ' ORDER BY COALESCE(s"
+      },
+      {
+        "file": "quants/mcp_tools.py",
+        "line": 419,
+        "reason": "F_STRING_SQL",
+        "expression": "f'SELECT COUNT(*) AS n FROM \"{safe_table}\"'"
+      },
+      {
+        "file": "quants/media.py",
+        "line": 55,
+        "reason": "NON_LITERAL_SQL_ARGUMENT",
+        "expression": "spec['create']"
+      },
+      {
+        "file": "quants/media.py",
+        "line": 61,
+        "reason": "F_STRING_SQL",
+        "expression": "f'ALTER TABLE \"{table}\" ADD COLUMN \"{column}\" {declaration}'"
+      },
+      {
+        "file": "quants/media.py",
+        "line": 56,
+        "reason": "F_STRING_SQL",
+        "expression": "f'PRAGMA table_info(\"{table}\")'"
+      },
+      {
+        "file": "quants/media.py",
+        "line": 66,
+        "reason": "F_STRING_SQL",
+        "expression": "f'PRAGMA table_info(\"{table}\")'"
+      }
+    ]
+  },
+  "table_access_inventory": {
+    "table_count_referenced": 19,
+    "tables": {
+      "app_meta": {
+        "operations": {
+          "INSERT": 1,
+          "READ": 2,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 285,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 290,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 779,
+            "operation": "READ"
+          }
+        ]
+      },
+      "auth_sessions": {
+        "operations": {
+          "CREATE": 1,
+          "INDEX_ON": 1,
+          "DELETE": 4,
+          "READ": 5,
+          "INSERT": 1,
+          "ALTER": 1,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 912,
+            "operation": "CREATE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 931,
+            "operation": "ALTER"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 942,
+            "operation": "INDEX_ON"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 956,
+            "operation": "DELETE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 956,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 957,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 969,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 986,
+            "operation": "DELETE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 986,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 991,
+            "operation": "DELETE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 991,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 1005,
+            "operation": "DELETE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 1005,
+            "operation": "READ"
+          }
+        ]
+      },
+      "flow_snapshots": {
+        "operations": {
+          "UPDATE": 1,
+          "READ": 5,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 457,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 493,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/engine.py",
+            "line": 934,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/engine.py",
+            "line": 946,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/engine.py",
+            "line": 1188,
+            "operation": "READ"
+          }
+        ]
+      },
+      "macro_snapshots": {
+        "operations": {
+          "READ": 6,
+          "UPDATE": 1,
+          "INSERT": 1,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "app.py",
+            "line": 1056,
+            "operation": "READ"
+          },
+          {
+            "file": "app.py",
+            "line": 1847,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/mcp_tools.py",
+            "line": 400,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/providers.py",
+            "line": 1961,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/providers.py",
+            "line": 1966,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/providers.py",
+            "line": 1969,
+            "operation": "INSERT"
+          }
+        ]
+      },
+      "market_bars": {
+        "operations": {
+          "READ": 2,
+          "INSERT": 1,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "app.py",
+            "line": 2254,
+            "operation": "READ"
+          },
+          {
+            "file": "app.py",
+            "line": 2257,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/smf_v2/persistence.py",
+            "line": 56,
+            "operation": "INSERT"
+          }
+        ]
+      },
+      "media_articles": {
+        "operations": {
+          "UPDATE": 5,
+          "READ": 8,
+          "INSERT": 1,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 429,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 430,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 432,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 434,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 437,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 440,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/engine.py",
+            "line": 1096,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/media.py",
+            "line": 255,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/media.py",
+            "line": 293,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/media.py",
+            "line": 307,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/media.py",
+            "line": 317,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/media.py",
+            "line": 516,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/media.py",
+            "line": 542,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/media.py",
+            "line": 546,
+            "operation": "READ"
+          }
+        ]
+      },
+      "media_symbol_daily": {
+        "operations": {
+          "READ": 2,
+          "INSERT": 1,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/media.py",
+            "line": 432,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/media.py",
+            "line": 556,
+            "operation": "READ"
+          }
+        ]
+      },
+      "model_performance": {
+        "operations": {
+          "READ": 4,
+          "INSERT": 1,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "app.py",
+            "line": 1863,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/audit.py",
+            "line": 143,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/audit.py",
+            "line": 174,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/audit.py",
+            "line": 177,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/mcp_tools.py",
+            "line": 530,
+            "operation": "READ"
+          }
+        ]
+      },
+      "prediction_versions": {
+        "operations": {
+          "READ": 4,
+          "UPDATE": 1,
+          "INSERT": 2,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "app.py",
+            "line": 1973,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/ai_engine.py",
+            "line": 808,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/ai_engine.py",
+            "line": 812,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/ai_engine.py",
+            "line": 816,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 512,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 528,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 552,
+            "operation": "READ"
+          }
+        ]
+      },
+      "predictions": {
+        "operations": {
+          "READ": 11,
+          "INSERT": 3,
+          "UPDATE": 2,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "app.py",
+            "line": 1907,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/ai_engine.py",
+            "line": 382,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/ai_engine.py",
+            "line": 826,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/ai_engine.py",
+            "line": 835,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/ai_engine.py",
+            "line": 843,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/audit.py",
+            "line": 15,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/audit.py",
+            "line": 85,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/audit.py",
+            "line": 101,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 507,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 573,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 586,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 657,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 673,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/learning.py",
+            "line": 97,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/learning.py",
+            "line": 281,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/mcp_tools.py",
+            "line": 453,
+            "operation": "READ"
+          }
+        ]
+      },
+      "settings": {
+        "operations": {
+          "READ": 5,
+          "INSERT": 4,
+          "DELETE": 3,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/learning.py",
+            "line": 167,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/learning.py",
+            "line": 179,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/learning.py",
+            "line": 209,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/learning.py",
+            "line": 214,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/learning.py",
+            "line": 216,
+            "operation": "DELETE"
+          },
+          {
+            "file": "quants/learning.py",
+            "line": 216,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/learning.py",
+            "line": 234,
+            "operation": "DELETE"
+          },
+          {
+            "file": "quants/learning.py",
+            "line": 234,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/learning.py",
+            "line": 253,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/learning.py",
+            "line": 255,
+            "operation": "DELETE"
+          },
+          {
+            "file": "quants/learning.py",
+            "line": 255,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/learning.py",
+            "line": 265,
+            "operation": "READ"
+          }
+        ]
+      },
+      "smf_v2_evidence": {
+        "operations": {
+          "READ": 1,
+          "INSERT": 1,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "app.py",
+            "line": 2256,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/smf_v2/persistence.py",
+            "line": 90,
+            "operation": "INSERT"
+          }
+        ]
+      },
+      "smf_v2_runs": {
+        "operations": {
+          "READ": 1,
+          "INSERT": 1,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "app.py",
+            "line": 2255,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/smf_v2/persistence.py",
+            "line": 78,
+            "operation": "INSERT"
+          }
+        ]
+      },
+      "sqlite_master": {
+        "operations": {
+          "READ": 3
+        },
+        "call_sites": [
+          {
+            "file": "quants/db.py",
+            "line": 357,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 741,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/mcp_tools.py",
+            "line": 413,
+            "operation": "READ"
+          }
+        ]
+      },
+      "stock_snapshots": {
+        "operations": {
+          "READ": 18,
+          "UPDATE": 1,
+          "ALTER": 1,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "app.py",
+            "line": 1184,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/ai_engine.py",
+            "line": 350,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/ai_engine.py",
+            "line": 598,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/ai_engine.py",
+            "line": 598,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 411,
+            "operation": "ALTER"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 457,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 612,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/engine.py",
+            "line": 884,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/engine.py",
+            "line": 965,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/engine.py",
+            "line": 970,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/engine.py",
+            "line": 1008,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/engine.py",
+            "line": 1107,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/mcp_tools.py",
+            "line": 86,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/mcp_tools.py",
+            "line": 298,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/mcp_tools.py",
+            "line": 322,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/media.py",
+            "line": 392,
+            "operation": "READ"
+          }
+        ]
+      },
+      "system_events": {
+        "operations": {
+          "INSERT": 3,
+          "READ": 1,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 327,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 344,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 1120,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/mcp_tools.py",
+            "line": 289,
+            "operation": "READ"
+          }
+        ]
+      },
+      "user_portfolios": {
+        "operations": {
+          "DELETE": 2,
+          "READ": 3,
+          "INSERT": 1,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 895,
+            "operation": "DELETE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 895,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 1009,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 1019,
+            "operation": "DELETE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 1019,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 1026,
+            "operation": "INSERT"
+          }
+        ]
+      },
+      "user_preferences": {
+        "operations": {
+          "INSERT": 1,
+          "DELETE": 2,
+          "READ": 4,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 894,
+            "operation": "DELETE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 894,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 1045,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 1059,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 1085,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 1100,
+            "operation": "DELETE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 1100,
+            "operation": "READ"
+          }
+        ]
+      },
+      "users": {
+        "operations": {
+          "INDEX_ON": 1,
+          "READ": 12,
+          "INSERT": 2,
+          "UPDATE": 8,
+          "CREATE": 1,
+          "DELETE": 1,
+          "ALTER": 1,
+          "SCHEMA_DECLARATION": 1
+        },
+        "call_sites": [
+          {
+            "file": "quants/db.py",
+            "line": 0,
+            "operation": "SCHEMA_DECLARATION"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 298,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 308,
+            "operation": "INDEX_ON"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 314,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 320,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 331,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 333,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 341,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 707,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 750,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 794,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 798,
+            "operation": "INSERT"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 810,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 821,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 837,
+            "operation": "CREATE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 861,
+            "operation": "ALTER"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 869,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 876,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 882,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 884,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 894,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 895,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 896,
+            "operation": "DELETE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 896,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 969,
+            "operation": "READ"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 1018,
+            "operation": "UPDATE"
+          },
+          {
+            "file": "quants/db.py",
+            "line": 1082,
+            "operation": "READ"
+          }
+        ]
+      }
+    }
+  },
+  "legacy_duplicate_module_inventory": [
+    {
+      "module": "ai_engine.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "audit.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "calendar_vn.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "chat_support.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "config.py",
+      "matches_quants_copy": false,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "db.py",
+      "matches_quants_copy": false,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "decision_report.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "dnse_provider.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "economic_framework.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "engine.py",
+      "matches_quants_copy": false,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "learning.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "market_display.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "mcp_chat.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "mcp_tools.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "media.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "model_stack.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "practical_flow.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "providers.py",
+      "matches_quants_copy": false,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "reversal.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "table_config.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "table_values.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "user_settings.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "vnstock_quality.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    },
+    {
+      "module": "vsa_chart.py",
+      "matches_quants_copy": true,
+      "runtime_imported_by_app": false
+    }
+  ],
+  "baseline_comparison": null,
+  "overall_schema_status": "PASS",
+  "data_continuity_review_required": false,
+  "production_readiness": "SCHEMA_DEFAULTS_REVIEW_REQUIRED"
+}

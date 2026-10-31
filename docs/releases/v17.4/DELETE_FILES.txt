@@ -1,0 +1,11 @@
+EXCLUDED FROM V17.4 FULL SOURCE ZIP (do not blindly delete production equivalents):
+- __pycache__/**
+- .pytest_cache/**
+- **/__pycache__/**
+- **/*.pyc
+- **/*.pyo
+- data/quants_pro.sqlite3 (only the 20 KB seed file from the uploaded source ZIP)
+- data/quants (one-byte placeholder)
+
+ROOT DUPLICATE LEGACY MODULES ARE NOT PART OF THIS DELETE LIST.
+The production Cloud DB is NOT part of this list.
