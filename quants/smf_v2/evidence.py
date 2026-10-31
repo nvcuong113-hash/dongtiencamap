@@ -144,12 +144,17 @@ def extract_row_evidence(row: dict[str, Any]) -> list[EvidenceRecord]:
         polarity = str(vsa.get("polarity") or "UNKNOWN").upper()
         if polarity not in {"BULLISH", "BEARISH", "NEUTRAL", "CONFLICTED"}:
             polarity = "UNKNOWN"
-        event_codes = [str(item.get("event")) for item in vsa.get("events", []) if isinstance(item, dict)]
+        event_codes = [
+            f"{item.get('event')}[{item.get('status', 'CANDIDATE')}]"
+            for item in vsa.get("events", []) if isinstance(item, dict)
+        ]
+        latest_polarity = str(vsa.get("latest_polarity") or vsa.get("polarity") or "UNKNOWN").upper()
+        evidence_polarity = latest_polarity if latest_polarity in {"BULLISH", "BEARISH", "NEUTRAL", "CONFLICTED"} else polarity
         output.append(_record(
-            row, "VOLUME_VSA", "vsa_effort_result_cluster", polarity,
+            row, "VOLUME_VSA", "vsa_effort_result_cluster", evidence_polarity,
             str(vsa.get("quality_status") or "PARTIAL"),
             str(vsa.get("strength") or "LOW"),
-            "VSA V2: " + ", ".join(event_codes) + ". " + str(vsa.get("quality_reason") or ""),
+            "VSA V3: " + ", ".join(event_codes) + ". " + str(vsa.get("quality_reason") or ""),
             ("smf_v2_vsa.events", "smf_v2_vsa.metrics", "smf_v2_vsa.quality_status"),
             "vsa_volume_v2", True, engine="vsa_volume_v2",
         ))

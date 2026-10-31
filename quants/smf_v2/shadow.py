@@ -62,7 +62,7 @@ def build_shadow_report(rows: list[dict[str, Any]] | None) -> dict[str, Any]:
         all_evidence.extend(evidence)
 
     return {
-        "schema_version": "2.2",
+        "schema_version": "2.3",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "mode": "SHADOW",
         "decision_impact": "NONE",
