@@ -24,7 +24,8 @@ jobs:
           test -f quants/smf_v2/__init__.py
           test -f quants/smf_v2/persistence.py
           test -f quants/smf_v2/fusion.py
-          python -c "import quants.smf_v2, quants.smf_v2.persistence, quants.smf_v2.fusion, quants.vsa_chart"
+          test -f quants/forecast_validation.py
+          python -c "import quants.smf_v2, quants.smf_v2.persistence, quants.smf_v2.fusion, quants.forecast_validation, quants.vsa_chart"
       - name: Compile
         run: python -m compileall -q app.py worker.py quants tests
       - name: Run tests
