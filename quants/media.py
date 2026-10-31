@@ -568,19 +568,16 @@ def crawl_media(watchlist, hours=48, extra_rss=''):
     return inserted, errors
 
 
-def analyze_media_semantics(limit=8, provider='Gemini'):
-    """Quota-bounded semantic analysis with content-hash cache and no paid fallback.
-
-    Cached interpretations can be applied without a model call. New content is sent
-    in one batched Gemini request and the legacy keyword/rule fields remain untouched.
-    """
+def _analyze_media_semantics_batch(limit=8, provider='Gemini', exclude_ids=None):
+    """Analyze one bounded batch and report enough state for a safe outer runner."""
     _ensure_media_schema()
     from .ai_engine import _call_gemini, _provider_is_cooling_down, _setting
 
     if str(provider).strip().lower() != 'gemini':
-        return 0, ['Media semantic batch currently supports Gemini only; no paid fallback is attempted.']
+        return {'processed': 0, 'errors': ['Media semantic batch currently supports Gemini only; no paid fallback is attempted.'],
+                'selected_ids': [], 'api_reserved': False}
     try:
-        batch_limit = max(1, min(12, int(limit)))
+        batch_limit = max(1, min(8, int(limit)))
     except Exception:
         batch_limit = 8
     try:
@@ -594,16 +591,31 @@ def analyze_media_semantics(limit=8, provider='Gemini'):
     api_allowed = bool(str(_setting('GEMINI_API_KEY') or '').strip())
     cooldown = _provider_is_cooling_down('Gemini') if api_allowed else False
     errors = []
+    excluded = sorted({int(x) for x in (exclude_ids or []) if str(x).isdigit()})
 
     with connect() as c:
         c.execute('BEGIN IMMEDIATE')
-        rows = c.execute("""SELECT id,title,summary,source,source_reliability,event_type,sector_tags,content_hash
+        where_excluded = ''
+        params = []
+        if excluded:
+            where_excluded = f" AND id NOT IN ({','.join('?' for _ in excluded)})"
+            params.extend(excluded)
+        params.append(batch_limit)
+        rows = c.execute(f"""SELECT id,title,summary,source,source_reliability,event_type,sector_tags,content_hash
             FROM media_articles WHERE COALESCE(semantic_status,'PENDING') IN ('PENDING','RETRY')
             AND datetime(COALESCE(published_at,crawled_at,fetched_at)) >= datetime('now','-72 hours')
-            ORDER BY COALESCE(source_reliability,0) DESC, COALESCE(published_at,crawled_at) DESC LIMIT ?""", (batch_limit,)).fetchall()
+            {where_excluded}
+            ORDER BY CASE COALESCE(topic_scope,'GENERAL')
+                WHEN 'MACRO' THEN 0 WHEN 'SECTOR' THEN 1 WHEN 'TICKER' THEN 2
+                WHEN 'PUBLISHER_RSS' THEN 3 ELSE 4 END,
+                CASE WHEN COALESCE(content_quality,'')='RSS_TITLE_SUMMARY' THEN 0 ELSE 1 END,
+                COALESCE(source_reliability,0) DESC,
+                COALESCE(published_at,crawled_at,fetched_at) DESC,
+                id ASC LIMIT ?""", params).fetchall()
         if not rows:
-            return 0, []
+            return {'processed': 0, 'errors': [], 'selected_ids': [], 'api_reserved': False}
         items = [dict(r) for r in rows]
+        selected_ids = [int(item['id']) for item in items]
         for item in items:
             ch = str(item.get('content_hash') or '')
             if ch:
@@ -615,14 +627,29 @@ def analyze_media_semantics(limit=8, provider='Gemini'):
             usage = c.execute('SELECT ai_calls FROM media_ai_usage WHERE usage_date=?', (today,)).fetchone()
             used = int(usage['ai_calls'] or 0) if usage else 0
             if not api_allowed:
-                errors.append('Thiếu GEMINI_API_KEY; chỉ áp dụng cache nếu có, bài mới giữ PENDING.')
+                message = 'Thiếu GEMINI_API_KEY; chỉ áp dụng cache nếu có, bài mới giữ PENDING.'
+                errors.append(message)
+                c.execute("""INSERT INTO media_ai_usage(usage_date,ai_calls,articles_analyzed,last_status,last_error,updated_at)
+                    VALUES(?,0,0,'BLOCKED_NO_KEY',?,?) ON CONFLICT(usage_date) DO UPDATE SET
+                    last_status='BLOCKED_NO_KEY',last_error=excluded.last_error,updated_at=excluded.updated_at""",
+                    (today, message, datetime.now(timezone.utc).isoformat()))
             elif cooldown:
-                errors.append('Gemini đang cooldown do quota/rate-limit; bài mới giữ PENDING.')
+                message = 'Gemini đang cooldown do quota/rate-limit; bài mới giữ PENDING.'
+                errors.append(message)
+                c.execute("""INSERT INTO media_ai_usage(usage_date,ai_calls,articles_analyzed,last_status,last_error,updated_at)
+                    VALUES(?,0,0,'COOLDOWN',?,?) ON CONFLICT(usage_date) DO UPDATE SET
+                    last_status='COOLDOWN',last_error=excluded.last_error,updated_at=excluded.updated_at""",
+                    (today, message, datetime.now(timezone.utc).isoformat()))
             elif used >= budget:
-                errors.append(f'Đã chạm ngân sách media AI hôm nay: {used}/{budget} request; bài mới giữ PENDING.')
+                message = f'Đã dùng hết ngân sách Media AI hôm nay: {used}/{budget} request; các bài còn lại được giữ để xử lý ở lượt sau.'
+                errors.append(message)
+                c.execute("""INSERT INTO media_ai_usage(usage_date,ai_calls,articles_analyzed,last_status,last_error,updated_at)
+                    VALUES(?,0,0,'QUOTA_REACHED',?,?) ON CONFLICT(usage_date) DO UPDATE SET
+                    last_status='QUOTA_REACHED',last_error=excluded.last_error,updated_at=excluded.updated_at""",
+                    (today, message, datetime.now(timezone.utc).isoformat()))
             else:
-                # Reserve one daily call before releasing the transaction to prevent
-                # concurrent Streamlit sessions from exceeding the configured budget.
+                # Reserve before releasing the transaction: concurrent Streamlit sessions
+                # cannot spend the same remaining quota slot twice.
                 c.execute("""INSERT INTO media_ai_usage(usage_date,ai_calls,articles_analyzed,last_status,last_error,updated_at)
                     VALUES(?,1,0,'RUNNING',NULL,?) ON CONFLICT(usage_date) DO UPDATE SET
                     ai_calls=ai_calls+1,last_status='RUNNING',last_error=NULL,updated_at=excluded.updated_at""",
@@ -666,6 +693,11 @@ def analyze_media_semantics(limit=8, provider='Gemini'):
     by_id = {int(x.get('id')): x for x in parsed_items if isinstance(x, dict) and str(x.get('id', '')).isdigit()}
     processed = 0
     now = datetime.now(timezone.utc).isoformat()
+    expected_model_ids = {int(x['id']) for x in pending} if api_reserved else set()
+    missing_ids = expected_model_ids - set(by_id)
+    if missing_ids and api_reserved and not errors:
+        errors.append(f'Gemini trả thiếu kết quả cho {len(missing_ids)}/{len(expected_model_ids)} bài; các bài thiếu được giữ RETRY.')
+
     with connect() as c:
         for item in items:
             if item['id'] in cached:
@@ -715,7 +747,163 @@ def analyze_media_semantics(limit=8, provider='Gemini'):
                       (processed, 'DONE' if not errors else 'PARTIAL', '; '.join(errors)[:500] if errors else None, now, today))
     if errors:
         event('WARN', 'media_ai', 'Semantic AI batch failed or partially returned', {'errors': errors, 'articles': len(items)})
-    return processed, errors
+    return {'processed': processed, 'errors': errors, 'selected_ids': selected_ids, 'api_reserved': api_reserved}
+
+
+def analyze_media_semantics(limit=8, provider='Gemini', max_batches=None):
+    """Process consecutive 8-article batches in one run, stopping at the shared daily quota.
+
+    ``limit`` is the per-request batch size (maximum 8), not the total number of articles.
+    Semantic analysis remains an isolated enrichment layer: legacy keyword scores and
+    forecast/trading outputs are not read or modified here. Cache hits use no API quota.
+    """
+    try:
+        batch_limit = max(1, min(8, int(limit)))
+    except Exception:
+        batch_limit = 8
+    try:
+        iteration_limit = max(1, min(100, int(max_batches))) if max_batches is not None else 100
+    except Exception:
+        iteration_limit = 100
+
+    total_processed = 0
+    all_errors = []
+    excluded_ids = set()
+    for _ in range(iteration_limit):
+        result = _analyze_media_semantics_batch(
+            limit=batch_limit, provider=provider, exclude_ids=excluded_ids
+        )
+        selected_ids = result.get('selected_ids') or []
+        if not selected_ids:
+            break
+        excluded_ids.update(int(x) for x in selected_ids)
+        total_processed += int(result.get('processed') or 0)
+        batch_errors = result.get('errors') or []
+        if batch_errors:
+            all_errors.extend(batch_errors)
+            # Do not spend the remaining quota retrying the same failed/partial workload.
+            break
+        if int(result.get('processed') or 0) <= 0:
+            break
+    else:
+        all_errors.append(f'Đã chạm giới hạn an toàn {iteration_limit} batch trong một lượt chạy; phần còn lại được giữ trong hàng đợi.')
+    return total_processed, all_errors
+
+
+def media_ai_queue_status(hours=72):
+    """Return transparent AI queue/quota counters; this is observability only."""
+    _ensure_media_schema()
+    from .ai_engine import _setting
+    try:
+        daily_limit = max(0, min(10, int(_setting('MEDIA_AI_DAILY_CALL_LIMIT', '2'))))
+    except Exception:
+        daily_limit = 2
+    today = datetime.now(timezone.utc).date().isoformat()
+    with connect() as c:
+        row = c.execute("""SELECT
+            SUM(CASE WHEN COALESCE(semantic_status,'PENDING') IN ('PENDING','RETRY')
+                AND datetime(COALESCE(published_at,crawled_at,fetched_at)) >= datetime('now',?) THEN 1 ELSE 0 END) AS eligible_pending,
+            SUM(CASE WHEN COALESCE(semantic_status,'PENDING') IN ('PENDING','RETRY')
+                AND datetime(COALESCE(published_at,crawled_at,fetched_at)) < datetime('now',?) THEN 1 ELSE 0 END) AS stale_pending,
+            SUM(CASE WHEN COALESCE(semantic_status,'PENDING')='DONE'
+                AND datetime(COALESCE(published_at,crawled_at,fetched_at)) >= datetime('now',?) THEN 1 ELSE 0 END) AS analyzed_recent
+            FROM media_articles""", (f'-{int(hours)} hours', f'-{int(hours)} hours', f'-{int(hours)} hours')).fetchone()
+        usage = c.execute("SELECT ai_calls,articles_analyzed,last_status,last_error FROM media_ai_usage WHERE usage_date=?", (today,)).fetchone()
+    ai_calls = int(usage['ai_calls'] or 0) if usage else 0
+    return {
+        'eligible_pending': int(row['eligible_pending'] or 0),
+        'stale_pending': int(row['stale_pending'] or 0),
+        'analyzed_recent': int(row['analyzed_recent'] or 0),
+        'ai_calls': ai_calls,
+        'daily_limit': daily_limit,
+        'remaining_calls': max(0, daily_limit - ai_calls),
+        'articles_analyzed_today': int(usage['articles_analyzed'] or 0) if usage else 0,
+        'last_status': str(usage['last_status'] or '') if usage else '',
+        'last_error': str(usage['last_error'] or '') if usage else '',
+    }
+
+
+def media_intelligence_snapshot(hours=72, limit=1500):
+    """Deterministic cross-article rollup of completed semantic evidence; never drives forecasts."""
+    _ensure_media_schema()
+    frame = query("""SELECT published_at,source,source_family,title,summary,source_reliability,
+        event_type,sector_tags,geo_scope,content_quality,semantic_json
+        FROM media_articles WHERE semantic_status='DONE'
+        AND datetime(COALESCE(published_at,crawled_at,fetched_at)) >= datetime('now',?)
+        ORDER BY COALESCE(source_reliability,0) DESC, COALESCE(published_at,crawled_at,fetched_at) DESC
+        LIMIT ?""", (f'-{int(hours)} hours', max(1, min(5000, int(limit)))))
+    records = frame.to_dict('records') if not frame.empty else []
+    event_groups = {}
+    sector_groups = {}
+    evidence = []
+    direction_score = 0.0
+    confidence_weight = 0.0
+    high_confidence = 0
+    source_families = set()
+    for row in records:
+        try:
+            sem = json.loads(row.get('semantic_json') or '{}')
+            if not isinstance(sem, dict):
+                continue
+        except Exception:
+            continue
+        try:
+            direction = max(-2.0, min(2.0, float(sem.get('direction') or 0)))
+            confidence = max(0.0, min(1.0, float(sem.get('confidence') or 0)))
+        except (TypeError, ValueError):
+            direction, confidence = 0.0, 0.0
+        direction_score += direction * confidence
+        confidence_weight += confidence
+        if confidence >= 0.7:
+            high_confidence += 1
+        source_family = str(row.get('source_family') or row.get('source') or 'UNKNOWN')
+        source_families.add(source_family)
+        event_type = str(sem.get('event_type') or row.get('event_type') or 'GENERAL')
+        eg = event_groups.setdefault(event_type, {'event_type': event_type, 'articles': 0, 'source_families': set(), 'weighted_direction': 0.0, 'confidence_sum': 0.0})
+        eg['articles'] += 1
+        eg['source_families'].add(source_family)
+        eg['weighted_direction'] += direction * confidence
+        eg['confidence_sum'] += confidence
+        for field, impact in (('beneficiary_sectors', 'BENEFICIARY'), ('adverse_sectors', 'ADVERSE')):
+            values = sem.get(field) if isinstance(sem.get(field), list) else []
+            for sector in values[:8]:
+                name = str(sector).strip()[:80]
+                if not name:
+                    continue
+                key = (name, impact)
+                sg = sector_groups.setdefault(key, {'sector': name, 'impact': impact, 'mentions': 0, 'weighted_direction': 0.0, 'source_families': set()})
+                sg['mentions'] += 1
+                sg['weighted_direction'] += direction * confidence
+                sg['source_families'].add(source_family)
+        evidence.append({
+            'published_at': row.get('published_at'), 'source': row.get('source'), 'title': row.get('title'),
+            'event_type': event_type, 'direction': int(direction), 'confidence': round(confidence, 2),
+            'causal_chain': str(sem.get('causal_chain') or '')[:500],
+            'counter_evidence': str(sem.get('counter_evidence') or '')[:300],
+            'content_quality': row.get('content_quality') or 'UNKNOWN',
+        })
+    events = [{**v, 'independent_source_families': len(v['source_families']),
+               'weighted_direction': round(v['weighted_direction'] / max(v['confidence_sum'], 0.0001), 2),
+               'average_confidence': round(v['confidence_sum'] / max(v['articles'], 1), 2)}
+              for v in event_groups.values()]
+    sectors = [{**v, 'independent_source_families': len(v['source_families']),
+                'weighted_direction': round(v['weighted_direction'] / max(v['mentions'], 1), 2)}
+               for v in sector_groups.values()]
+    for item in events:
+        item.pop('source_families', None)
+    for item in sectors:
+        item.pop('source_families', None)
+    events.sort(key=lambda x: (x['articles'], x['independent_source_families'], x['average_confidence']), reverse=True)
+    sectors.sort(key=lambda x: (x['mentions'], x['independent_source_families']), reverse=True)
+    evidence.sort(key=lambda x: (x['confidence'], x['published_at'] or ''), reverse=True)
+    return {
+        'hours': int(hours), 'semantic_articles': len(records), 'source_families': len(source_families),
+        'high_confidence_articles': high_confidence,
+        'weighted_direction': round(direction_score / max(confidence_weight, 0.0001), 2) if records else None,
+        'event_clusters': events[:8], 'sector_impacts': sectors[:12], 'top_evidence': evidence[:10],
+        'decision_impact': 'NONE',
+        'note': 'Tổng hợp thống kê từ các kết quả semantic đã lưu; không phải xác minh độc lập và không tác động điểm số/dự báo/giao dịch.',
+    }
 
 def sector_media_summary(hours=168):
     """Aggregate sector-level media; unknown/empty AI analysis remains explicitly missing."""
