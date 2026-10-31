@@ -1,0 +1,31 @@
+name: QUANTS PRO CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+      - name: Verify deployment layout and critical modules
+        run: |
+          test -f app.py
+          test -f quants/smf_v2/__init__.py
+          test -f quants/smf_v2/persistence.py
+          test -f quants/smf_v2/fusion.py
+          python -c "import quants.smf_v2, quants.smf_v2.persistence, quants.smf_v2.fusion, quants.vsa_chart"
+      - name: Compile
+        run: python -m compileall -q app.py worker.py quants tests
+      - name: Run tests
+        run: python -m pytest -q
