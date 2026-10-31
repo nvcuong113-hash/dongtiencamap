@@ -1,0 +1,21 @@
+QUANTS PRO V17.3 — TEST REPORT
+Build: SMF-P4-P5-20261031
+SMF Shadow schema: 2.5
+
+Regression result: 338 passed, 1 skipped.
+- `pytest -q`: 338 passed, 1 skipped.
+- `python -m compileall -q app.py worker.py quants tests`: passed.
+- Exact Full Source ZIP: extracted and retested; 338 passed, 1 skipped.
+- Exact Patch ZIP: applied over the uploaded V17.2 source and retested; 338 passed, 1 skipped.
+- ZIP CRC check: passed for both release archives.
+- New tests cover causal bar cutoff, candidate event sequences, non-voting P4 evidence, macro proxy freshness/multi-group risk tone, as-of fail-closed behavior, sector coverage and Shadow report integration.
+- Existing P3 sample validation and legacy application regression tests passed.
+
+Skipped test: `tests/test_mcp_runtime_smoke.py`; MCP SDK is not installed in this isolated environment.
+
+Backup validation: SQLite integrity `ok`; no foreign key violations; 19 tables.
+P4 replay: 1,905 daily bars, 15 symbols, 2026-05-04 to 2026-10-30. NKG is ACCUMULATION_CANDIDATE; LPB is REDISTRIBUTION_CANDIDATE. Event labels remain candidate-only.
+P5 replay: 13 Yahoo Finance proxy factors, 30–35 observations each, latest 2026-10-30. Macro tone = MIXED_PROXY. Sector leader/laggard cannot be replayed because the backup does not store verified same-session sector RS.
+P3 replay: stored schema 2.4 runs had NO_SAMPLE_PAYLOAD for 15/15 symbols.
+
+No DB migration; no changes to legacy score, P_Win, AI, forecast or decision gates. P4/P5 remain non-voting Shadow context.

@@ -7,7 +7,7 @@ from pandas.io.formats.style import Styler
 import streamlit as st
 
 st.set_page_config(
-    page_title="QUANTS PRO V17.2 - Order Flow Sample Intelligence",
+    page_title="QUANTS PRO V17.3 - Wyckoff A/D + Macro/Sector Context",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -1044,7 +1044,13 @@ with c_btn1:
             # legacy rows, scores, AI predictions, decision gates, or persistence.
             if smf_v2_shadow_enabled():
                 try:
-                    st.session_state.smf_v2_shadow = build_shadow_report(rows)
+                    try:
+                        _macro_df = query("SELECT ts, factor, value, change_pct, unit, source, impact, analysis FROM macro_snapshots ORDER BY ts, id")
+                        _macro_rows = _macro_df.to_dict("records") if _macro_df is not None and not _macro_df.empty else []
+                    except Exception as _macro_error:
+                        _macro_rows = []
+                        event("WARN", "smf_v2_macro_context", "Could not load macro proxy history", {"error_type": type(_macro_error).__name__})
+                    st.session_state.smf_v2_shadow = build_shadow_report(rows, macro_snapshots=_macro_rows)
                     st.session_state.smf_v2_shadow_error = None
                     try:
                         st.session_state.smf_v2_shadow_run_id = persist_shadow_report(st.session_state.smf_v2_shadow)
@@ -2094,7 +2100,7 @@ with tabs[3]:
                                 else:
                                     st.error(result.get("reason", "Rollback thất bại."))
 
-st.caption(f"Hệ thống QUANTS PRO V17.2 • Build: ORDER-FLOW-P3-20261031 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
+st.caption(f"Hệ thống QUANTS PRO V17.3 • Build: SMF-P4-P5-20261031 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
 
 with st.popover("💬 Trợ Lý AI Trực Tuyến"):
     st.markdown("#### 🤖 Trợ Lý Định Lượng AI (Bảng điện + Danh mục + Media + Vĩ mô)")
@@ -2229,7 +2235,7 @@ if is_admin:
 
 with tabs[4]:
     st.markdown("### 🧩 SMF V2 — Evidence Registry (Shadow)")
-    st.caption("Lớp bằng chứng mới chỉ đọc kết quả Quant hiện tại. Không thay đổi Signal Score, P_Win, cảnh báo đỉnh/đáy hoặc khuyến nghị đang chạy.")
+    st.caption("SMF V2.5 Shadow: Market Structure, VSA, Wyckoff A/D và Macro/Sector context. Không thay đổi Signal Score, P_Win, cảnh báo đỉnh/đáy hoặc khuyến nghị đang chạy.")
     shadow = st.session_state.get("smf_v2_shadow")
     shadow_error = st.session_state.get("smf_v2_shadow_error")
     if shadow_error:
@@ -2255,6 +2261,28 @@ with tabs[4]:
         if st.session_state.get("smf_v2_persist_error"):
             st.warning("Báo cáo Shadow vẫn hiển thị trong phiên này nhưng chưa lưu được vào DB: " + st.session_state["smf_v2_persist_error"])
         st.warning("Đây là bằng chứng nghiên cứu, không phải tín hiệu mua/bán. Các bằng chứng proxy và điểm tổng hợp legacy không được tính vào đồng thuận độc lập.")
+        macro_context = shadow.get("macro_context") or {}
+        st.markdown("#### 🌐 Macro Regime — Market Proxy")
+        mc1, mc2, mc3, mc4 = st.columns(4)
+        mc1.metric("Risk tone", macro_context.get("risk_tone", "INSUFFICIENT_DATA"))
+        mc2.metric("Risk-on groups", macro_context.get("risk_on_signal_count", 0))
+        mc3.metric("Risk-off groups", macro_context.get("risk_off_signal_count", 0))
+        mc4.metric("Latest proxy date", macro_context.get("latest_observation_date") or "N/A")
+        if macro_context.get("signals"):
+            st.dataframe(pd.DataFrame(macro_context.get("signals")), width="stretch", hide_index=True)
+        macro_factors = macro_context.get("factors") or {}
+        if macro_factors:
+            _macro_factor_rows = [{"Factor": name, **value} for name, value in macro_factors.items()]
+            st.dataframe(pd.DataFrame(_macro_factor_rows), width="stretch", hide_index=True)
+        st.caption("Macro context chỉ là proxy thị trường; không thay thế dữ liệu NHNN/GSO và không tham gia consensus.")
+        sector_context = shadow.get("sector_context") or {}
+        st.markdown("#### 🧭 Sector Rotation — Watchlist Scope")
+        sector_rows = sector_context.get("sectors") or []
+        if sector_rows:
+            st.dataframe(pd.DataFrame(sector_rows), width="stretch", hide_index=True)
+        else:
+            st.info("Chưa có dữ liệu nhóm ngành từ watchlist.")
+        st.caption("Xếp hạng ngành chỉ mô tả watchlist hiện tại; chỉ RS có benchmark cùng phiên mới được tính là verified.")
         instruments = shadow.get("instruments", [])
         overview = []
         for item in instruments:
@@ -2281,6 +2309,7 @@ with tabs[4]:
                 "Nhóm tăng": consensus.get("bullish_group_count", 0),
                 "Nhóm giảm": consensus.get("bearish_group_count", 0),
                 "Nhóm xung đột": ", ".join(consensus.get("conflicted_groups", [])),
+                "Wyckoff A/D": (item.get("accumulation_distribution") or {}).get("state"),
                 "VSA mới nhất": ", ".join(e.get("event", "") + "[" + e.get("status", "") + "]" for e in (item.get("vsa") or {}).get("latest_events", [])),
                 "VSA confirmed": (item.get("vsa") or {}).get("event_counts", {}).get("confirmed", 0),
                 "VSA failed": (item.get("vsa") or {}).get("event_counts", {}).get("failed", 0),
@@ -2345,6 +2374,26 @@ with tabs[4]:
                         st.caption("Retest đang theo dõi: " + str(structure_detail["active_retest"]))
                 else:
                     st.info("Chưa có kết quả Market Structure V2 cho mã này.")
+            ad_detail = selected.get("accumulation_distribution") or {}
+            with st.expander("🧩 Accumulation / Distribution State Machine V1", expanded=True):
+                if ad_detail:
+                    st.caption(
+                        f"Engine {ad_detail.get('engine_version', 'N/A')} · As-of {ad_detail.get('as_of_date') or 'N/A'} · "
+                        f"Causal: {ad_detail.get('causal')} · Future data: {ad_detail.get('future_data_used')} · "
+                        f"Quality: {ad_detail.get('quality_status')}"
+                    )
+                    st.info(f"State: {ad_detail.get('state', 'UNKNOWN')} · {ad_detail.get('state_interpretation', '')}")
+                    ad1, ad2, ad3, ad4 = st.columns(4)
+                    ad1.metric("Bullish setup score", ad_detail.get("bullish_setup_score", 0))
+                    ad2.metric("Bearish setup score", ad_detail.get("bearish_setup_score", 0))
+                    ad3.metric("Daily structure", ad_detail.get("daily_structure_state", "UNKNOWN"))
+                    ad4.metric("Weekly structure", ad_detail.get("weekly_structure_state", "UNKNOWN"))
+                    if ad_detail.get("events"):
+                        st.dataframe(pd.DataFrame(ad_detail.get("events")[-20:]), width="stretch", hide_index=True)
+                    if ad_detail.get("limitations"):
+                        st.caption(" · ".join(ad_detail.get("limitations", [])))
+                else:
+                    st.info("Chưa có kết quả Accumulation/Distribution cho mã này.")
             vsa_detail = selected.get("vsa") or {}
             with st.expander("📊 VSA / Volume Engine V2", expanded=True):
                 if vsa_detail:

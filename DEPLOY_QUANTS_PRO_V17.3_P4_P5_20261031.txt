@@ -1,0 +1,38 @@
+QUANTS PRO V17.3 — DEPLOYMENT GUIDE
+Build: SMF-P4-P5-20261031
+SMF report schema: 2.5
+
+1. PRE-DEPLOY BACKUP
+- Export/backup the production SQLite database from the running environment.
+- Preserve the exact backup outside the application source checkout.
+- Do not replace the production database with a source ZIP seed database. The V17.3 Full Source archive excludes the small empty seed file intentionally.
+
+2. DEPLOY OPTION
+- If the current deployment is the V17.2/P3 release: apply the Patch ZIP over the V17.2 source, or deploy the Full Source ZIP as a complete source replacement.
+- Keep Streamlit secrets/environment variables. Do not commit real secrets.
+- Ensure `QUANTS_DB_PATH` points to the existing durable database location if the platform uses a mounted persistent volume.
+
+3. DATABASE
+- No SQLite schema migration is introduced by P4/P5.
+- P4/P5 data is embedded in the existing `smf_v2_runs.report_json` / evidence JSON payloads.
+- The application still runs its existing idempotent `init_db()` bootstrap.
+
+4. VERIFY AFTER DEPLOY
+- UI footer must show `QUANTS PRO V17.3` and build `SMF-P4-P5-20261031`.
+- Sync once after deployment; Shadow report must show schema `2.5`.
+- Per symbol, inspect `Wyckoff A/D` state, event history, quality and reason codes.
+- Macro Risk tone must show proxy date, sub-signals and `MIXED_PROXY` / `RISK_*_PROXY` / `INSUFFICIENT_DATA` as appropriate.
+- Sector table must show watchlist coverage and must not rank sectors if same-session verified RS coverage is absent.
+- Legacy scores, P_Win, forecasts, AI recommendations and decision gates must behave as before.
+
+5. SAFETY BOUNDARIES
+- P4 labels are OHLCV-derived candidates; no claim of institution accumulation/distribution. Evidence is non-voting.
+- P5 macro values are Yahoo Finance proxies, not official Vietnamese statistics; no consensus vote. Sector context is current-watchlist-only.
+- P3 is integrated but the uploaded backup contained no Time & Sales payloads for 15/15 symbols. Validate authenticated live samples during a normal trading session before claiming P3 capture works.
+- Do not promote P4/P5 to consensus until multi-regime walk-forward / event-study validation is complete.
+
+6. ROLLBACK
+- Restore the prior V17.2 source release and the pre-deploy DB backup if the UI or app runtime fails.
+- Since P4/P5 make no schema changes, rollback does not require a reverse migration.
+
+This package was built and tested in an isolated workspace. No deployment to the user's Cloud environment was executed from this session.

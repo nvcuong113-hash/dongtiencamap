@@ -1,0 +1,602 @@
+{
+  "release": "QUANTS PRO V17.3 / SMF schema 2.5",
+  "replay_as_of_date": "2026-10-30",
+  "backup_file": "quants_pro_backup(20261031-020625).sqlite3",
+  "market_bars": {
+    "observations": 1905,
+    "symbols": 15,
+    "first_date": "2026-05-04",
+    "last_date": "2026-10-30",
+    "source_count": 1
+  },
+  "accumulation_distribution": {
+    "engine": "accumulation_distribution_v1",
+    "state_counts": {
+      "ACCUMULATION_CANDIDATE": 3,
+      "RANGE_OR_TRANSITION": 4,
+      "REACCUMULATION_CANDIDATE": 3,
+      "REDISTRIBUTION_CANDIDATE": 4,
+      "MIXED_TRANSITION": 1
+    },
+    "event_counts": {
+      "SOW_CANDIDATE": 48,
+      "LPSY_CANDIDATE": 93,
+      "SPRING_CANDIDATE": 54,
+      "TEST_CANDIDATE": 18,
+      "UPTHRUST_CANDIDATE": 17,
+      "BUYING_CLIMAX_CANDIDATE": 13,
+      "SOS_CANDIDATE": 25,
+      "SELLING_CLIMAX_CANDIDATE": 1,
+      "LPS_CANDIDATE": 18,
+      "STOPPING_VOLUME_CANDIDATE": 1
+    },
+    "symbols": [
+      {
+        "symbol": "CTG",
+        "as_of_date": "2026-10-30",
+        "bars_used": 127,
+        "state": "ACCUMULATION_CANDIDATE",
+        "state_strength": "LOW",
+        "quality_status": "PARTIAL",
+        "bullish_setup_score": 4,
+        "bearish_setup_score": 2,
+        "event_count": 22,
+        "latest_session_events": [],
+        "daily_structure_state": "RANGE_OR_TRANSITION",
+        "weekly_structure_state": "DOWNTREND"
+      },
+      {
+        "symbol": "FPT",
+        "as_of_date": "2026-10-30",
+        "bars_used": 127,
+        "state": "RANGE_OR_TRANSITION",
+        "state_strength": "LOW",
+        "quality_status": "PARTIAL",
+        "bullish_setup_score": 3,
+        "bearish_setup_score": 13,
+        "event_count": 17,
+        "latest_session_events": [
+          "LPSY_CANDIDATE"
+        ],
+        "daily_structure_state": "RANGE_OR_TRANSITION",
+        "weekly_structure_state": "RANGE_OR_TRANSITION"
+      },
+      {
+        "symbol": "GEG",
+        "as_of_date": "2026-10-30",
+        "bars_used": 127,
+        "state": "REACCUMULATION_CANDIDATE",
+        "state_strength": "LOW",
+        "quality_status": "PARTIAL",
+        "bullish_setup_score": 11,
+        "bearish_setup_score": 2,
+        "event_count": 21,
+        "latest_session_events": [],
+        "daily_structure_state": "UPTREND",
+        "weekly_structure_state": "DOWNTREND"
+      },
+      {
+        "symbol": "HCM",
+        "as_of_date": "2026-10-30",
+        "bars_used": 127,
+        "state": "RANGE_OR_TRANSITION",
+        "state_strength": "LOW",
+        "quality_status": "PARTIAL",
+        "bullish_setup_score": 2,
+        "bearish_setup_score": 4,
+        "event_count": 14,
+        "latest_session_events": [],
+        "daily_structure_state": "RANGE_OR_TRANSITION",
+        "weekly_structure_state": "DOWNTREND"
+      },
+      {
+        "symbol": "HPG",
+        "as_of_date": "2026-10-30",
+        "bars_used": 127,
+        "state": "REDISTRIBUTION_CANDIDATE",
+        "state_strength": "LOW",
+        "quality_status": "PARTIAL",
+        "bullish_setup_score": 0,
+        "bearish_setup_score": 4,
+        "event_count": 15,
+        "latest_session_events": [],
+        "daily_structure_state": "UPTREND",
+        "weekly_structure_state": "DOWNTREND"
+      },
+      {
+        "symbol": "HSG",
+        "as_of_date": "2026-10-30",
+        "bars_used": 127,
+        "state": "REACCUMULATION_CANDIDATE",
+        "state_strength": "LOW",
+        "quality_status": "PARTIAL",
+        "bullish_setup_score": 6,
+        "bearish_setup_score": 0,
+        "event_count": 20,
+        "latest_session_events": [],
+        "daily_structure_state": "UPTREND",
+        "weekly_structure_state": "DOWNTREND"
+      },
+      {
+        "symbol": "IDC",
+        "as_of_date": "2026-10-30",
+        "bars_used": 127,
+        "state": "MIXED_TRANSITION",
+        "state_strength": "LOW",
+        "quality_status": "PARTIAL",
+        "bullish_setup_score": 5,
+        "bearish_setup_score": 0,
+        "event_count": 14,
+        "latest_session_events": [],
+        "daily_structure_state": "UPTREND",
+        "weekly_structure_state": "DOWNTREND"
+      },
+      {
+        "symbol": "LPB",
+        "as_of_date": "2026-10-30",
+        "bars_used": 127,
+        "state": "REDISTRIBUTION_CANDIDATE",
+        "state_strength": "LOW",
+        "quality_status": "PARTIAL",
+        "bullish_setup_score": 0,
+        "bearish_setup_score": 7,
+        "event_count": 18,
+        "latest_session_events": [],
+        "daily_structure_state": "DOWNTREND",
+        "weekly_structure_state": "RANGE_OR_TRANSITION"
+      },
+      {
+        "symbol": "MSB",
+        "as_of_date": "2026-10-30",
+        "bars_used": 127,
+        "state": "RANGE_OR_TRANSITION",
+        "state_strength": "LOW",
+        "quality_status": "PARTIAL",
+        "bullish_setup_score": 8,
+        "bearish_setup_score": 4,
+        "event_count": 22,
+        "latest_session_events": [],
+        "daily_structure_state": "UPTREND",
+        "weekly_structure_state": "RANGE_OR_TRANSITION"
+      },
+      {
+        "symbol": "NKG",
+        "as_of_date": "2026-10-30",
+        "bars_used": 127,
+        "state": "ACCUMULATION_CANDIDATE",
+        "state_strength": "LOW",
+        "quality_status": "PARTIAL",
+        "bullish_setup_score": 9,
+        "bearish_setup_score": 1,
+        "event_count": 20,
+        "latest_session_events": [],
+        "daily_structure_state": "DOWNTREND",
+        "weekly_structure_state": "DOWNTREND"
+      },
+      {
+        "symbol": "SHS",
+        "as_of_date": "2026-10-30",
+        "bars_used": 127,
+        "state": "REDISTRIBUTION_CANDIDATE",
+        "state_strength": "LOW",
+        "quality_status": "PARTIAL",
+        "bullish_setup_score": 4,
+        "bearish_setup_score": 6,
+        "event_count": 28,
+        "latest_session_events": [],
+        "daily_structure_state": "DOWNTREND",
+        "weekly_structure_state": "DOWNTREND"
+      },
+      {
+        "symbol": "SSI",
+        "as_of_date": "2026-10-30",
+        "bars_used": 127,
+        "state": "REACCUMULATION_CANDIDATE",
+        "state_strength": "LOW",
+        "quality_status": "PARTIAL",
+        "bullish_setup_score": 3,
+        "bearish_setup_score": 0,
+        "event_count": 13,
+        "latest_session_events": [],
+        "daily_structure_state": "UPTREND",
+        "weekly_structure_state": "RANGE_OR_TRANSITION"
+      },
+      {
+        "symbol": "TCB",
+        "as_of_date": "2026-10-30",
+        "bars_used": 127,
+        "state": "RANGE_OR_TRANSITION",
+        "state_strength": "LOW",
+        "quality_status": "PARTIAL",
+        "bullish_setup_score": 3,
+        "bearish_setup_score": 0,
+        "event_count": 16,
+        "latest_session_events": [],
+        "daily_structure_state": "RANGE_OR_TRANSITION",
+        "weekly_structure_state": "RANGE_OR_TRANSITION"
+      },
+      {
+        "symbol": "TCH",
+        "as_of_date": "2026-10-30",
+        "bars_used": 127,
+        "state": "ACCUMULATION_CANDIDATE",
+        "state_strength": "LOW",
+        "quality_status": "PARTIAL",
+        "bullish_setup_score": 7,
+        "bearish_setup_score": 4,
+        "event_count": 23,
+        "latest_session_events": [
+          "UPTHRUST_CANDIDATE"
+        ],
+        "daily_structure_state": "RANGE_OR_TRANSITION",
+        "weekly_structure_state": "RANGE_OR_TRANSITION"
+      },
+      {
+        "symbol": "VND",
+        "as_of_date": "2026-10-30",
+        "bars_used": 127,
+        "state": "REDISTRIBUTION_CANDIDATE",
+        "state_strength": "LOW",
+        "quality_status": "PARTIAL",
+        "bullish_setup_score": 4,
+        "bearish_setup_score": 8,
+        "event_count": 25,
+        "latest_session_events": [],
+        "daily_structure_state": "UPTREND",
+        "weekly_structure_state": "DOWNTREND"
+      }
+    ],
+    "limitations": [
+      "All event labels are candidates or trend context, not confirmed accumulation/distribution.",
+      "Quality remains PARTIAL because only one OHLCV provider is represented.",
+      "No precision/recall, false-positive, lead-time, MFE/MAE or transaction-cost adjusted return claims are made."
+    ]
+  },
+  "macro_context": {
+    "engine": "macro_regime_proxy_v1",
+    "engine_version": "1.0.0",
+    "status": "PARTIAL",
+    "quality_status": "PARTIAL",
+    "as_of_date": "2026-10-30",
+    "latest_observation_date": "2026-10-30",
+    "risk_tone": "MIXED_PROXY",
+    "risk_on_signal_count": 0,
+    "risk_off_signal_count": 1,
+    "signal_count": 4,
+    "signals": [
+      {
+        "factor_group": "GLOBAL_EQUITIES",
+        "direction": "RISK_OFF",
+        "reason": "Trung bình 5 quan sát của Emerging Markets ETF proxy, S&P 500, NASDAQ Composite: -1.77%"
+      },
+      {
+        "factor_group": "VOLATILITY",
+        "direction": "NEUTRAL",
+        "reason": "VIX thay đổi 5.60% trong 5 quan sát"
+      },
+      {
+        "factor_group": "USD_STRENGTH",
+        "direction": "NEUTRAL",
+        "reason": "DXY thay đổi 0.00% trong 5 quan sát"
+      },
+      {
+        "factor_group": "US10Y_YIELD",
+        "direction": "NEUTRAL",
+        "reason": "US10Y thay đổi -0.057 điểm phần trăm trong 5 quan sát"
+      }
+    ],
+    "factors": {
+      "US3M_yield_proxy": {
+        "value": 3.9730000495910645,
+        "change_pct_1d": -0.6253090928781124,
+        "change_pct_5obs": -1.292,
+        "change_abs_5obs": -0.052,
+        "unit": "% yield (index proxy)",
+        "source": "Yahoo Finance (^IRX)",
+        "impact": "PROXY",
+        "observation_date": "2026-10-30",
+        "observations": 35,
+        "age_calendar_days": 0,
+        "fresh_for_as_of": true,
+        "source_type": "MARKET_PROXY"
+      },
+      "US5Y": {
+        "value": 4.720999717712402,
+        "change_pct_1d": -1.666327818635427,
+        "change_pct_5obs": -2.135,
+        "change_abs_5obs": -0.103,
+        "unit": "% yield (index proxy)",
+        "source": "Yahoo Finance (^FVX)",
+        "impact": "PROXY",
+        "observation_date": "2026-10-30",
+        "observations": 35,
+        "age_calendar_days": 0,
+        "fresh_for_as_of": true,
+        "source_type": "MARKET_PROXY"
+      },
+      "US10Y": {
+        "value": 4.928999900817871,
+        "change_pct_1d": -1.20264471157564,
+        "change_pct_5obs": -1.143,
+        "change_abs_5obs": -0.057,
+        "unit": "% yield (index proxy)",
+        "source": "Yahoo Finance (^TNX)",
+        "impact": "PROXY",
+        "observation_date": "2026-10-30",
+        "observations": 35,
+        "age_calendar_days": 0,
+        "fresh_for_as_of": true,
+        "source_type": "MARKET_PROXY"
+      },
+      "VIX": {
+        "value": 19.420000076293945,
+        "change_pct_1d": 12.90697217954715,
+        "change_pct_5obs": 5.601,
+        "change_abs_5obs": 1.03,
+        "unit": "index points",
+        "source": "Yahoo Finance (^VIX)",
+        "impact": "PROXY",
+        "observation_date": "2026-10-30",
+        "observations": 35,
+        "age_calendar_days": 0,
+        "fresh_for_as_of": true,
+        "source_type": "MARKET_PROXY"
+      },
+      "USD/VND": {
+        "value": 25799.0,
+        "change_pct_1d": -0.20501315178709234,
+        "change_pct_5obs": -0.159,
+        "change_abs_5obs": -41.0,
+        "unit": "ticker quote; verify provider convention",
+        "source": "Yahoo Finance (VND=X)",
+        "impact": "PROXY",
+        "observation_date": "2026-10-30",
+        "observations": 35,
+        "age_calendar_days": 0,
+        "fresh_for_as_of": true,
+        "source_type": "MARKET_PROXY"
+      },
+      "S&P 500": {
+        "value": 7580.06982421875,
+        "change_pct_1d": -1.8175287778868343,
+        "change_pct_5obs": -1.26,
+        "change_abs_5obs": -96.7002,
+        "unit": "index/market proxy points",
+        "source": "Yahoo Finance (^GSPC)",
+        "impact": "PROXY",
+        "observation_date": "2026-10-30",
+        "observations": 35,
+        "age_calendar_days": 0,
+        "fresh_for_as_of": true,
+        "source_type": "MARKET_PROXY"
+      },
+      "NASDAQ Composite": {
+        "value": 25436.998046875,
+        "change_pct_1d": -2.8555685765277783,
+        "change_pct_5obs": -2.799,
+        "change_abs_5obs": -732.3828,
+        "unit": "index/market proxy points",
+        "source": "Yahoo Finance (^IXIC)",
+        "impact": "PROXY",
+        "observation_date": "2026-10-30",
+        "observations": 35,
+        "age_calendar_days": 0,
+        "fresh_for_as_of": true,
+        "source_type": "MARKET_PROXY"
+      },
+      "Emerging Markets ETF proxy": {
+        "value": 61.040000915527344,
+        "change_pct_1d": -2.678571863007606,
+        "change_pct_5obs": -1.262,
+        "change_abs_5obs": -0.78,
+        "unit": "ETF price",
+        "source": "Yahoo Finance (EEM)",
+        "impact": "PROXY",
+        "observation_date": "2026-10-30",
+        "observations": 35,
+        "age_calendar_days": 0,
+        "fresh_for_as_of": true,
+        "source_type": "MARKET_PROXY"
+      },
+      "DXY": {
+        "value": 101.96399688720703,
+        "change_pct_1d": -0.07448454296196116,
+        "change_pct_5obs": 0.004,
+        "change_abs_5obs": 0.004,
+        "unit": "index/market proxy points",
+        "source": "Yahoo Finance (DX-Y.NYB)",
+        "impact": "PROXY",
+        "observation_date": "2026-10-30",
+        "observations": 30,
+        "age_calendar_days": 0,
+        "fresh_for_as_of": true,
+        "source_type": "MARKET_PROXY"
+      },
+      "Brent": {
+        "value": 112.33000183105469,
+        "change_pct_1d": -2.2197035892490113,
+        "change_pct_5obs": -3.005,
+        "change_abs_5obs": -3.48,
+        "unit": "futures price; provider quote unit",
+        "source": "Yahoo Finance (BZ=F)",
+        "impact": "PROXY",
+        "observation_date": "2026-10-30",
+        "observations": 30,
+        "age_calendar_days": 0,
+        "fresh_for_as_of": true,
+        "source_type": "MARKET_PROXY"
+      },
+      "WTI": {
+        "value": 102.94999694824219,
+        "change_pct_1d": 0.9313695571001812,
+        "change_pct_5obs": 1.169,
+        "change_abs_5obs": 1.19,
+        "unit": "futures price; provider quote unit",
+        "source": "Yahoo Finance (CL=F)",
+        "impact": "PROXY",
+        "observation_date": "2026-10-30",
+        "observations": 30,
+        "age_calendar_days": 0,
+        "fresh_for_as_of": true,
+        "source_type": "MARKET_PROXY"
+      },
+      "Gold": {
+        "value": 3884.89990234375,
+        "change_pct_1d": -3.633973397549295,
+        "change_pct_5obs": -3.801,
+        "change_abs_5obs": -153.5,
+        "unit": "futures price; provider quote unit",
+        "source": "Yahoo Finance (GC=F)",
+        "impact": "PROXY",
+        "observation_date": "2026-10-30",
+        "observations": 30,
+        "age_calendar_days": 0,
+        "fresh_for_as_of": true,
+        "source_type": "MARKET_PROXY"
+      },
+      "Copper": {
+        "value": 6.509500026702881,
+        "change_pct_1d": -1.086458382317046,
+        "change_pct_5obs": 0.023,
+        "change_abs_5obs": 0.0015,
+        "unit": "futures price; provider quote unit",
+        "source": "Yahoo Finance (HG=F)",
+        "impact": "PROXY",
+        "observation_date": "2026-10-30",
+        "observations": 30,
+        "age_calendar_days": 0,
+        "fresh_for_as_of": true,
+        "source_type": "MARKET_PROXY"
+      }
+    },
+    "commodity_proxy_avg_change_pct_5obs": -1.403,
+    "commodity_proxy_factors": [
+      "Brent",
+      "WTI",
+      "Copper",
+      "Gold"
+    ],
+    "reason_codes": [
+      "MARKET_PROXY_ONLY_NOT_OFFICIAL_MACRO"
+    ],
+    "limitations": [
+      "Yahoo Finance proxy không thay thế số liệu chính thức NHNN, GSO, Bộ Tài chính hoặc dữ liệu dòng vốn thực tế.",
+      "Risk tone là bộ lọc bối cảnh mô tả, không phải dự báo thị trường Việt Nam và không tham gia consensus.",
+      "US10Y tăng có thể phản ánh nhiều nguyên nhân; dấu hướng chỉ là quy tắc cảnh báo đơn giản, không phải kết luận nhân quả.",
+      "USD/VND không tham gia risk score do quy ước ticker/đơn vị provider cần xác minh độc lập."
+    ]
+  },
+  "sector_context": {
+    "engine": "sector_rotation_watchlist_v1",
+    "engine_version": "1.0.0",
+    "status": "PARTIAL",
+    "universe_scope": "CURRENT_WATCHLIST_ONLY",
+    "sectors": [
+      {
+        "sector": "Ngân hàng",
+        "symbol_count": 4,
+        "symbols": [
+          "CTG",
+          "LPB",
+          "MSB",
+          "TCB"
+        ],
+        "positive_watchlist_breadth_pct": 0.0,
+        "median_daily_return_pct": -2.387,
+        "verified_sector_rs_count": 0,
+        "mean_verified_sector_rs_pct": null,
+        "state": "INSUFFICIENT_RS_COVERAGE",
+        "status": "INSUFFICIENT_COVERAGE"
+      },
+      {
+        "sector": "Công nghệ",
+        "symbol_count": 1,
+        "symbols": [
+          "FPT"
+        ],
+        "positive_watchlist_breadth_pct": 0.0,
+        "median_daily_return_pct": 0.0,
+        "verified_sector_rs_count": 0,
+        "mean_verified_sector_rs_pct": null,
+        "state": "INSUFFICIENT_WATCHLIST_COVERAGE",
+        "status": "INSUFFICIENT_COVERAGE"
+      },
+      {
+        "sector": "Điện & năng lượng",
+        "symbol_count": 1,
+        "symbols": [
+          "GEG"
+        ],
+        "positive_watchlist_breadth_pct": 0.0,
+        "median_daily_return_pct": -1.681,
+        "verified_sector_rs_count": 0,
+        "mean_verified_sector_rs_pct": null,
+        "state": "INSUFFICIENT_WATCHLIST_COVERAGE",
+        "status": "INSUFFICIENT_COVERAGE"
+      },
+      {
+        "sector": "Chứng khoán",
+        "symbol_count": 4,
+        "symbols": [
+          "HCM",
+          "SHS",
+          "SSI",
+          "VND"
+        ],
+        "positive_watchlist_breadth_pct": 25.0,
+        "median_daily_return_pct": -1.501,
+        "verified_sector_rs_count": 0,
+        "mean_verified_sector_rs_pct": null,
+        "state": "INSUFFICIENT_RS_COVERAGE",
+        "status": "INSUFFICIENT_COVERAGE"
+      },
+      {
+        "sector": "Thép",
+        "symbol_count": 3,
+        "symbols": [
+          "HPG",
+          "HSG",
+          "NKG"
+        ],
+        "positive_watchlist_breadth_pct": 0.0,
+        "median_daily_return_pct": -1.653,
+        "verified_sector_rs_count": 0,
+        "mean_verified_sector_rs_pct": null,
+        "state": "INSUFFICIENT_RS_COVERAGE",
+        "status": "INSUFFICIENT_COVERAGE"
+      },
+      {
+        "sector": "Bất động sản KCN",
+        "symbol_count": 1,
+        "symbols": [
+          "IDC"
+        ],
+        "positive_watchlist_breadth_pct": 0.0,
+        "median_daily_return_pct": -3.933,
+        "verified_sector_rs_count": 0,
+        "mean_verified_sector_rs_pct": null,
+        "state": "INSUFFICIENT_WATCHLIST_COVERAGE",
+        "status": "INSUFFICIENT_COVERAGE"
+      },
+      {
+        "sector": "Bất động sản",
+        "symbol_count": 1,
+        "symbols": [
+          "TCH"
+        ],
+        "positive_watchlist_breadth_pct": 0.0,
+        "median_daily_return_pct": -2.869,
+        "verified_sector_rs_count": 0,
+        "mean_verified_sector_rs_pct": null,
+        "state": "INSUFFICIENT_WATCHLIST_COVERAGE",
+        "status": "INSUFFICIENT_COVERAGE"
+      }
+    ],
+    "limitations": [
+      "Không đại diện toàn bộ thị trường hoặc toàn ngành; chỉ tổng hợp các mã đang có trong watchlist.",
+      "Chỉ dùng RS ngành khi benchmark cùng phiên được provider xác nhận; proxy net flow không được diễn giải là dòng tiền thật.",
+      "Nhóm dưới 3 mã hoặc thiếu RS benchmark không được xếp hạng dẫn dắt/tụt hậu."
+    ]
+  },
+  "p3_observation": "Both stored schema 2.4 runs had NO_SAMPLE_PAYLOAD for all 15 symbols."
+}

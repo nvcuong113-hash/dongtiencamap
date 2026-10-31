@@ -1,0 +1,13 @@
+SAFE TO REMOVE FROM SOURCE CHECKOUT (not production data):
+__pycache__/ and all nested __pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+data/quants                  # stray 1-byte file
+data/quants_pro.sqlite3      # only the 20 KB seed in the uploaded ZIP; verify this exact file, never production DB
+tests/dnse_provider.py       # duplicate/uncollected copy
+
+DO NOT AUTO-DELETE:
+Root legacy modules; external scripts may import them.
+mcp_server.py root launcher; may be used by deployment.
+data/quants_pro.sqlite3 on the deployed Cloud volume; this is production data, not the source ZIP seed.

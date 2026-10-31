@@ -1,0 +1,243 @@
+{
+  "backup_file": "quants_pro_backup(20261031-020625).sqlite3",
+  "integrity_check": "ok",
+  "foreign_key_violation_count": 0,
+  "tables": [
+    "app_meta",
+    "auth_sessions",
+    "flow_snapshots",
+    "macro_snapshots",
+    "market_bars",
+    "media_articles",
+    "media_symbol_daily",
+    "model_performance",
+    "prediction_versions",
+    "predictions",
+    "settings",
+    "smf_v2_evidence",
+    "smf_v2_runs",
+    "sqlite_sequence",
+    "stock_snapshots",
+    "system_events",
+    "user_portfolios",
+    "user_preferences",
+    "users"
+  ],
+  "table_counts": {
+    "app_meta": 4,
+    "auth_sessions": 1,
+    "flow_snapshots": 0,
+    "macro_snapshots": 430,
+    "market_bars": 1905,
+    "media_articles": 0,
+    "media_symbol_daily": 0,
+    "model_performance": 0,
+    "prediction_versions": 82,
+    "predictions": 45,
+    "settings": 0,
+    "smf_v2_evidence": 212,
+    "smf_v2_runs": 2,
+    "sqlite_sequence": 8,
+    "stock_snapshots": 0,
+    "system_events": 1,
+    "user_portfolios": 0,
+    "user_preferences": 0,
+    "users": 1
+  },
+  "app_meta": {
+    "admin_bootstrap_status": "READY",
+    "admin_reset_secret_hash": "pbkdf2_sha256$310000$fb70635d6cb64d63ee1abb7f095951b6$c87bd5b6cd4b1da953a610e4e67327efe50607d4207d004507becf074fc54d10",
+    "db_schema_version": "20261031_v169_schema_audit_fk_v1",
+    "db_path": "/mount/src/dongtiencamap/data/quants_pro.sqlite3"
+  },
+  "smf_v2_runs": [
+    {
+      "id": 1,
+      "generated_at": "2026-10-31T02:05:02.322764+00:00",
+      "as_of_date": "2026-10-30",
+      "schema_version": "2.4",
+      "mode": "SHADOW",
+      "decision_impact": "NONE",
+      "instrument_count": 15,
+      "evidence_count": 106
+    },
+    {
+      "id": 2,
+      "generated_at": "2026-10-31T02:05:26.787890+00:00",
+      "as_of_date": "2026-10-30",
+      "schema_version": "2.4",
+      "mode": "SHADOW",
+      "decision_impact": "NONE",
+      "instrument_count": 15,
+      "evidence_count": 106
+    }
+  ],
+  "smf_run_details": [
+    {
+      "id": 1,
+      "schema_version": "2.4",
+      "instrument_count": 15,
+      "evidence_count": 106,
+      "order_flow_status_counts": {
+        "UNAVAILABLE|NO_SAMPLE_PAYLOAD": 15
+      }
+    },
+    {
+      "id": 2,
+      "schema_version": "2.4",
+      "instrument_count": 15,
+      "evidence_count": 106,
+      "order_flow_status_counts": {
+        "UNAVAILABLE|NO_SAMPLE_PAYLOAD": 15
+      }
+    }
+  ],
+  "market_bars": {
+    "observations": 1905,
+    "symbols": 15,
+    "first_date": "2026-05-04",
+    "last_date": "2026-10-30",
+    "source_count": 1
+  },
+  "market_bar_sources": [
+    {
+      "source_name": "VNDIRECT",
+      "quality_status": "OHLCV_VALID_VOLUME_PRESENT",
+      "observations": 1905
+    }
+  ],
+  "macro_factor_coverage": [
+    {
+      "factor": "Brent",
+      "unit": "futures price; provider quote unit",
+      "source": "Yahoo Finance (BZ=F)",
+      "impact": "PROXY",
+      "observations": 30,
+      "first_date": "2026-09-21",
+      "latest_date": "2026-10-30"
+    },
+    {
+      "factor": "Copper",
+      "unit": "futures price; provider quote unit",
+      "source": "Yahoo Finance (HG=F)",
+      "impact": "PROXY",
+      "observations": 30,
+      "first_date": "2026-09-21",
+      "latest_date": "2026-10-30"
+    },
+    {
+      "factor": "DXY",
+      "unit": "index/market proxy points",
+      "source": "Yahoo Finance (DX-Y.NYB)",
+      "impact": "PROXY",
+      "observations": 30,
+      "first_date": "2026-09-21",
+      "latest_date": "2026-10-30"
+    },
+    {
+      "factor": "Emerging Markets ETF proxy",
+      "unit": "ETF price",
+      "source": "Yahoo Finance (EEM)",
+      "impact": "PROXY",
+      "observations": 35,
+      "first_date": "2026-09-14",
+      "latest_date": "2026-10-30"
+    },
+    {
+      "factor": "Gold",
+      "unit": "futures price; provider quote unit",
+      "source": "Yahoo Finance (GC=F)",
+      "impact": "PROXY",
+      "observations": 30,
+      "first_date": "2026-09-21",
+      "latest_date": "2026-10-30"
+    },
+    {
+      "factor": "NASDAQ Composite",
+      "unit": "index/market proxy points",
+      "source": "Yahoo Finance (^IXIC)",
+      "impact": "PROXY",
+      "observations": 35,
+      "first_date": "2026-09-14",
+      "latest_date": "2026-10-30"
+    },
+    {
+      "factor": "S&P 500",
+      "unit": "index/market proxy points",
+      "source": "Yahoo Finance (^GSPC)",
+      "impact": "PROXY",
+      "observations": 35,
+      "first_date": "2026-09-14",
+      "latest_date": "2026-10-30"
+    },
+    {
+      "factor": "US10Y",
+      "unit": "% yield (index proxy)",
+      "source": "Yahoo Finance (^TNX)",
+      "impact": "PROXY",
+      "observations": 35,
+      "first_date": "2026-09-14",
+      "latest_date": "2026-10-30"
+    },
+    {
+      "factor": "US3M_yield_proxy",
+      "unit": "% yield (index proxy)",
+      "source": "Yahoo Finance (^IRX)",
+      "impact": "PROXY",
+      "observations": 35,
+      "first_date": "2026-09-14",
+      "latest_date": "2026-10-30"
+    },
+    {
+      "factor": "US5Y",
+      "unit": "% yield (index proxy)",
+      "source": "Yahoo Finance (^FVX)",
+      "impact": "PROXY",
+      "observations": 35,
+      "first_date": "2026-09-14",
+      "latest_date": "2026-10-30"
+    },
+    {
+      "factor": "USD/VND",
+      "unit": "ticker quote; verify provider convention",
+      "source": "Yahoo Finance (VND=X)",
+      "impact": "PROXY",
+      "observations": 35,
+      "first_date": "2026-09-14",
+      "latest_date": "2026-10-30"
+    },
+    {
+      "factor": "VIX",
+      "unit": "index points",
+      "source": "Yahoo Finance (^VIX)",
+      "impact": "PROXY",
+      "observations": 35,
+      "first_date": "2026-09-14",
+      "latest_date": "2026-10-30"
+    },
+    {
+      "factor": "WTI",
+      "unit": "futures price; provider quote unit",
+      "source": "Yahoo Finance (CL=F)",
+      "impact": "PROXY",
+      "observations": 30,
+      "first_date": "2026-09-21",
+      "latest_date": "2026-10-30"
+    }
+  ],
+  "coverage_tables": {
+    "media_articles": 0,
+    "media_symbol_daily": 0,
+    "macro_snapshots": 430,
+    "stock_snapshots": 0,
+    "flow_snapshots": 0
+  },
+  "findings": [
+    "Two stored Shadow runs use schema_version 2.4, mode SHADOW and decision_impact NONE.",
+    "P3 appears in stored report payloads, but all 15 symbols in both runs have NO_SAMPLE_PAYLOAD.",
+    "flow_snapshots and stock_snapshots are empty; the backup does not prove live Order Flow capture.",
+    "macro_snapshots contains 13 Yahoo Finance proxy factors with 30–35 observations each, latest 2026-10-30.",
+    "media_articles and media_symbol_daily are empty in this backup.",
+    "P4/P5 release has no SQLite schema migration."
+  ]
+}

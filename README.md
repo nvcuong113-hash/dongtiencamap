@@ -1,4 +1,4 @@
-# QUANTS PRO V17.2 — Order Flow Sample Intelligence
+# QUANTS PRO V17.3 — Wyckoff A/D + Macro/Sector Context
 
 ## What is included
 - Streamlit dashboard inspired by the supplied HTML concepts: Smart Flow Radar, Order Flow, Wyckoff Matrix, Alpha Factor Screener, Media Intelligence, Market Breadth/Sector Rotation, Macro & Backtest, System Health.
@@ -73,3 +73,11 @@ Suggested host cron schedule (Asia/Ho_Chi_Minh): market quant each minute during
 python -m unittest discover -s tests -v
 python -m compileall -q app.py worker.py quants tests
 ```
+
+
+## SMF V2.5 — P4/P5 Shadow additions
+
+- P4: Wyckoff-style accumulation/distribution candidate state engine from completed OHLCV bars, with prior-only baselines and no independent consensus vote.
+- P5: macro risk-tone context from Yahoo Finance market proxies and watchlist-scoped sector relative-strength breadth. Official macro releases and broad-market sector breadth are not inferred.
+- Both additions remain Shadow-only. They do not change legacy score, P_Win, forecast, AI decisions or trade gates.
+- SMF report schema: 2.5. No database schema migration is required.
