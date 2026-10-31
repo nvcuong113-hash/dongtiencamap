@@ -1843,7 +1843,7 @@ with tabs[1]:
         st.info("Chưa có dữ liệu snapshot. Vui lòng bấm nút **⚡ ĐỒNG BỘ TOÀN DIỆN** ở trên.")
 
 with tabs[2]:
-    st.markdown("### 🧭 CÂU CHUYỆN DÒNG TIỀN — TỪ VĨ MÔ ĐẾN TỪNG CỔ PHIẾU")
+    st.markdown("### 🧭 CÂU CHUYỆN DÒNG TIỀN")
     st.caption("Cửa sổ tin/tâm lý: 48 giờ · Giá: 3 phiên gần nhất · Vĩ mô: xu hướng 20 phiên khi đủ dữ liệu. Tab kể mối liên hệ từ điều kiện tiền tệ đến ngành, cổ phiếu và phản ứng cung cầu; không suy đoán danh tính hay ý đồ của một tổ chức/cá nhân.")
 
     # Refresh the same source data used by the research engines; presentation is a separate layer.
