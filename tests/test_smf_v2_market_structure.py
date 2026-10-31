@@ -67,6 +67,94 @@ class SMFV2MarketStructureTests(unittest.TestCase):
         self.assertEqual(report["invalid_bars_dropped"], 1)
         self.assertEqual(report["bars_used"], len(sample_bars()))
 
+    def test_break_events_include_prior_atr_quality_and_retest_outcome(self):
+        bars = sample_bars()
+        report = analyze_market_structure(bars, as_of_date=bars[-1]["date"], min_history=20)
+        break_events = [e for e in report["events"] if e["event"] in {"BOS_UP", "BOS_DOWN", "CHOCH_UP", "CHOCH_DOWN"}]
+        self.assertTrue(break_events)
+        for event in break_events:
+            self.assertIn("break_distance_atr", event)
+            self.assertIn(event["break_quality"], {"WEAK", "MODERATE", "STRONG"})
+            self.assertLess(event["level_confirmed_at"], event["date"])
+        retests = [e for e in report["events"] if e["event"].startswith("RETEST_")]
+        self.assertTrue(any(e["event"] == "RETEST_HOLD_UP" for e in retests))
+        self.assertTrue(any(e["event"] == "RETEST_FAIL_UP" for e in retests))
+
+    def test_weekly_structure_is_available_on_sufficient_history(self):
+        bars = []
+        start = date(2026, 1, 1)
+        day = start
+        close = 100.0
+        while len(bars) < 150:
+            if day.weekday() < 5:
+                previous = close
+                close = 100 + (len(bars) * 0.15) + ((len(bars) % 9) - 4) * 0.8
+                bars.append({
+                    "date": day.isoformat(), "open": previous,
+                    "high": max(previous, close) + 1.2,
+                    "low": min(previous, close) - 1.2,
+                    "close": close, "volume": 1000 + len(bars) * 5,
+                })
+            day += timedelta(days=1)
+        report = analyze_market_structure(bars, as_of_date=bars[-1]["date"], min_history=40)
+        self.assertEqual(report["status"], "AVAILABLE")
+        weekly = report["timeframes"]["weekly"]
+        self.assertEqual(weekly["timeframe"], "WEEKLY")
+        self.assertEqual(weekly["status"], "AVAILABLE")
+        self.assertGreaterEqual(weekly["bars_used"], 12)
+        self.assertIn(report["confluence"]["status"], {
+            "ALIGNED_BULLISH", "ALIGNED_BEARISH", "DIVERGENT", "MIXED_OR_TRANSITION", "PARTIAL"
+        })
+        self.assertIn("daily_structure_state", report["confluence"])
+        self.assertIn("weekly_structure_state", report["confluence"])
+        self.assertIn("event_context", report["confluence"])
+
+    def test_partial_latest_week_is_excluded_before_friday(self):
+        bars = []
+        start = date(2026, 1, 5)  # Monday
+        day = start
+        close = 100.0
+        while len(bars) < 100:
+            if day.weekday() < 5:
+                previous = close
+                close += 0.2 if len(bars) % 2 else -0.1
+                bars.append({
+                    "date": day.isoformat(), "open": previous,
+                    "high": max(previous, close) + 1,
+                    "low": min(previous, close) - 1,
+                    "close": close, "volume": 1000,
+                })
+            day += timedelta(days=1)
+        # Cut at Wednesday in the latest week, so this week's partial aggregate
+        # must not be used in weekly structure.
+        wed = next(b["date"] for b in reversed(bars) if date.fromisoformat(b["date"]).weekday() == 2)
+        report = analyze_market_structure(bars, as_of_date=wed, min_history=40)
+        weekly = report["timeframes"]["weekly"]
+        self.assertTrue(weekly["aggregation_meta"]["partial_latest_week_excluded"])
+        self.assertLess(weekly["latest_observation_date"], wed)
+
+
+    def test_weekly_completion_respects_configured_exchange_holiday(self):
+        from datetime import date as date_type
+        from unittest.mock import patch
+        from quants.smf_v2.market_structure import _week_is_complete
+
+        thursday = date_type(2026, 10, 29)
+        with patch.dict("os.environ", {"QUANTS_NON_TRADING_DATES": ""}, clear=False):
+            self.assertFalse(_week_is_complete(thursday))
+        with patch.dict("os.environ", {"QUANTS_NON_TRADING_DATES": "2026-10-30"}, clear=False):
+            self.assertTrue(_week_is_complete(thursday))
+
+    def test_future_data_does_not_change_any_existing_timeframe_output(self):
+        bars = sample_bars()
+        cutoff = bars[-8]["date"]
+        full = analyze_market_structure(bars, as_of_date=cutoff, min_history=20)
+        truncated = analyze_market_structure(bars[:-7], as_of_date=cutoff, min_history=20)
+        self.assertEqual(full["bias"], truncated["bias"])
+        self.assertEqual(full["events"], truncated["events"])
+        self.assertEqual(full["timeframes"]["weekly"]["bias"], truncated["timeframes"]["weekly"]["bias"])
+        self.assertEqual(full["timeframes"]["weekly"]["events"], truncated["timeframes"]["weekly"]["events"])
+
     def test_insufficient_history_does_not_emit_bias_or_break_events(self):
         report = analyze_market_structure(sample_bars()[:15], as_of_date="2026-01-15")
         self.assertEqual(report["status"], "INSUFFICIENT_HISTORY")

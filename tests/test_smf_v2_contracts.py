@@ -149,7 +149,26 @@ class SMFV2ContractTests(unittest.TestCase):
         consensus = aggregate_independent_groups(records)
         self.assertGreaterEqual(len(price_records), 2)
         self.assertEqual(consensus["independent_group_count"], 1)
-        self.assertEqual(consensus["group_votes"]["PRICE_ACTION"], "CONFLICTED")
+        # Native structure is now PARTIAL until independently corroborated, so it
+        # cannot cast a VERIFIED vote that would mask the conflicting legacy evidence.
+        self.assertEqual(consensus["group_votes"]["PRICE_ACTION"], "BEARISH")
+
+    def test_native_market_structure_has_correct_engine_lineage_and_partial_quality(self):
+        row = {
+            "symbol": "NKG", "trade_date": "2026-10-30",
+            "smf_v2_market_structure": {
+                "status": "AVAILABLE", "bias": "BULLISH", "latest_event": "BOS_UP",
+                "events": [{"event": "BOS_UP", "break_quality": "MODERATE"}],
+                "confluence": {"status": "ALIGNED_BULLISH", "weekly_bias": "BULLISH"},
+                "last_swing_high": {"price": 12000}, "last_swing_low": {"price": 11000},
+            },
+        }
+        record = next(x for x in extract_row_evidence(row) if x.feature == "multi_timeframe_market_structure")
+        self.assertEqual(record.engine, "market_structure_v2")
+        self.assertEqual(record.quality_status, "PARTIAL")
+        self.assertEqual(record.strength_label, "MEDIUM")
+        self.assertTrue(record.contributes_to_consensus)
+        self.assertEqual(aggregate_independent_groups([record])["independent_group_count"], 0)
 
     def test_shadow_report_does_not_mutate_legacy_row_or_emit_trade_signal(self):
         row = {
