@@ -7,7 +7,7 @@ from pandas.io.formats.style import Styler
 import streamlit as st
 
 st.set_page_config(
-    page_title="QUANTS PRO V17.0 - Market Structure Intelligence",
+    page_title="QUANTS PRO V17.1 - VSA Event Intelligence",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -2094,7 +2094,7 @@ with tabs[3]:
                                 else:
                                     st.error(result.get("reason", "Rollback thất bại."))
 
-st.caption(f"Hệ thống QUANTS PRO V17.0 • Build: MARKET-STRUCTURE-P1-20261031 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
+st.caption(f"Hệ thống QUANTS PRO V17.1 • Build: VSA-EVENT-P2-20261031 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
 
 with st.popover("💬 Trợ Lý AI Trực Tuyến"):
     st.markdown("#### 🤖 Trợ Lý Định Lượng AI (Bảng điện + Danh mục + Media + Vĩ mô)")
@@ -2281,7 +2281,10 @@ with tabs[4]:
                 "Nhóm tăng": consensus.get("bullish_group_count", 0),
                 "Nhóm giảm": consensus.get("bearish_group_count", 0),
                 "Nhóm xung đột": ", ".join(consensus.get("conflicted_groups", [])),
-                "Sự kiện VSA V2": ", ".join(e.get("label", e.get("event", "")) for e in (item.get("vsa") or {}).get("events", [])),
+                "VSA mới nhất": ", ".join(e.get("event", "") + "[" + e.get("status", "") + "]" for e in (item.get("vsa") or {}).get("latest_events", [])),
+                "VSA confirmed": (item.get("vsa") or {}).get("event_counts", {}).get("confirmed", 0),
+                "VSA failed": (item.get("vsa") or {}).get("event_counts", {}).get("failed", 0),
+                "VSA pending": (item.get("vsa") or {}).get("event_counts", {}).get("pending", 0),
                 "Chất lượng VSA": (item.get("vsa") or {}).get("quality_status"),
                 "Trạng thái": consensus.get("status"),
             })
@@ -2341,11 +2344,29 @@ with tabs[4]:
             vsa_detail = selected.get("vsa") or {}
             with st.expander("📊 VSA / Volume Engine V2", expanded=True):
                 if vsa_detail:
-                    st.caption(f"Ngày quan sát: {vsa_detail.get('latest_observation_date') or 'N/A'} · Trạng thái: {vsa_detail.get('status')} · Chất lượng: {vsa_detail.get('quality_status')}")
+                    st.caption(
+                        f"Engine {vsa_detail.get('engine_version', 'N/A')} · "
+                        f"Ngày quan sát: {vsa_detail.get('latest_observation_date') or 'N/A'} · "
+                        f"Trạng thái: {vsa_detail.get('status')} · Chất lượng: {vsa_detail.get('quality_status')}"
+                    )
+                    vc = vsa_detail.get("event_counts") or {}
+                    v1, v2, v3, v4 = st.columns(4)
+                    v1.metric("Confirmed", vc.get("confirmed", 0))
+                    v2.metric("Failed", vc.get("failed", 0))
+                    v3.metric("Pending", vc.get("pending", 0))
+                    v4.metric("Expired", vc.get("expired", 0))
+                    st.caption(
+                        f"Polarity latest: {vsa_detail.get('latest_polarity', 'UNKNOWN')} · "
+                        f"Polarity confirmed: {vsa_detail.get('confirmed_polarity', 'UNKNOWN')}"
+                    )
                     if vsa_detail.get("reason"):
                         st.info(vsa_detail.get("reason"))
+                    if vsa_detail.get("latest_events"):
+                        st.markdown("**Sự kiện phát sinh ở phiên mới nhất**")
+                        st.dataframe(pd.DataFrame(vsa_detail.get("latest_events")), width="stretch", hide_index=True)
                     if vsa_detail.get("events"):
-                        st.dataframe(pd.DataFrame(vsa_detail.get("events")), width="stretch", hide_index=True)
+                        with st.expander("Lịch sử sự kiện VSA trong cửa sổ quan sát", expanded=False):
+                            st.dataframe(pd.DataFrame(vsa_detail.get("events")), width="stretch", hide_index=True)
                     if vsa_detail.get("metrics"):
                         st.json(vsa_detail.get("metrics"))
                     st.caption(vsa_detail.get("quality_reason") or "")

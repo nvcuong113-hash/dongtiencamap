@@ -1,4 +1,4 @@
-# QUANTS PRO V17.0 — Market Structure Intelligence
+# QUANTS PRO V17.1 — VSA Event Intelligence
 
 ## What is included
 - Streamlit dashboard inspired by the supplied HTML concepts: Smart Flow Radar, Order Flow, Wyckoff Matrix, Alpha Factor Screener, Media Intelligence, Market Breadth/Sector Rotation, Macro & Backtest, System Health.

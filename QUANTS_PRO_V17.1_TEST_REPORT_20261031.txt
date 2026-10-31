@@ -1,0 +1,60 @@
+QUANTS PRO V17.1 — SMF P2 VSA EVENT ENGINE RELEASE TEST REPORT
+Date: 2026-10-31
+
+DEPLOYMENT VERIFICATION
+- Uploaded source contains V17.0 build marker MARKET-STRUCTURE-P1-20261031.
+- Latest persisted SMF run: schema 2.2, mode SHADOW, decision impact NONE.
+- 15 instruments, 95 evidence records.
+- market_bars: 1,905 completed daily OHLCV observations, 15 symbols, 127 sessions each, 2026-05-04 to 2026-10-30.
+- Every symbol had daily/weekly Market Structure V2 output AVAILABLE.
+- Native evidence lineage: market_structure_v2 (15 PARTIAL records); vsa_volume_v2 (2 PARTIAL records).
+- Uploaded SQLite integrity_check: ok.
+- Database was accessed read-only; no rows were modified.
+
+P2 CHANGES
+- VSA engine 2.1.0 -> 3.0.0.
+- Event candidate extraction uses rolling prior-only volume and spread baselines.
+- Added event families: selling climax, stopping volume, supply absorption candidate, no supply, buying climax, upthrust, high-volume selling pressure, high-volume rejection, no demand.
+- Added subsequent price follow-through statuses: CANDIDATE, PENDING, CONFIRMED, FAILED, EXPIRED.
+- Confirmation window default: 5 later completed sessions.
+- Separated latest polarity from confirmed-event polarity.
+- Added summary outcomes to native VSA evidence and refreshed the SMF V2 UI.
+- Shadow report format version: 2.3.
+- No DB schema migration.
+- Legacy scores, forecasts, AI prompts, decision gates and order recommendations unchanged.
+
+VSA REPLAY ON UPLOADED DATABASE
+- 15 symbols, 127 bars each.
+- 31 follow-through confirmations.
+- 12 failures.
+- 8 expired events.
+- 1 event pending.
+- 3 candidate events on latest as-of session.
+- 13 symbols had at least one event; 2 returned AVAILABLE_NO_EVENT.
+- NKG: one BUYING_CLIMAX_CANDIDATE (2026-10-15) failed on 2026-10-20.
+- LPB: confirmed bearish follow-through events; two candidates failed.
+- HPG: HIGH_VOLUME_REJECTION candidate on 2026-10-30, status CANDIDATE.
+- TCH: UPTHRUST_CANDIDATE and HIGH_VOLUME_SELLING_PRESSURE on 2026-10-30, both CANDIDATE.
+
+FULL TEST SUITE
+- pytest: 319 passed, 1 skipped.
+- Skipped: tests/test_mcp_runtime_smoke.py because MCP SDK is not installed in this test environment.
+- compileall: passed.
+- Read-only database schema audit: PASS.
+- 18/18 tables present.
+- 121/121 static SQL statements compile.
+- 30 dynamic/non-literal SQL statements remain inventoried for manual review.
+- SQLite integrity_check: ok; foreign_key_check: no violations.
+- Existing default-value review warning remains for media_symbol_daily; no schema changed by P2.
+
+LIMITATIONS
+- All OHLCV VSA events remain PARTIAL (single history provider).
+- CONFIRMED means later close crossed the candidate bar's expected extreme within the window; it is not an institutional flow confirmation, validated Wyckoff phase, or trading signal.
+- flow_snapshots is empty; real order-flow inference remains unavailable.
+- No precision/recall, lead-time, MFE/MAE or alpha claim.
+- No direct Streamlit browser smoke test was run in this environment.
+
+RELEASE
+- Version: V17.1.
+- Build marker: VSA-EVENT-P2-20261031.
+- Database schema migration: none.

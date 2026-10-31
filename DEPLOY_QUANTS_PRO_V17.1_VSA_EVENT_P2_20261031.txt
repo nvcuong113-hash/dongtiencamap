@@ -1,0 +1,32 @@
+QUANTS PRO V17.1 — DEPLOYMENT GUIDE
+Build marker: VSA-EVENT-P2-20261031
+
+1. BEFORE PUSH
+- Export and retain a fresh Cloud database backup.
+- Verify the exported backup contains the latest expected `app_meta.db_path`, `market_bars`, `smf_v2_runs`, `smf_v2_evidence`, users and auth_sessions.
+- Do not place the backup into the repository or replace `data/quants_pro.sqlite3` with a seed file.
+- The P2 patch has no SQLite schema migration.
+
+2. APPLY PATCH
+- Extract `QUANTS_PRO_V17.1_VSA_EVENT_ENGINE_PATCH_20261031.zip` at repository root.
+- Keep `app.py` at root and preserve all directories.
+- Commit/push to a staging branch first, then deploy to the intended production branch after review.
+
+3. VERIFY
+- Footer should show `QUANTS PRO V17.1` and `VSA-EVENT-P2-20261031`.
+- Run a full synchronization after deployment.
+- Open SMF V2 — Evidence Registry (Shadow).
+- Confirm latest run schema_version=2.3.
+- Confirm VSA events show CANDIDATE/PENDING/CONFIRMED/FAILED/EXPIRED and the counters.
+- Check that `market_bars` row counts are not unexpectedly reduced.
+- Legacy signal scores / forecasts / AI decision path should remain unchanged.
+
+4. DATABASE SAFETY
+- This patch changes no DB schema and runs no migration.
+- It still writes Shadow reports to the configured runtime DB during normal synchronization.
+- The backup reports the DB path under `/mount/src/...`; local filesystem persistence on a hosted app must not be assumed durable. Keep external backups and complete the durable database/storage migration before depending on Cloud-local SQLite as the only copy.
+- Never use the small SQLite seed included in source as the production database.
+
+5. ROLLBACK
+- Set `SMF_V2_SHADOW_ENABLED=0` to disable Shadow calculations, or revert P2 patch files to V17.0 to restore VSA 2.1.0.
+- No database rollback is required.
