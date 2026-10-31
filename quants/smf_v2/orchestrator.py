@@ -26,7 +26,7 @@ def analyze_shadow_engines(
     )
 
     return {
-        "schema_version": "2.5",
+        "schema_version": "2.6",
         "data_quality": quality,
         "market_structure": structure,
         "vsa": vsa,

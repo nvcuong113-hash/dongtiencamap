@@ -9,6 +9,7 @@ from .contracts import DataEnvelope
 from .evidence import aggregate_independent_groups, extract_row_evidence
 from .order_flow import analyze_order_flow_sample
 from .macro_regime import analyze_macro_regime, analyze_sector_rotation
+from .fusion import fuse_instrument_evidence, summarize_fusion
 
 
 def build_shadow_report(
@@ -71,22 +72,32 @@ def build_shadow_report(
 
     report_dates = [str(item.get("session_date"))[:10] for item in instruments if item.get("session_date")]
     as_of_date = max(report_dates) if report_dates else None
+    macro_context = analyze_macro_regime(macro_snapshots, as_of_date=as_of_date)
+    sector_context = analyze_sector_rotation(rows)
+    for instrument in instruments:
+        instrument["evidence_fusion"] = fuse_instrument_evidence(
+            instrument, macro_context=macro_context, sector_context=sector_context
+        )
+    fusion_summary = summarize_fusion(instruments)
     return {
-        "schema_version": "2.5",
+        "schema_version": "2.6",
+        "as_of_date": as_of_date,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "mode": "SHADOW",
         "decision_impact": "NONE",
         "instrument_count": len(instruments),
         "evidence_count": len(all_evidence),
         "quality_counts": dict(sorted(quality_counts.items())),
-        "macro_context": analyze_macro_regime(macro_snapshots, as_of_date=as_of_date),
-        "sector_context": analyze_sector_rotation(rows),
+        "macro_context": macro_context,
+        "sector_context": sector_context,
+        "fusion_summary": fusion_summary,
         "instruments": instruments,
         "guardrails": [
             "Không thay đổi signal_score, p_win, early_signal hoặc quyết định legacy",
             "Flow proxy không được tính là bằng chứng ORDER_FLOW có hướng",
             "Time & Sales Community chỉ là mẫu; không bỏ phiếu consensus và không chứng minh dòng tiền tổ chức",
             "Wyckoff Accumulation/Distribution và Macro/Sector context là lớp bối cảnh Shadow, không tham gia consensus",
+            "P6 Evidence Fusion gộp các engine dùng chung OHLCV thành một nguồn; chỉ mô tả hội tụ evidence, không phát tín hiệu giao dịch",
             "Điểm Top/Bottom/Signal legacy chỉ lưu để đối chiếu, không bỏ phiếu độc lập",
             "Không có calibrated_probability hoặc khuyến nghị giao dịch từ shadow report",
         ],
