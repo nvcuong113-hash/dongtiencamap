@@ -1,0 +1,28 @@
+QUANTS PRO V18.0 — TEST REPORT
+Date: 2026-10-31
+Scope: Media, Macro, MCP Intelligence, Shadow forecast overlay, regression compatibility.
+
+RESULTS
+- Full pytest suite: 373 passed, 1 skipped.
+- Python compileall (app.py, worker.py, quants): PASS.
+- New V18.0-focused tests: 11 passed.
+- Database schema SQL audit regression tests: PASS (included in full suite).
+- Patch ZIP applied over a clean V17.5 source extraction: 373 passed, 1 skipped.
+- Full Source ZIP extracted and tested independently: 373 passed, 1 skipped.
+
+BACKUP-COPY SMOKE TEST
+- Test DB was a disposable copy of the user-supplied SQLite backup; original backup was not modified.
+- SQLite migration: READY.
+- Schema version: 20261031_v180_media_macro_intelligence_v2.
+- MCP intelligence brief read the existing linear run: schema 2.6; mode SHADOW; decision_impact NONE; 15 instruments; 121 evidence.
+- Original backup had no media_articles; sector media summary therefore correctly returned zero articles.
+- Macro snapshot count in the original backup: 430; latest factor coverage: 13.
+- Separate Media-Macro Shadow forecasts created: 45 (15 symbols x T+2/T+3/T+7).
+- Shadow settlements: 0; all remain OPEN because there are no later validated bars in the backup.
+- Performance/model review: LOCKED_INSUFFICIENT_SAMPLE; paired overlay-vs-legacy scoring is implemented, but no automatic calibration/training. A synthetic paired-settlement test confirms the overlay-minus-legacy accuracy delta is reported.
+- Legacy predictions before and after the smoke test: unchanged (45 rows; same aggregate predicted_pct and P_WIN).
+
+LIMITATIONS
+- One skipped test depends on optional MCP SDK/runtime availability in the local test environment.
+- A passing local test suite does not prove live provider access, production secrets, scheduled job execution, or deployment to the user's hosting account.
+- Official Vietnamese monthly macro series, direct publisher full-text, and DNSE Time & Sales data are not part of this release.

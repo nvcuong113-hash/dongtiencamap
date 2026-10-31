@@ -1,4 +1,15 @@
-# QUANTS PRO V17.5 — P7 Forecast Validation & Walk-forward Readiness
+# QUANTS PRO V18.0 — Media, Macro & MCP Intelligence
+
+> V18.0 adds sector/global media intelligence, quota-bounded semantic AI, expanded market/macro data, economic-framework evidence mapping, scheduled Media+Macro jobs, and a non-voting Shadow forecast overlay. The linear P1–P7 track is frozen at its current V17.5/V2.6 state pending DNSE data integration.
+
+## V18.0 operating notes
+- Media sources now include publisher RSS feeds, Google News ticker/macro/global/sector queries, and official-statistics/news discovery candidates. RSS content is not the same as guaranteed full-article text; each item carries a content-quality marker.
+- Semantic AI uses Gemini batching (default 8 articles/call), cache-by-content, and a shared daily request cap (`MEDIA_AI_DAILY_CALL_LIMIT`, default 2; maximum 10). Without `GEMINI_API_KEY`, new items remain pending while cached interpretations remain usable. Manual runs share the same quota.
+- MCP does not silently fall back from Gemini to a potentially paid OpenAI API by default. `MCP_ALLOW_PAID_FALLBACK=true` explicitly enables that fallback.
+- New Media+Macro forecasts are stored separately in `intelligence_shadow_forecasts`; they do not overwrite legacy predictions, P_WIN, score, or decision gates. Initial overlay weights are exploratory and not calibrated.
+- The framework evidence map measures input coverage; it is not a causal/econometric model and does not prove actual money flows.
+- Scheduled worker jobs must run on a persistent host that shares the exact same database/storage with the application. Do not run a worker against a separate SQLite copy.
+
 
 ## What is included
 - Streamlit dashboard inspired by the supplied HTML concepts: Smart Flow Radar, Order Flow, Wyckoff Matrix, Alpha Factor Screener, Media Intelligence, Market Breadth/Sector Rotation, Macro & Backtest, System Health.
@@ -55,13 +66,16 @@ python worker.py quant
 python worker.py media
 python worker.py macro
 python worker.py settlement
+python worker.py intelligence-am
+python worker.py intelligence-pm
+python worker.py intelligence-manual
 ```
-Suggested host cron schedule (Asia/Ho_Chi_Minh): market quant each minute during market hours; media at 05:00 on trading days; macro 08:00 and 14:05; settlement at 15:05; weekly history refresh Friday 16:30. The current worker CLI supports single runs; schedule it with cron/systemd externally.
+For the V18.0 combined job, schedule `intelligence-am` daily at 06:00 and `intelligence-pm` daily at 12:00 (Asia/Ho_Chi_Minh). Use cron/systemd externally; the app does not host a background scheduler. The job is idempotent per local date/slot. `DONE` and `PARTIAL` slots will not automatically repeat; use `intelligence-manual` to force a manual collection run. All calls share the same semantic-AI daily quota.
 
 ## Important limitations and honest status
 - Public provider endpoints are undocumented and may change or block requests. Code is defensive and shows errors; live API compatibility must be tested in the deployment environment.
 - SSI deal-history may not expose aggressor-side fields consistently. Real Deal is labelled only if recognizable side data exists; otherwise flow is explicitly estimated.
-- The UI's F319 search is routed through Google News RSS for parseable feeds. Direct Telegram and 24HMoney ingestion need a permitted API/feed or user-provided RSS URL; this build does not pretend to scrape inaccessible private channels.
+- The UI's F319 and some publisher-specific discovery queries are routed through Google News RSS. Direct Telegram and 24HMoney ingestion need a permitted API/feed or user-provided RSS URL; this build does not pretend to scrape inaccessible private channels. V18.0 does not crawl publisher full-text pages or bypass paywalls; semantic analysis is limited to title, RSS description/summary, and RSS `content:encoded` when supplied. CafeF requires source attribution when reusing its news; VnEconomy RSS terms describe free use for individuals/non-profits, so commercial/internal-bank use should obtain written permission or a content license first.
 - Weekly MA10W/MA20W are approximated from the latest daily bars grouped by ISO week. Exact weekly candles should be validated against a trusted market-data source.
 - Index fallback basket aggregation is not used to fabricate the VN-Index. If all official/provider sources fail, the index is shown as unavailable.
 - The P_Win score is a rules-based heuristic, not a calibrated probability. Do not infer edge until enough out-of-sample settlements exist.
@@ -90,3 +104,12 @@ python -m compileall -q app.py worker.py quants tests
 ## P7 — Forecast Validation & Walk-forward Readiness
 
 P7 adds a read-only validation layer over the canonical `predictions` ledger. It distinguishes pending forecasts, matured-but-unsettled forecasts and valid settlements; rejects duplicate keys, inconsistent realized returns, wrong settlement horizons and explicit look-ahead/unusable-input flags. It reports MAE, RMSE, bias, directional hit rate with Wilson 95% interval and skill against a zero-return baseline only when each horizon reaches 30 valid settled samples. `p_win` Brier diagnostics require at least 100 valid directional samples, at least 20 cases in each class and at least 3 distinct forecast sessions; passing this threshold is not an approval. Existing `train_calibrator` remains subject to its own purged chronological holdout and explicit Admin governance. P7 performs no settlement, training, DB migration or live decision changes.
+
+
+## V18.0 limitations and deployment checklist
+- Official macro coverage is still incomplete for Vietnam: the current V18.0 structured sources include U.S. Treasury daily yields and World Bank annual indicators; Vietnamese M2, credit growth, policy rates, FDI and sector-level official series still require stable machine-readable official sources.
+- Yahoo Finance tickers and international ETFs are proxies for global prices/risk appetite, not direct measurements of capital flows into Vietnamese stocks or sectors.
+- World Bank annual series are structural context, not daily signals. The oil/gold ratio is a relative-price indicator, not a causal rule.
+- Directional Shadow backtest settles on validated close-to-close bars and compares the overlay with the legacy direction on the same outcome, by horizon. It does not yet include fees, slippage, market impact or execution PnL. Model/weight changes require at least 100 paired scored forecasts across 20 distinct trade dates, followed by walk-forward/sector/regime review; no automatic training is performed.
+- Back up the production SQLite database before deploying V18.0. The additive schema migration is designed for compatibility, but production migration must first be tested on a copy.
+- Streamlit Community Cloud does not guarantee durable files or a persistent cron worker. For scheduled collection, use a VPS/persistent volume with the app and worker sharing the same database. If they cannot share one durable SQLite file, migrate both to a shared PostgreSQL backend before enabling scheduled jobs.

@@ -7,7 +7,9 @@ from quants.providers import fetch_vnindex, fetch_macro
 from quants.engine import compute_quant, classify_market_regime
 from quants.ai_engine import run_ai, enforce_predictions, save_prediction_audit, persist_forecast_rows
 from quants.decision_report import build_decision_report, apply_decision_gates
-from quants.media import crawl_media
+from quants.media import crawl_media, analyze_media_semantics
+from quants.macro_intelligence import fetch_macro_extended
+from quants.intelligence_jobs import run_intelligence_job
 from quants.audit import settle_predictions, build_performance
 
 def run_once(job='quant'):
@@ -44,12 +46,19 @@ def run_once(job='quant'):
         print(f'forecast: symbols={len(predictions)}; forecasts_saved={saved}; index provider={index.get("provider")}')
     elif job=='media':
         n,errors=crawl_media(DEFAULT_WATCHLIST,48)
-        print(f'media: {n} articles; errors={errors}')
+        ai_n,ai_errors=analyze_media_semantics(limit=8)
+        print(f'media: {n} new articles; semantic_ai={ai_n}; errors={errors[:8]+ai_errors[:4]}')
     elif job=='settlement':
         n=settle_predictions(); results=build_performance(); print(f'settlement: {n}; performance groups={len(results)}')
     elif job=='macro':
-        data,errors=fetch_macro(); print({'macro':data,'errors':errors})
+        data,errors=fetch_macro_extended(include_official=True,force=True); print({'macro_market_proxies':len(data),'errors':errors})
+    elif job=='intelligence-am':
+        print(run_intelligence_job(slot='am',watchlist=DEFAULT_WATCHLIST))
+    elif job=='intelligence-pm':
+        print(run_intelligence_job(slot='pm',watchlist=DEFAULT_WATCHLIST))
+    elif job=='intelligence-manual':
+        print(run_intelligence_job(slot='manual',watchlist=DEFAULT_WATCHLIST,force_macro=True))
     else: raise ValueError(job)
 
 if __name__=='__main__':
-    p=argparse.ArgumentParser(); p.add_argument('job',choices=['quant','forecast','media','settlement','macro']); args=p.parse_args(); run_once(args.job)
+    p=argparse.ArgumentParser(); p.add_argument('job',choices=['quant','forecast','media','settlement','macro','intelligence-am','intelligence-pm','intelligence-manual']); args=p.parse_args(); run_once(args.job)
