@@ -52,7 +52,7 @@ def test_invalid_explicit_as_of_fails_closed_in_both_engines():
 def test_shadow_orchestrator_returns_shared_qc_without_decision_impact():
     bars = [_bar(f"2026-09-{day:02d}") for day in range(1, 31)]
     result = analyze_shadow_engines(bars, as_of_date="2026-09-30")
-    assert result["schema_version"] == "2.2"
+    assert result["schema_version"] == "2.3"
     assert result["data_quality"]["status"] == "AVAILABLE"
     assert result["market_structure"]["as_of_date"] == "2026-09-30"
     assert result["vsa"]["as_of_date"] == "2026-09-30"
