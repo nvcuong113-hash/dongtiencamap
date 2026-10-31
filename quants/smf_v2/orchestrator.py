@@ -22,7 +22,7 @@ def analyze_shadow_engines(
     vsa = analyze_vsa(bars, as_of_date=as_of_date)
 
     return {
-        "schema_version": "2.1",
+        "schema_version": "2.2",
         "data_quality": quality,
         "market_structure": structure,
         "vsa": vsa,

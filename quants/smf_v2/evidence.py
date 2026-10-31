@@ -34,14 +34,15 @@ def _evidence_id(symbol: str, trade_date: str | None, group: str, feature: str, 
 
 def _record(row: dict[str, Any], group: str, feature: str, polarity: str,
             quality: str, strength: str, summary: str, source_fields: Iterable[str],
-            source_name: str | None = None, contributes: bool = True) -> EvidenceRecord:
+            source_name: str | None = None, contributes: bool = True,
+            engine: str = "legacy_adapter_v2") -> EvidenceRecord:
     symbol = str(row.get("symbol") or "").strip().upper()
     session_date = _iso_date(row.get("trade_date") or row.get("latest_bar_date"))
     return EvidenceRecord(
         evidence_id=_evidence_id(symbol, session_date, group, feature, polarity),
         symbol=symbol,
         session_date=session_date,
-        engine="legacy_adapter_v2",
+        engine=engine,
         evidence_group=group,
         feature=feature,
         polarity=polarity,
@@ -55,7 +56,7 @@ def _record(row: dict[str, Any], group: str, feature: str, polarity: str,
 
 
 def extract_row_evidence(row: dict[str, Any]) -> list[EvidenceRecord]:
-    """Map only explicit legacy fields into V2 evidence; never infer shark identity."""
+    """Map native SMF V2 outputs and legacy diagnostics into traceable evidence."""
     if not isinstance(row, dict):
         return []
     symbol = str(row.get("symbol") or "").strip().upper()
@@ -76,17 +77,44 @@ def extract_row_evidence(row: dict[str, Any]) -> list[EvidenceRecord]:
     structure = row.get("smf_v2_market_structure") or {}
     if isinstance(structure, dict) and structure.get("status") == "AVAILABLE":
         bias = str(structure.get("bias") or "UNKNOWN").upper()
-        polarity = bias if bias in {"BULLISH", "BEARISH", "NEUTRAL"} else "UNKNOWN"
+        structure_state = str(structure.get("structure_state") or "UNKNOWN").upper()
+        event_polarity = bias if bias in {"BULLISH", "BEARISH", "NEUTRAL"} else "UNKNOWN"
+        trend_polarity = (
+            "BULLISH" if structure_state == "UPTREND" else
+            "BEARISH" if structure_state == "DOWNTREND" else "UNKNOWN"
+        )
+        polarity = (
+            "CONFLICTED" if event_polarity in {"BULLISH", "BEARISH"}
+            and trend_polarity in {"BULLISH", "BEARISH"} and event_polarity != trend_polarity
+            else trend_polarity if trend_polarity != "UNKNOWN" else event_polarity
+        )
         last_event = str(structure.get("latest_event") or "NONE")
         swing_high = structure.get("last_swing_high") or {}
         swing_low = structure.get("last_swing_low") or {}
+        confluence = structure.get("confluence") or {}
+        strength_map = {"STRONG": "HIGH", "MODERATE": "MEDIUM", "WEAK": "LOW"}
+        latest_break = next(
+            (item for item in reversed(structure.get("events", []))
+             if isinstance(item, dict) and item.get("break_quality")),
+            None,
+        )
+        structure_strength = strength_map.get(
+            str((latest_break or {}).get("break_quality") or "").upper(), "LOW"
+        )
         output.append(_record(
-            row, "PRICE_ACTION", "causal_swing_structure", polarity,
-            "VERIFIED", "MEDIUM",
-            f"Cấu trúc V2: {bias}; sự kiện {last_event}; kháng cự swing {swing_high.get('price')}; hỗ trợ swing {swing_low.get('price')}",
+            row, "PRICE_ACTION", "multi_timeframe_market_structure", polarity,
+            # One daily-history provider is structurally valid but not independently corroborated.
+            "PARTIAL", structure_strength,
+            f"Cấu trúc V2: daily_swing={structure_state}; event_bias={bias}; "
+            f"weekly_swing={confluence.get('weekly_structure_state', 'UNKNOWN')}; "
+            f"confluence={confluence.get('status', 'UNKNOWN')}; "
+            f"event_context={confluence.get('event_context', 'UNKNOWN')}; sự kiện={last_event}; "
+            f"kháng cự swing={swing_high.get('price')}; hỗ trợ swing={swing_low.get('price')}",
             ("smf_v2_market_structure.bias", "smf_v2_market_structure.events",
+             "smf_v2_market_structure.timeframes.weekly.bias",
+             "smf_v2_market_structure.confluence",
              "smf_v2_market_structure.last_swing_high", "smf_v2_market_structure.last_swing_low"),
-            "market_structure_v2", True,
+            "market_structure_v2", True, engine="market_structure_v2",
         ))
 
     # Group 2: relative strength vs benchmark. VN-index and sector RS are correlated
@@ -123,7 +151,7 @@ def extract_row_evidence(row: dict[str, Any]) -> list[EvidenceRecord]:
             str(vsa.get("strength") or "LOW"),
             "VSA V2: " + ", ".join(event_codes) + ". " + str(vsa.get("quality_reason") or ""),
             ("smf_v2_vsa.events", "smf_v2_vsa.metrics", "smf_v2_vsa.quality_status"),
-            "vsa_volume_v2", True,
+            "vsa_volume_v2", True, engine="vsa_volume_v2",
         ))
 
     # Legacy VSA flags are retained for comparison only. They are not a second vote.
