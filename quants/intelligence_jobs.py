@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from .config import TZ, DEFAULT_WATCHLIST
 from .db import connect, event
 from .media import crawl_media, analyze_media_semantics
+from .media_intelligence_v2 import (fetch_media_fulltext, build_market_narratives,
+    media_price_flow_alignment, build_media_early_warnings)
 from .macro_intelligence import fetch_macro_extended
 from .intelligence_forecast import generate_shadow_forecasts, settle_shadow_forecasts, build_shadow_performance
 
@@ -52,10 +54,21 @@ def run_intelligence_job(*, slot: str = "manual", watchlist=None, hours: int = 4
         result["macro_errors"] = macro_errors[:12]
         errors.extend(macro_errors)
 
+        # P0: bounded publisher-page enrichment before semantic analysis. Failure to
+        # retrieve full text is a quality warning, not a reason to lose the RSS record.
+        fulltext = fetch_media_fulltext(hours=min(72, max(hours, 24)), limit=16)
+        result["media_fulltext"] = fulltext
+
         ai_count, ai_errors = analyze_media_semantics(limit=ai_limit)
         result["media_ai_articles_analyzed"] = ai_count
         result["media_ai_errors"] = ai_errors[:8]
         errors.extend(ai_errors)
+
+        # P0/P1 research layers: descriptive narrative, factual price/flow cross-check,
+        # and candidate warnings. None of these writes to the SMF decision path.
+        result["market_narratives"] = build_market_narratives(hours=max(hours, 72))
+        result["media_price_flow_alignment"] = media_price_flow_alignment(hours=168, watchlist=symbols)
+        result["media_early_warnings"] = build_media_early_warnings(hours=24, watchlist=symbols)
 
         shadow_created = generate_shadow_forecasts(symbols)
         shadow_settled = settle_shadow_forecasts()

@@ -601,7 +601,7 @@ def _analyze_media_semantics_batch(limit=8, provider='Gemini', exclude_ids=None)
             where_excluded = f" AND id NOT IN ({','.join('?' for _ in excluded)})"
             params.extend(excluded)
         params.append(batch_limit)
-        rows = c.execute(f"""SELECT id,title,summary,source,source_reliability,event_type,sector_tags,content_hash
+        rows = c.execute(f"""SELECT id,title,summary,raw_text,content_quality,source,source_reliability,event_type,sector_tags,content_hash
             FROM media_articles WHERE COALESCE(semantic_status,'PENDING') IN ('PENDING','RETRY')
             AND datetime(COALESCE(published_at,crawled_at,fetched_at)) >= datetime('now','-72 hours')
             {where_excluded}
@@ -662,6 +662,8 @@ def _analyze_media_semantics_batch(limit=8, provider='Gemini', exclude_ids=None)
         prompt_items = [{
             'id': x['id'], 'title': str(x.get('title') or '')[:240],
             'summary': str(x.get('summary') or '')[:650], 'source': str(x.get('source') or '')[:90],
+            'content_quality': str(x.get('content_quality') or 'UNKNOWN'),
+            'article_text': (str(x.get('raw_text') or '')[:16000] if str(x.get('content_quality') or '').upper() in ('FULLTEXT', 'FULLTEXT_TRUNCATED', 'RSS_FULL_CONTENT') else str(x.get('summary') or '')[:650]),
             'source_reliability_prior': round(float(x.get('source_reliability') or 0.5), 2),
             'event_rule_hint': str(x.get('event_type') or 'GENERAL'),
             'sector_hint': str(x.get('sector_tags') or '[]')[:180],
@@ -672,7 +674,7 @@ def _analyze_media_semantics_batch(limit=8, provider='Gemini', exclude_ids=None)
             'Đọc thông điệp và chuỗi nhân quả phía sau, phân biệt sự kiện đã xảy ra, kế hoạch, kỳ vọng, tin đồn và ý kiến. '
             'Tìm tác động trực tiếp, tác động cấp 2 qua chuỗi cung ứng/giá đầu vào/FX/lãi suất/nhu cầu/chính sách; '
             'nêu ngành hưởng lợi, chịu thiệt, độ trễ, khung thời gian, yếu tố phản chứng và dữ kiện cần kiểm chứng. '
-            'Không suy diễn quan hệ nhân quả nếu chỉ có tương quan. Nếu tiêu đề/tóm tắt thiếu nội dung thì hạ confidence. '
+            'Không suy diễn quan hệ nhân quả nếu chỉ có tương quan. Đọc toàn bộ article_text được cung cấp; FULLTEXT_TRUNCATED là phần trích xuất bị giới hạn ký tự nên phải ghi rõ giới hạn và hạ confidence. ' 'Phân biệt FULLTEXT/RSS_FULL_CONTENT với RSS_TITLE_SUMMARY/RSS_TITLE_ONLY; nếu chỉ có title/summary thì hạ confidence và ghi rõ giới hạn. '
             'Trả về JSON duy nhất theo schema {"items":[{"id":int,"event_type":str,"event_status":str,'
             '"direction":int,"causal_chain":str,"first_order_effect":str,"second_order_effect":str,'
             '"beneficiary_sectors":[str],"adverse_sectors":[str],"time_horizon":str,"confidence":number,'

@@ -84,7 +84,13 @@ CREATE TABLE IF NOT EXISTS media_articles(
     novelty_score REAL, attention_score REAL,
     sector_tags TEXT, topic_scope TEXT, geo_scope TEXT, source_family TEXT,
     content_hash TEXT, content_quality TEXT, semantic_status TEXT,
-    semantic_json TEXT, semantic_model TEXT, semantic_at TEXT
+    semantic_json TEXT, semantic_model TEXT, semantic_at TEXT,
+    fulltext_status TEXT DEFAULT 'NOT_ATTEMPTED', fulltext_fetched_at TEXT, fulltext_error TEXT
+);
+CREATE TABLE IF NOT EXISTS media_semantic_history(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, article_id INTEGER NOT NULL,
+    semantic_json TEXT, semantic_model TEXT, semantic_at TEXT,
+    superseded_at TEXT NOT NULL, reason TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS media_ai_usage(
     usage_date TEXT PRIMARY KEY, ai_calls INTEGER NOT NULL DEFAULT 0,
@@ -171,7 +177,7 @@ CREATE TABLE IF NOT EXISTS app_meta(
 );
 '''
 
-DB_SCHEMA_VERSION = "20261031_v180_media_macro_intelligence_v2"
+DB_SCHEMA_VERSION = "20261031_v181_media_intelligence_v2"
 _DB_BOOTSTRAP_LOCK = threading.RLock()
 SESSION_TTL_DAYS = 7
 PASSWORD_HASH_ITERATIONS = 310_000
@@ -723,6 +729,7 @@ def _migrate_media_macro_columns(connection: sqlite3.Connection) -> None:
             "sector_tags": "TEXT", "topic_scope": "TEXT", "geo_scope": "TEXT", "source_family": "TEXT",
             "content_hash": "TEXT", "content_quality": "TEXT", "semantic_status": "TEXT",
             "semantic_json": "TEXT", "semantic_model": "TEXT", "semantic_at": "TEXT",
+            "fulltext_status": "TEXT DEFAULT 'NOT_ATTEMPTED'", "fulltext_fetched_at": "TEXT", "fulltext_error": "TEXT",
         },
         "macro_snapshots": {
             "source_type": "TEXT", "frequency": "TEXT", "geography": "TEXT", "series_id": "TEXT",
@@ -741,12 +748,20 @@ def _migrate_media_macro_columns(connection: sqlite3.Connection) -> None:
                 except sqlite3.OperationalError as exc:
                     if "duplicate column name" not in str(exc).lower():
                         raise
+    # Older schemas may have received this column through the generic legacy
+    # migrator as plain TEXT (without a DEFAULT). Backfill explicitly so both
+    # old and fresh databases have the same semantic state.
+    connection.execute("UPDATE media_articles SET fulltext_status='NOT_ATTEMPTED' WHERE fulltext_status IS NULL")
     # Runtime tables are declared in SCHEMA; these calls also support older databases.
     connection.execute("""CREATE TABLE IF NOT EXISTS media_ai_usage (
         usage_date TEXT PRIMARY KEY, ai_calls INTEGER NOT NULL DEFAULT 0,
         articles_analyzed INTEGER NOT NULL DEFAULT 0, last_status TEXT, last_error TEXT, updated_at TEXT)""")
     connection.execute("""CREATE TABLE IF NOT EXISTS media_semantic_cache (
         content_hash TEXT PRIMARY KEY, analysis_json TEXT NOT NULL, model TEXT, created_at TEXT NOT NULL)""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS media_semantic_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, article_id INTEGER NOT NULL,
+        semantic_json TEXT, semantic_model TEXT, semantic_at TEXT,
+        superseded_at TEXT NOT NULL, reason TEXT NOT NULL)""")
     connection.execute("""CREATE TABLE IF NOT EXISTS macro_source_runs (
         source_key TEXT PRIMARY KEY, fetched_at TEXT NOT NULL, rows_saved INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL, error_text TEXT)""")
