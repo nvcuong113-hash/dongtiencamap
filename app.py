@@ -7,13 +7,12 @@ from pandas.io.formats.style import Styler
 import streamlit as st
 
 st.set_page_config(
-    page_title="QUANTS PRO V17.3 - Wyckoff A/D + Macro/Sector Context",
+    page_title="QUANTS PRO V17.4 - Evidence Fusion",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-import streamlit.components.v1 as components
 import extra_streamlit_components as stx
 
 from quants.config import APP_NAME, DEFAULT_WATCHLIST, SECTORS, TZ, DB_PATH
@@ -82,12 +81,12 @@ def show_configurable_table(data, key, **kwargs):
     # Nút mở popover; danh sách cột bật/tắt bằng checkbox.
     with st.popover("⚙️", help="Chỉ thay đổi cách hiển thị, không ảnh hưởng dữ liệu hoặc tính toán."):
         left, right = st.columns(2)
-        if left.button("Hiện tất cả", key=f"show_all_columns_{key}", use_container_width=True):
+        if left.button("Hiện tất cả", key=f"show_all_columns_{key}", width="stretch"):
             st.session_state[state_key] = cols
             for c in cols:
                 st.session_state[f"show_col_{key}_{c}"] = True
             st.rerun()
-        if right.button("Ẩn tất cả", key=f"hide_all_columns_{key}", use_container_width=True):
+        if right.button("Ẩn tất cả", key=f"hide_all_columns_{key}", width="stretch"):
             # Luôn giữ ít nhất một cột để bảng còn hiển thị được.
             first = cols[0]
             st.session_state[state_key] = [first]
@@ -236,11 +235,11 @@ def configure_radar_columns(frame: pd.DataFrame, user_id: int, username: str | N
                     st.rerun()
 
             quick_all, quick_undo = st.columns(2)
-            if quick_all.button("Hiện tất cả", key=f"radar_columns_all_{safe_user}", use_container_width=True):
+            if quick_all.button("Hiện tất cả", key=f"radar_columns_all_{safe_user}", width="stretch"):
                 if save_preference(available):
                     st.session_state[reset_draft_pending_key] = True
                     st.rerun()
-            if quick_undo.button("Hoàn tác", key=f"radar_columns_undo_{safe_user}", use_container_width=True):
+            if quick_undo.button("Hoàn tác", key=f"radar_columns_undo_{safe_user}", width="stretch"):
                 st.session_state[reset_draft_pending_key] = True
                 st.rerun()
 
@@ -256,13 +255,13 @@ def configure_radar_columns(frame: pd.DataFrame, user_id: int, username: str | N
                 st.warning("Phải chọn ít nhất một cột để hiển thị bảng.")
             save_col, reset_col = st.columns([3, 1])
             with save_col:
-                if st.button("Lưu cấu hình", key=f"radar_columns_apply_{safe_user}", type="primary", use_container_width=True):
+                if st.button("Lưu cấu hình", key=f"radar_columns_apply_{safe_user}", type="primary", width="stretch"):
                     if draft:
                         if save_preference(draft):
                             st.toast("Đã lưu cấu hình cột Radar vào tài khoản.", icon="✅")
                             st.rerun()
             with reset_col:
-                if st.button("Đặt mặc định", key=f"radar_columns_reset_{safe_user}", help="Hiển thị toàn bộ cột đang có.", use_container_width=True):
+                if st.button("Đặt mặc định", key=f"radar_columns_reset_{safe_user}", help="Hiển thị toàn bộ cột đang có.", width="stretch"):
                     if save_preference(available):
                         st.session_state[reset_draft_pending_key] = True
                         st.rerun()
@@ -376,7 +375,7 @@ def render_vsa_chart_station(filtered_symbols: list[str], all_rows: list[dict], 
         bars, hist_provider, _ = _cached_symbol_history(selected_sym, days=220)
         prepared = prepare_vsa_bars(bars, cur_row, lookback=lookback_sessions)
         fig = build_vsa_plotly_figure(selected_sym, prepared, cur_row, cur_dec)
-        st.plotly_chart(fig, use_container_width=True, config={"displaylogo": False})
+        st.plotly_chart(fig, width="stretch", config={"displaylogo": False})
         st.caption(
             f"Nguồn lịch sử nến: {hist_provider} • Kế hoạch thực chiến: {cur_row.get('combat_plan') or 'Chưa đủ dữ liệu cấu trúc'} "
             f"• Nhận định VSA: {cur_row.get('ai_vsa') or 'Chưa chạy AI'}"
@@ -1040,6 +1039,15 @@ with c_btn1:
     if st.button("⚡ ĐỒNG BỘ TOÀN DIỆN ", type="primary", width="stretch", key="sync_all_button"):
         with st.spinner("Đang quét vi cấu trúc song song, tính R:R thực chiến và chạy AI 2 tầng..."):
             rows, errors = compute_quant(st.session_state.active_watchlist, index, datetime.now(TZ))
+            # Refresh and persist macro history BEFORE the P5/P6 Shadow build.
+            # Otherwise the first sync after a cold start can report no macro data
+            # even though fetch_macro() populates the database moments later.
+            macro_list, macro_errors = fetch_macro()
+            st.session_state.macro_data = macro_list
+            if macro_errors:
+                event("WARN", "macro", "Macro proxy refresh partially failed", {
+                    "error_count": len(macro_errors), "errors": macro_errors[:8]
+                })
             # V2 shadow sidecar: create traceable evidence only. It must never modify
             # legacy rows, scores, AI predictions, decision gates, or persistence.
             if smf_v2_shadow_enabled():
@@ -1070,8 +1078,6 @@ with c_btn1:
             else:
                 st.session_state.smf_v2_shadow = None
                 st.session_state.smf_v2_shadow_error = None
-            macro_list, _ = fetch_macro()
-            st.session_state.macro_data = macro_list
             med_df = recent_media(hours=48, limit=20, refresh=False)
             med_ctx = med_df[["title", "symbols", "sentiment", "lai_intent"]].to_dict(orient="records") if not med_df.empty else []
 
@@ -1795,7 +1801,7 @@ with tabs[1]:
                 rows_html.append('<tr>' + ''.join(cells) + '</tr>')
             css = """<style>*{box-sizing:border-box}body{margin:0;background:#07101c;color:#dbeafe;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}.wrap{height:550px;overflow:auto;width:100%;border:1px solid #294563;border-radius:10px;background:#07101c}table{border-collapse:separate;border-spacing:0;white-space:nowrap;width:max-content;min-width:100%;font-size:12px;table-layout:auto}th,td{padding:9px 10px;border-right:1px solid #1b3046;border-bottom:1px solid #1b3046;text-align:left;height:37px;background:#081827;vertical-align:middle}th{position:sticky;top:0;z-index:5;background:#10243a;color:#9fc4f5;font-weight:650;line-height:1.35}.wraptxt{white-space:normal!important;overflow-wrap:anywhere;word-break:break-word;max-width:300px;min-width:220px;vertical-align:top;line-height:1.4}.pin{position:sticky;z-index:3;background:#0b1b2d;box-shadow:1px 0 0 #294563;white-space:nowrap}th.pin{z-index:8;background:#10243a}tr:hover td{background:#10243a}tr:hover td.pin{background:#10243a}</style>"""
             table = css + '<div class="wrap"><table><thead><tr>' + ''.join(heads) + '</tr></thead><tbody>' + ''.join(rows_html) + '</tbody></table></div>'
-            components.html(table, height=565, scrolling=False)
+            st.iframe(table, height=565, width="stretch")
         # Keep the control in the main layout at full width. Placing the popover in a
         # 1/17-width column made the icon-only trigger too narrow/easy to miss on the
         # deployed mobile/desktop layout. The labeled trigger must be visible above
@@ -2100,7 +2106,7 @@ with tabs[3]:
                                 else:
                                     st.error(result.get("reason", "Rollback thất bại."))
 
-st.caption(f"Hệ thống QUANTS PRO V17.3 • Build: SMF-P4-P5-20261031 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
+st.caption(f"Hệ thống QUANTS PRO V17.4 • Build: SMF-P6-EVIDENCE-FUSION-20261031 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
 
 with st.popover("💬 Trợ Lý AI Trực Tuyến"):
     st.markdown("#### 🤖 Trợ Lý Định Lượng AI (Bảng điện + Danh mục + Media + Vĩ mô)")
@@ -2235,7 +2241,7 @@ if is_admin:
 
 with tabs[4]:
     st.markdown("### 🧩 SMF V2 — Evidence Registry (Shadow)")
-    st.caption("SMF V2.5 Shadow: Market Structure, VSA, Wyckoff A/D và Macro/Sector context. Không thay đổi Signal Score, P_Win, cảnh báo đỉnh/đáy hoặc khuyến nghị đang chạy.")
+    st.caption("SMF V2.6 Shadow: Market Structure, VSA, Wyckoff A/D, Macro/Sector và P6 Evidence Fusion. Không thay đổi Signal Score, P_Win, cảnh báo đỉnh/đáy hoặc khuyến nghị đang chạy.")
     shadow = st.session_state.get("smf_v2_shadow")
     shadow_error = st.session_state.get("smf_v2_shadow_error")
     if shadow_error:
@@ -2275,6 +2281,15 @@ with tabs[4]:
             _macro_factor_rows = [{"Factor": name, **value} for name, value in macro_factors.items()]
             st.dataframe(pd.DataFrame(_macro_factor_rows), width="stretch", hide_index=True)
         st.caption("Macro context chỉ là proxy thị trường; không thay thế dữ liệu NHNN/GSO và không tham gia consensus.")
+        fusion_summary = shadow.get("fusion_summary") or {}
+        st.markdown("#### 🧬 P6 — Evidence Fusion (dependency-aware)")
+        fu1, fu2, fu3, fu4, fu5 = st.columns(5)
+        fu1.metric("Cross-source aligned", fusion_summary.get("cross_source_aligned_count", 0))
+        fu2.metric("Cross-source conflict", fusion_summary.get("cross_source_conflicted_count", 0))
+        fu3.metric("Technical cluster conflict", fusion_summary.get("technical_cluster_conflict_count", 0))
+        fu4.metric("Insufficient / single family", fusion_summary.get("insufficient_or_single_family_count", 0))
+        fu5.metric("Số mã phân tích", fusion_summary.get("instrument_count", 0))
+        st.caption("Market Structure, VSA và Wyckoff A/D cùng dựa trên OHLCV nên được gộp thành một họ dữ liệu. Fusion chỉ đánh giá hội tụ bằng chứng, không phải xác suất hay tín hiệu giao dịch.")
         sector_context = shadow.get("sector_context") or {}
         st.markdown("#### 🧭 Sector Rotation — Watchlist Scope")
         sector_rows = sector_context.get("sectors") or []
@@ -2309,6 +2324,9 @@ with tabs[4]:
                 "Nhóm tăng": consensus.get("bullish_group_count", 0),
                 "Nhóm giảm": consensus.get("bearish_group_count", 0),
                 "Nhóm xung đột": ", ".join(consensus.get("conflicted_groups", [])),
+                "P6 Fusion": (item.get("evidence_fusion") or {}).get("status"),
+                "P6 Direction": (item.get("evidence_fusion") or {}).get("direction"),
+                "P6 independent families": (item.get("evidence_fusion") or {}).get("verified_family_count", 0),
                 "Wyckoff A/D": (item.get("accumulation_distribution") or {}).get("state"),
                 "VSA mới nhất": ", ".join(e.get("event", "") + "[" + e.get("status", "") + "]" for e in (item.get("vsa") or {}).get("latest_events", [])),
                 "VSA confirmed": (item.get("vsa") or {}).get("event_counts", {}).get("confirmed", 0),
@@ -2453,6 +2471,24 @@ with tabs[4]:
                 for limitation in order_flow_detail.get("limitations", []):
                     st.caption("• " + str(limitation))
 
+            fusion_detail = selected.get("evidence_fusion") or {}
+            with st.expander("🧬 P6 Evidence Fusion — nguồn độc lập và guardrails", expanded=True):
+                if fusion_detail:
+                    st.caption(
+                        f"{fusion_detail.get('status')} · Direction: {fusion_detail.get('direction')} · "
+                        f"Verified families: {fusion_detail.get('verified_family_count', 0)} · "
+                        f"Impact: {fusion_detail.get('decision_impact', 'NONE')}"
+                    )
+                    st.json({
+                        "technical_cluster": fusion_detail.get("technical_cluster"),
+                        "verified_source_families": fusion_detail.get("verified_source_families"),
+                        "coverage_context_only": fusion_detail.get("coverage_context_only"),
+                        "excluded_evidence_counts": fusion_detail.get("excluded_evidence_counts"),
+                    })
+                    for limitation in fusion_detail.get("limitations", []):
+                        st.caption(limitation)
+                else:
+                    st.info("Chưa có kết quả P6 Evidence Fusion.")
             details = selected.get("evidence", [])
             if details:
                 evidence_df = pd.DataFrame(details)

@@ -1,6 +1,6 @@
 --extra-index-url https://vnstocks.com/api/packages
 vnstock==5.2.1
-streamlit>=1.38,<2
+streamlit>=1.56,<2
 pandas>=2.1,<3
 requests>=2.31,<3
 yfinance>=0.2.40

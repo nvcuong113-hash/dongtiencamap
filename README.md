@@ -1,4 +1,4 @@
-# QUANTS PRO V17.3 — Wyckoff A/D + Macro/Sector Context
+# QUANTS PRO V17.4 — Dependency-aware Evidence Fusion
 
 ## What is included
 - Streamlit dashboard inspired by the supplied HTML concepts: Smart Flow Radar, Order Flow, Wyckoff Matrix, Alpha Factor Screener, Media Intelligence, Market Breadth/Sector Rotation, Macro & Backtest, System Health.
@@ -12,6 +12,8 @@
 - Optional `worker.py` jobs for persistent VPS scheduling.
 
 ## Run locally
+
+Streamlit 1.56 or newer is required for the current iframe and width APIs.
 ```bash
 python -m venv .venv
 # Windows: .venv\\Scripts\\activate
@@ -75,9 +77,11 @@ python -m compileall -q app.py worker.py quants tests
 ```
 
 
-## SMF V2.5 — P4/P5 Shadow additions
+## SMF V2.6 — P4/P5/P6 Shadow additions
 
 - P4: Wyckoff-style accumulation/distribution candidate state engine from completed OHLCV bars, with prior-only baselines and no independent consensus vote.
 - P5: macro risk-tone context from Yahoo Finance market proxies and watchlist-scoped sector relative-strength breadth. Official macro releases and broad-market sector breadth are not inferred.
 - Both additions remain Shadow-only. They do not change legacy score, P_Win, forecast, AI decisions or trade gates.
-- SMF report schema: 2.5. No database schema migration is required.
+- P6 fuses evidence by independent source family; technical features sharing OHLCV history are collapsed to avoid double counting.
+- The first-sync macro ordering is corrected: macro history is refreshed before the Shadow report is built.
+- SMF report schema: 2.6. No database schema migration is required.
