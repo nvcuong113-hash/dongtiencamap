@@ -66,6 +66,11 @@ def main() -> None:
         return dispatch_tool("macro_snapshot", {"factor": factor})
 
     @server.tool()
+    def get_intelligence_brief(hours: int = 168, limit: int = 12) -> str:
+        """Tổng hợp semantic media theo mã/ngành/toàn cầu, quan hệ vĩ mô, proxy, coverage và data gaps."""
+        return dispatch_tool("get_intelligence_brief", {"hours": hours, "limit": limit})
+
+    @server.tool()
     def run_backtest(horizon: int = 3, symbol: str = "", limit: int = 300) -> str:
         """Tóm tắt các dự báo đã chốt; không retrain và không thay đổi mô hình đang chạy."""
         return dispatch_tool("run_backtest", {"horizon": horizon, "symbol": symbol, "limit": limit})

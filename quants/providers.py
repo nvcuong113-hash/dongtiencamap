@@ -1,5 +1,5 @@
 from __future__ import annotations
-import time, json, math, os
+import time, json, math, os, re, html
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -1990,7 +1990,11 @@ def fetch_rss(url, source, since_hours=48):
                 return (e.text or '').strip() if e is not None else ''
             title = txt('title')
             link = txt('link')
-            summary = txt('description')
+            description = txt('description')
+            content_node = node.find('{http://purl.org/rss/1.0/modules/content/}encoded')
+            encoded_content = (content_node.text or '').strip() if content_node is not None else ''
+            # Use RSS full-content when explicitly supplied; otherwise the description.
+            summary = encoded_content if len(encoded_content) > len(description) else description
             pub = txt('pubDate')
             try:
                 published = parsedate_to_datetime(pub).astimezone(timezone.utc) if pub else datetime.now(timezone.utc)
@@ -1999,7 +2003,9 @@ def fetch_rss(url, source, since_hours=48):
             if published < cutoff:
                 continue
             if title and link:
-                items.append({'source': source, 'title': title, 'url': link, 'summary': summary, 'published_at': published.isoformat()})
+                quality = 'RSS_FULL_CONTENT' if encoded_content and summary == encoded_content else 'RSS_TITLE_SUMMARY' if summary else 'RSS_TITLE_ONLY'
+                items.append({'source': source, 'title': title, 'url': link, 'summary': summary,
+                              'content_quality': quality, 'published_at': published.isoformat()})
     except Exception as e:
         return [], str(e)
     return items, None

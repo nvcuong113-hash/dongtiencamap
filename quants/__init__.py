@@ -1,1 +1,1 @@
-"""QUANTS PRO V17.5 core package."""
+"""QUANTS PRO V18.0 core package."""

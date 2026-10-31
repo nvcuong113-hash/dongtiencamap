@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-APP_NAME = "QUANTS PRO V17.5"
+APP_NAME = "QUANTS PRO V18.0"
 TZ = ZoneInfo(os.getenv("QUANTS_TIMEZONE", "Asia/Ho_Chi_Minh"))
 
 # Resolve the default SQLite file relative to this source checkout, never to the
@@ -54,7 +54,7 @@ def resolve_db_path(
 
 DB_PATH = resolve_db_path(os.getenv("QUANTS_DB_PATH"))
 REQUEST_TIMEOUT = float(os.getenv("QUANTS_REQUEST_TIMEOUT", "12"))
-USER_AGENT = os.getenv("QUANTS_USER_AGENT", "QUANTS-PRO-V17.5/1.0 (market-data research dashboard)")
+USER_AGENT = os.getenv("QUANTS_USER_AGENT", "QUANTS-PRO-V18.0/1.0 (market-data research dashboard)")
 # Market proxies only; they are not substitutes for official Vietnamese macro releases.
 # Market proxies only; not substitutes for official Vietnamese macro releases.
 MACRO_TICKERS = {
@@ -71,6 +71,20 @@ MACRO_TICKERS = {
     "S&P 500": "^GSPC",
     "NASDAQ Composite": "^IXIC",
     "Emerging Markets ETF proxy": "EEM",
+    "US Dollar ETF proxy": "UUP",
+    "US Treasury Long Duration ETF proxy": "TLT",
+    "High Yield Credit ETF proxy": "HYG",
+    "Investment Grade Credit ETF proxy": "LQD",
+    "US Financials Sector ETF": "XLF",
+    "US Industrials Sector ETF": "XLI",
+    "US Energy Sector ETF": "XLE",
+    "US Materials Sector ETF": "XLB",
+    "US Technology Sector ETF": "XLK",
+    "US Utilities Sector ETF": "XLU",
+    "Semiconductor ETF proxy": "SOXX",
+    "China Large Cap ETF proxy": "FXI",
+    "China Internet ETF proxy": "KWEB",
+    "Metals & Mining ETF proxy": "XME",
 }
 DEFAULT_WATCHLIST = [
     "IDC", "FPT", "GEG", "SSI", "HCM", "VND", "SHS", "NKG", "HPG", "HSG", "LPB", "MSB", "CTG", "TCB", "TCH"

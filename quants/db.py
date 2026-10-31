@@ -81,7 +81,17 @@ CREATE TABLE IF NOT EXISTS media_articles(
     sentiment TEXT, sentiment_score REAL, pr_level TEXT, retail_buzz TEXT,
     lai_intent TEXT, warning TEXT, analyzed_by TEXT, sentiment_by_symbol TEXT,
     event_type TEXT, event_confidence REAL, source_reliability REAL,
-    novelty_score REAL, attention_score REAL
+    novelty_score REAL, attention_score REAL,
+    sector_tags TEXT, topic_scope TEXT, geo_scope TEXT, source_family TEXT,
+    content_hash TEXT, content_quality TEXT, semantic_status TEXT,
+    semantic_json TEXT, semantic_model TEXT, semantic_at TEXT
+);
+CREATE TABLE IF NOT EXISTS media_ai_usage(
+    usage_date TEXT PRIMARY KEY, ai_calls INTEGER NOT NULL DEFAULT 0,
+    articles_analyzed INTEGER NOT NULL DEFAULT 0, last_status TEXT, last_error TEXT, updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS media_semantic_cache(
+    content_hash TEXT PRIMARY KEY, analysis_json TEXT NOT NULL, model TEXT, created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS media_symbol_daily(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,7 +105,27 @@ CREATE TABLE IF NOT EXISTS settings(
 CREATE TABLE IF NOT EXISTS macro_snapshots(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ts TEXT, factor TEXT, value REAL, change_pct REAL,
-    unit TEXT, source TEXT, impact TEXT, analysis TEXT
+    unit TEXT, source TEXT, impact TEXT, analysis TEXT,
+    source_type TEXT, frequency TEXT, geography TEXT, series_id TEXT,
+    indicator_group TEXT, metadata_json TEXT
+);
+CREATE TABLE IF NOT EXISTS macro_source_runs(
+    source_key TEXT PRIMARY KEY, fetched_at TEXT NOT NULL, rows_saved INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL, error_text TEXT
+);
+CREATE TABLE IF NOT EXISTS intelligence_job_runs(
+    job_key TEXT PRIMARY KEY, job_name TEXT NOT NULL, started_at TEXT NOT NULL,
+    completed_at TEXT, status TEXT NOT NULL, result_json TEXT, error_text TEXT
+);
+CREATE TABLE IF NOT EXISTS intelligence_shadow_forecasts(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, forecast_key TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL, trade_date TEXT NOT NULL, symbol TEXT NOT NULL,
+    horizon INTEGER NOT NULL, base_price REAL NOT NULL, legacy_predicted_pct REAL,
+    legacy_p_win REAL, legacy_direction TEXT, media_score REAL, macro_score REAL,
+    overlay_score REAL, evidence_coverage REAL, stance TEXT NOT NULL,
+    evidence_json TEXT, model_version TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'OPEN',
+    actual_price REAL, actual_pct REAL, settle_trade_date TEXT, direction_correct INTEGER, legacy_direction_correct INTEGER,
+    settled_at TEXT, settlement_source TEXT
 );
 CREATE TABLE IF NOT EXISTS system_events(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -141,7 +171,7 @@ CREATE TABLE IF NOT EXISTS app_meta(
 );
 '''
 
-DB_SCHEMA_VERSION = "20261031_v169_schema_audit_fk_v1"
+DB_SCHEMA_VERSION = "20261031_v180_media_macro_intelligence_v2"
 _DB_BOOTSTRAP_LOCK = threading.RLock()
 SESSION_TTL_DAYS = 7
 PASSWORD_HASH_ITERATIONS = 310_000
@@ -686,6 +716,54 @@ def _backfill_predictions_from_snapshots(c: sqlite3.Connection) -> int:
     return inserted
 
 
+def _migrate_media_macro_columns(connection: sqlite3.Connection) -> None:
+    """Idempotently migrate V18 fields on persistent pre-upgrade SQLite files."""
+    additions = {
+        "media_articles": {
+            "sector_tags": "TEXT", "topic_scope": "TEXT", "geo_scope": "TEXT", "source_family": "TEXT",
+            "content_hash": "TEXT", "content_quality": "TEXT", "semantic_status": "TEXT",
+            "semantic_json": "TEXT", "semantic_model": "TEXT", "semantic_at": "TEXT",
+        },
+        "macro_snapshots": {
+            "source_type": "TEXT", "frequency": "TEXT", "geography": "TEXT", "series_id": "TEXT",
+            "indicator_group": "TEXT", "metadata_json": "TEXT",
+        },
+        "intelligence_shadow_forecasts": {
+            "legacy_direction_correct": "INTEGER",
+        },
+    }
+    for table, columns in additions.items():
+        present = {r["name"] for r in connection.execute(f'PRAGMA table_info("{table}")').fetchall()}
+        for column, declaration in columns.items():
+            if column not in present:
+                try:
+                    connection.execute(f'ALTER TABLE "{table}" ADD COLUMN "{column}" {declaration}')
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column name" not in str(exc).lower():
+                        raise
+    # Runtime tables are declared in SCHEMA; these calls also support older databases.
+    connection.execute("""CREATE TABLE IF NOT EXISTS media_ai_usage (
+        usage_date TEXT PRIMARY KEY, ai_calls INTEGER NOT NULL DEFAULT 0,
+        articles_analyzed INTEGER NOT NULL DEFAULT 0, last_status TEXT, last_error TEXT, updated_at TEXT)""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS media_semantic_cache (
+        content_hash TEXT PRIMARY KEY, analysis_json TEXT NOT NULL, model TEXT, created_at TEXT NOT NULL)""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS macro_source_runs (
+        source_key TEXT PRIMARY KEY, fetched_at TEXT NOT NULL, rows_saved INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL, error_text TEXT)""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS intelligence_job_runs (
+        job_key TEXT PRIMARY KEY, job_name TEXT NOT NULL, started_at TEXT NOT NULL,
+        completed_at TEXT, status TEXT NOT NULL, result_json TEXT, error_text TEXT)""")
+    connection.execute("""CREATE TABLE IF NOT EXISTS intelligence_shadow_forecasts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, forecast_key TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL, trade_date TEXT NOT NULL, symbol TEXT NOT NULL,
+        horizon INTEGER NOT NULL, base_price REAL NOT NULL, legacy_predicted_pct REAL,
+        legacy_p_win REAL, legacy_direction TEXT, media_score REAL, macro_score REAL,
+        overlay_score REAL, evidence_coverage REAL, stance TEXT NOT NULL,
+        evidence_json TEXT, model_version TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'OPEN',
+        actual_price REAL, actual_pct REAL, settle_trade_date TEXT, direction_correct INTEGER, legacy_direction_correct INTEGER,
+        settled_at TEXT, settlement_source TEXT)""")
+
+
 def init_db():
     """Create/migrate the configured database and seed the admin idempotently."""
     with _DB_BOOTSTRAP_LOCK:
@@ -694,6 +772,7 @@ def init_db():
             # Serialize cross-session/process migrations and the one-time Admin seed.
             c.execute("BEGIN IMMEDIATE")
             _migrate_legacy_columns(c)
+            _migrate_media_macro_columns(c)
             _backfill_legacy_values(c)
             _backfill_flow_provenance(c)
             _backfill_predictions_from_versions(c)

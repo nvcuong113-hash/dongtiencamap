@@ -42,6 +42,14 @@ def _safe_error_detail(value: Any, limit: int = 260) -> str:
     return text[:max(40, int(limit))]
 
 
+def _mcp_provider_order(provider: str, allow_paid_fallback: bool = False) -> list[str]:
+    """Avoid silently consuming paid OpenAI quota when Gemini was selected."""
+    preferred = "OpenAI" if str(provider or "Gemini").lower() in {"openai", "gpt", "open api"} else "Gemini"
+    if preferred == "OpenAI":
+        return ["OpenAI", "Gemini"]
+    return ["Gemini", "OpenAI"] if allow_paid_fallback else ["Gemini"]
+
+
 def _format_provider_failures(errors: list[str], configured: dict[str, bool]) -> str:
     """Make the actual reason visible when all configured providers fail."""
     details = " | ".join(_safe_error_detail(item, 300) for item in errors)
@@ -425,8 +433,8 @@ async def _generate_with_mcp_async(provider: str, prompt: str) -> tuple[str, str
     except ImportError as exc:
         raise AIUnavailable("Thiếu MCP SDK trên môi trường chạy. Cài dependencies từ requirements.txt rồi khởi động lại app.") from exc
 
-    preferred = "OpenAI" if str(provider or "Gemini").lower() in {"openai", "gpt", "open api"} else "Gemini"
-    order = [preferred, "Gemini" if preferred == "OpenAI" else "OpenAI"]
+    allow_paid_fallback = str(_setting("MCP_ALLOW_PAID_FALLBACK", "false")).strip().lower() in {"1", "true", "yes", "on"}
+    order = _mcp_provider_order(provider, allow_paid_fallback=allow_paid_fallback)
     configured = {
         "Gemini": bool(_setting("GEMINI_API_KEY")),
         "OpenAI": bool(_setting("OPENAI_API_KEY")),
