@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-APP_NAME = "QUANTS PRO V17.1"
+APP_NAME = "QUANTS PRO V17.2"
 TZ = ZoneInfo(os.getenv("QUANTS_TIMEZONE", "Asia/Ho_Chi_Minh"))
 
 # Resolve the default SQLite file relative to this source checkout, never to the
@@ -54,7 +54,7 @@ def resolve_db_path(
 
 DB_PATH = resolve_db_path(os.getenv("QUANTS_DB_PATH"))
 REQUEST_TIMEOUT = float(os.getenv("QUANTS_REQUEST_TIMEOUT", "12"))
-USER_AGENT = os.getenv("QUANTS_USER_AGENT", "QUANTS-PRO-V16.1/1.0 (market-data research dashboard)")
+USER_AGENT = os.getenv("QUANTS_USER_AGENT", "QUANTS-PRO-V17.2/1.0 (market-data research dashboard)")
 # Market proxies only; they are not substitutes for official Vietnamese macro releases.
 # Market proxies only; not substitutes for official Vietnamese macro releases.
 MACRO_TICKERS = {
