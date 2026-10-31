@@ -8,9 +8,14 @@ from typing import Any
 from .contracts import DataEnvelope
 from .evidence import aggregate_independent_groups, extract_row_evidence
 from .order_flow import analyze_order_flow_sample
+from .macro_regime import analyze_macro_regime, analyze_sector_rotation
 
 
-def build_shadow_report(rows: list[dict[str, Any]] | None) -> dict[str, Any]:
+def build_shadow_report(
+    rows: list[dict[str, Any]] | None,
+    *,
+    macro_snapshots: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     rows = rows or []
     instruments = []
     all_evidence = []
@@ -48,6 +53,7 @@ def build_shadow_report(rows: list[dict[str, Any]] | None) -> dict[str, Any]:
             "contract_errors": validation_errors,
             "data_envelope": envelope.to_dict(),
             "vsa": row.get("smf_v2_vsa"),
+            "accumulation_distribution": row.get("smf_v2_accumulation_distribution"),
             "order_flow_sample": analyze_order_flow_sample(row),
             "market_structure": row.get("smf_v2_market_structure"),
             "bar_data_quality": row.get("smf_v2_data_quality"),
@@ -63,19 +69,24 @@ def build_shadow_report(rows: list[dict[str, Any]] | None) -> dict[str, Any]:
         })
         all_evidence.extend(evidence)
 
+    report_dates = [str(item.get("session_date"))[:10] for item in instruments if item.get("session_date")]
+    as_of_date = max(report_dates) if report_dates else None
     return {
-        "schema_version": "2.4",
+        "schema_version": "2.5",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "mode": "SHADOW",
         "decision_impact": "NONE",
         "instrument_count": len(instruments),
         "evidence_count": len(all_evidence),
         "quality_counts": dict(sorted(quality_counts.items())),
+        "macro_context": analyze_macro_regime(macro_snapshots, as_of_date=as_of_date),
+        "sector_context": analyze_sector_rotation(rows),
         "instruments": instruments,
         "guardrails": [
             "Không thay đổi signal_score, p_win, early_signal hoặc quyết định legacy",
             "Flow proxy không được tính là bằng chứng ORDER_FLOW có hướng",
             "Time & Sales Community chỉ là mẫu; không bỏ phiếu consensus và không chứng minh dòng tiền tổ chức",
+            "Wyckoff Accumulation/Distribution và Macro/Sector context là lớp bối cảnh Shadow, không tham gia consensus",
             "Điểm Top/Bottom/Signal legacy chỉ lưu để đối chiếu, không bỏ phiếu độc lập",
             "Không có calibrated_probability hoặc khuyến nghị giao dịch từ shadow report",
         ],

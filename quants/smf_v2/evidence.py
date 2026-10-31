@@ -160,6 +160,27 @@ def extract_row_evidence(row: dict[str, Any]) -> list[EvidenceRecord]:
             "vsa_volume_v2", True, engine="vsa_volume_v2",
         ))
 
+    # P4: Wyckoff-style accumulation/distribution is derived from the same OHLCV
+    # history as structure and VSA. Keep it diagnostic-only to prevent correlated
+    # price/volume views from creating another independent consensus vote.
+    ad_state = row.get("smf_v2_accumulation_distribution") or {}
+    if isinstance(ad_state, dict) and ad_state.get("status") == "AVAILABLE":
+        ad_name = str(ad_state.get("state") or "UNKNOWN").upper()
+        ad_polarity = ("BULLISH" if "ACCUMULATION" in ad_name or ad_name == "MARKUP" else
+                       "BEARISH" if "DISTRIBUTION" in ad_name or ad_name == "MARKDOWN" else "UNKNOWN")
+        event_names = [str(e.get("event")) for e in ad_state.get("latest_events", []) if isinstance(e, dict)]
+        output.append(_record(
+            row, "ACCUMULATION_DISTRIBUTION", "wyckoff_behavior_state", ad_polarity,
+            str(ad_state.get("quality_status") or "PARTIAL"),
+            str(ad_state.get("state_strength") or "LOW"),
+            f"Wyckoff state candidate={ad_name}; events={', '.join(event_names) or 'none'}; "
+            f"bull_score={ad_state.get('bullish_setup_score')}; bear_score={ad_state.get('bearish_setup_score')}. "
+            "Chỉ là diễn giải OHLCV, không phải xác nhận dòng tiền tổ chức.",
+            ("smf_v2_accumulation_distribution.state", "smf_v2_accumulation_distribution.events",
+             "smf_v2_accumulation_distribution.daily_structure_state"),
+            "accumulation_distribution_v1", False, engine="accumulation_distribution_v1",
+        ))
+
     # P3: Community Time & Sales is retained as a sample-only diagnostic. It is
     # deliberately non-voting because session completeness and investor identity
     # are not established by the capped sample.
