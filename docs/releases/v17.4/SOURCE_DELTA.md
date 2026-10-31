@@ -1,20 +1,24 @@
-# QUANTS PRO V17.3 → V17.4 Source Delta
+# QUANTS PRO V17.4 → V17.5 Source Delta
 
-## P6 Evidence Fusion
-- Added `quants/smf_v2/fusion.py` for dependency-aware fusion of VERIFIED evidence by independent source family.
-- OHLCV-derived Market Structure, VSA, Accumulation/Distribution and legacy price-pattern views collapse into one `PRICE_VOLUME_HISTORY` family.
-- Independent VERIFIED families can show `CROSS_SOURCE_ALIGNMENT` or `CROSS_SOURCE_CONFLICT`; partial, single-family and technical-cluster conflicts remain explicit.
-- Every result is diagnostic only: no trade signal, probability, consensus promotion or legacy decision impact.
-- `shadow.py` now returns schema 2.6, top-level `as_of_date`, per-symbol `evidence_fusion`, and `fusion_summary`.
+## Added
+- `quants/forecast_validation.py`: P7 report-only evaluator and maturity/data-consistency guardrails, including minimum chronology spread for calibration readiness.
+- `tests/test_forecast_validation.py`: unit tests for maturity, duplicate keys, price/return mismatch, look-ahead, minimum sample gates, Brier readiness.
+- `CHANGELOG_v26.md` and deployment / replay artifacts.
 
-## P5 ordering correction
-- In the full-sync flow, `fetch_macro()` now persists/refreshed proxy history before the Shadow report queries `macro_snapshots`.
-- This addresses cold-start reports that previously showed `NO_VALID_MACRO_SNAPSHOTS` immediately before the same sync populated macro history.
-- Read-only replay of the latest backup's 430 macro rows returns `PARTIAL / MIXED_PROXY`, 13 factors and 4 signal groups as of 2026-10-30.
+## Changed
+- `app.py`: adds P7 read-only validation panel in Audit tab and V17.5 build marker.
+- `quants/config.py`, `quants/__init__.py`: app version 17.5.
+- `README.md`, `PATCH_README.txt`: document P7 contracts.
+- `.github/workflows/ci.yml`: verifies P7 module import and package layout.
+- `tests/test_release_package_contract.py`: asserts P7 module availability.
 
-## Stability and quality
-- Replaced deprecated `components.html` with `st.iframe`; replaced `use_container_width` with `width="stretch"` / `width="content"`.
-- Raised minimum Streamlit dependency to 1.56 for the supported iframe/width API surface.
-- Added GitHub Actions CI checks for root entrypoint/package completeness, critical imports, compile and `python -m pytest`; `.gitignore` now also excludes `.pytest_cache/` and SQLite journal files.
-- Fixed one time-dependent media search test; production's 48-hour query window was not changed.
-- No SQLite schema changes or migrations.
+## Compatibility
+- SMF Shadow schema stays 2.6.
+- SQLite schema stays unchanged; no migration.
+- No modification to legacy score, P_Win generation, AI, forecast generation, decision gates or automatic settlement.
+- P7 only reads `predictions`; it excludes `prediction_versions` from sample count.
+
+## Package layout
+- Full Source ZIP stores `app.py`, `quants/`, `worker.py` and `requirements.txt` directly at archive root (no nested project wrapper).
+- Patch ZIP paths are relative to repository root.
+- Both archives exclude generated caches and the empty 20 KB media-only SQLite seed.

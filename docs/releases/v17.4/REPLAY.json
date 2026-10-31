@@ -1,283 +1,98 @@
 {
-  "release": "QUANTS PRO V17.4 / SMF 2.6",
-  "replay_as_of_date": "2026-10-30",
-  "source_database": "quants_pro_backup(20261031-030712).sqlite3",
-  "source_latest_run": {
-    "id": 1,
-    "generated_at": "2026-10-31T03:06:19.330298+00:00",
-    "as_of_date": "2026-10-30",
-    "schema_version": "2.5",
-    "mode": "SHADOW",
-    "decision_impact": "NONE",
-    "instrument_count": 15,
-    "evidence_count": 121
-  },
-  "database_counts": {
-    "tables_app_expected": 18,
-    "market_bars": 1905,
-    "symbols": 15,
-    "sessions": 127,
-    "macro_snapshots": 430,
-    "macro_factors": 13,
-    "media_articles": 0,
-    "stock_snapshots": 0,
-    "flow_snapshots": 0,
-    "smf_runs": 1,
-    "smf_evidence": 121,
-    "predictions": 45,
-    "settled_predictions": 0,
-    "open_predictions": 45,
-    "model_performance": 0,
-    "users": 1
-  },
-  "database_meta": {
-    "admin_bootstrap_status": "READY",
-    "admin_reset_secret_hash": "pbkdf2_sha256$310000$0d5b8beedb1ed10609c8ac16e3c2a2e8$cbaf376c99967266ef241ded10bbc6ef8078d75d40551d358d7f669761249880",
-    "db_schema_version": "20261031_v169_schema_audit_fk_v1",
-    "db_path": "/mount/src/dongtiencamap/data/quants_pro.sqlite3"
-  },
-  "p5_macro_replay": {
-    "status": "PARTIAL",
-    "quality_status": "PARTIAL",
-    "risk_tone": "MIXED_PROXY",
-    "as_of_date": "2026-10-30",
-    "latest_observation_date": "2026-10-30",
-    "factor_count": 13,
-    "signal_count": 4,
-    "signals": [
-      {
-        "factor_group": "GLOBAL_EQUITIES",
-        "direction": "RISK_OFF",
-        "reason": "Trung bình 5 quan sát của Emerging Markets ETF proxy, S&P 500, NASDAQ Composite: -1.77%"
-      },
-      {
-        "factor_group": "VOLATILITY",
-        "direction": "NEUTRAL",
-        "reason": "VIX thay đổi 5.60% trong 5 quan sát"
-      },
-      {
-        "factor_group": "USD_STRENGTH",
-        "direction": "NEUTRAL",
-        "reason": "DXY thay đổi 0.00% trong 5 quan sát"
-      },
-      {
-        "factor_group": "US10Y_YIELD",
-        "direction": "NEUTRAL",
-        "reason": "US10Y thay đổi -0.057 điểm phần trăm trong 5 quan sát"
-      }
-    ],
-    "reason_codes": [
-      "MARKET_PROXY_ONLY_NOT_OFFICIAL_MACRO"
-    ],
-    "limitations": [
-      "Yahoo Finance proxy không thay thế số liệu chính thức NHNN, GSO, Bộ Tài chính hoặc dữ liệu dòng vốn thực tế.",
-      "Risk tone là bộ lọc bối cảnh mô tả, không phải dự báo thị trường Việt Nam và không tham gia consensus.",
-      "US10Y tăng có thể phản ánh nhiều nguyên nhân; dấu hướng chỉ là quy tắc cảnh báo đơn giản, không phải kết luận nhân quả.",
-      "USD/VND không tham gia risk score do quy ước ticker/đơn vị provider cần xác minh độc lập."
-    ]
-  },
-  "p4_state_counts": {
-    "ACCUMULATION_CANDIDATE": 3,
-    "MIXED_TRANSITION": 1,
-    "RANGE_OR_TRANSITION": 4,
-    "REACCUMULATION_CANDIDATE": 3,
-    "REDISTRIBUTION_CANDIDATE": 4
-  },
-  "p3_order_flow_status_counts": {
-    "UNAVAILABLE": 15
-  },
-  "p6_fusion_summary": {
-    "engine": "dependency_aware_evidence_fusion",
-    "engine_version": "1.0.0",
-    "status": "PARTIAL_RESEARCH_ONLY",
-    "instrument_count": 15,
-    "status_counts": {
-      "CROSS_SOURCE_CONFLICT": 3,
-      "SINGLE_VERIFIED_FAMILY": 4,
-      "TECHNICAL_CLUSTER_CONFLICT": 8
+  "engine": "forecast_validation_v1",
+  "engine_version": "1.0.0",
+  "status": "NO_VALID_SETTLED_OUTCOMES",
+  "as_of_session": "2026-10-30",
+  "total_prediction_records": 45,
+  "pending_count": 45,
+  "matured_unsettled_count": 0,
+  "settled_valid_count": 0,
+  "settled_invalid_count": 0,
+  "duplicate_forecast_keys": 0,
+  "excluded_reason_counts": {},
+  "horizons": {
+    "T+2": {
+      "total_records": 15,
+      "pending_count": 15,
+      "matured_unsettled_count": 0,
+      "settled_valid_count": 0,
+      "settled_invalid_count": 0,
+      "metric_status": "NO_SETTLED_OUTCOMES",
+      "sample_count": 0,
+      "direction_scored_count": 0,
+      "direction_hit_rate_pct": null,
+      "direction_hit_rate_ci95_pct": null,
+      "majority_direction_baseline_pct": null,
+      "direction_skill_vs_majority_pct": null,
+      "mae_pct": null,
+      "rmse_pct": null,
+      "bias_pct": null,
+      "zero_return_baseline_mae_pct": null,
+      "mae_skill_vs_zero_pct": null,
+      "p_win_brier": null,
+      "p_win_brier_climatology": null,
+      "calibration_sample_count": 0,
+      "calibration_status": "INSUFFICIENT_SETTLED_SAMPLE",
+      "excluded_reasons": {},
+      "settlement_coverage_pct": null
     },
-    "cross_source_aligned_count": 0,
-    "cross_source_conflicted_count": 3,
-    "technical_cluster_conflict_count": 8,
-    "partial_cross_source_support_count": 0,
-    "insufficient_or_single_family_count": 4,
-    "family_coverage_counts": {
-      "PRICE_VOLUME_HISTORY": 11,
-      "RELATIVE_STRENGTH": 15
+    "T+3": {
+      "total_records": 15,
+      "pending_count": 15,
+      "matured_unsettled_count": 0,
+      "settled_valid_count": 0,
+      "settled_invalid_count": 0,
+      "metric_status": "NO_SETTLED_OUTCOMES",
+      "sample_count": 0,
+      "direction_scored_count": 0,
+      "direction_hit_rate_pct": null,
+      "direction_hit_rate_ci95_pct": null,
+      "majority_direction_baseline_pct": null,
+      "direction_skill_vs_majority_pct": null,
+      "mae_pct": null,
+      "rmse_pct": null,
+      "bias_pct": null,
+      "zero_return_baseline_mae_pct": null,
+      "mae_skill_vs_zero_pct": null,
+      "p_win_brier": null,
+      "p_win_brier_climatology": null,
+      "calibration_sample_count": 0,
+      "calibration_status": "INSUFFICIENT_SETTLED_SAMPLE",
+      "excluded_reasons": {},
+      "settlement_coverage_pct": null
     },
-    "is_trade_signal": false,
-    "decision_impact": "NONE",
-    "calibrated_probability": null
-  },
-  "p6_per_symbol": [
-    {
-      "symbol": "HCM",
-      "status": "CROSS_SOURCE_CONFLICT",
-      "direction": "CONFLICTED",
-      "verified_family_count": 2,
-      "technical_cluster": "BEARISH",
-      "source_families": [
-        "PRICE_VOLUME_HISTORY",
-        "RELATIVE_STRENGTH"
-      ]
-    },
-    {
-      "symbol": "GEG",
-      "status": "SINGLE_VERIFIED_FAMILY",
-      "direction": "UNKNOWN",
-      "verified_family_count": 1,
-      "technical_cluster": "BULLISH",
-      "source_families": [
-        "RELATIVE_STRENGTH"
-      ]
-    },
-    {
-      "symbol": "SSI",
-      "status": "TECHNICAL_CLUSTER_CONFLICT",
-      "direction": "UNKNOWN",
-      "verified_family_count": 2,
-      "technical_cluster": "CONFLICTED",
-      "source_families": [
-        "PRICE_VOLUME_HISTORY",
-        "RELATIVE_STRENGTH"
-      ]
-    },
-    {
-      "symbol": "TCB",
-      "status": "SINGLE_VERIFIED_FAMILY",
-      "direction": "UNKNOWN",
-      "verified_family_count": 1,
-      "technical_cluster": "BULLISH",
-      "source_families": [
-        "RELATIVE_STRENGTH"
-      ]
-    },
-    {
-      "symbol": "IDC",
-      "status": "TECHNICAL_CLUSTER_CONFLICT",
-      "direction": "UNKNOWN",
-      "verified_family_count": 2,
-      "technical_cluster": "CONFLICTED",
-      "source_families": [
-        "PRICE_VOLUME_HISTORY",
-        "RELATIVE_STRENGTH"
-      ]
-    },
-    {
-      "symbol": "FPT",
-      "status": "TECHNICAL_CLUSTER_CONFLICT",
-      "direction": "UNKNOWN",
-      "verified_family_count": 2,
-      "technical_cluster": "CONFLICTED",
-      "source_families": [
-        "PRICE_VOLUME_HISTORY",
-        "RELATIVE_STRENGTH"
-      ]
-    },
-    {
-      "symbol": "NKG",
-      "status": "SINGLE_VERIFIED_FAMILY",
-      "direction": "UNKNOWN",
-      "verified_family_count": 1,
-      "technical_cluster": "CONFLICTED",
-      "source_families": [
-        "RELATIVE_STRENGTH"
-      ]
-    },
-    {
-      "symbol": "HSG",
-      "status": "SINGLE_VERIFIED_FAMILY",
-      "direction": "UNKNOWN",
-      "verified_family_count": 1,
-      "technical_cluster": "CONFLICTED",
-      "source_families": [
-        "RELATIVE_STRENGTH"
-      ]
-    },
-    {
-      "symbol": "MSB",
-      "status": "TECHNICAL_CLUSTER_CONFLICT",
-      "direction": "UNKNOWN",
-      "verified_family_count": 2,
-      "technical_cluster": "CONFLICTED",
-      "source_families": [
-        "PRICE_VOLUME_HISTORY",
-        "RELATIVE_STRENGTH"
-      ]
-    },
-    {
-      "symbol": "TCH",
-      "status": "TECHNICAL_CLUSTER_CONFLICT",
-      "direction": "UNKNOWN",
-      "verified_family_count": 2,
-      "technical_cluster": "CONFLICTED",
-      "source_families": [
-        "PRICE_VOLUME_HISTORY",
-        "RELATIVE_STRENGTH"
-      ]
-    },
-    {
-      "symbol": "HPG",
-      "status": "TECHNICAL_CLUSTER_CONFLICT",
-      "direction": "UNKNOWN",
-      "verified_family_count": 2,
-      "technical_cluster": "CONFLICTED",
-      "source_families": [
-        "PRICE_VOLUME_HISTORY",
-        "RELATIVE_STRENGTH"
-      ]
-    },
-    {
-      "symbol": "SHS",
-      "status": "TECHNICAL_CLUSTER_CONFLICT",
-      "direction": "UNKNOWN",
-      "verified_family_count": 2,
-      "technical_cluster": "CONFLICTED",
-      "source_families": [
-        "PRICE_VOLUME_HISTORY",
-        "RELATIVE_STRENGTH"
-      ]
-    },
-    {
-      "symbol": "CTG",
-      "status": "CROSS_SOURCE_CONFLICT",
-      "direction": "CONFLICTED",
-      "verified_family_count": 2,
-      "technical_cluster": "BULLISH",
-      "source_families": [
-        "PRICE_VOLUME_HISTORY",
-        "RELATIVE_STRENGTH"
-      ]
-    },
-    {
-      "symbol": "LPB",
-      "status": "CROSS_SOURCE_CONFLICT",
-      "direction": "CONFLICTED",
-      "verified_family_count": 2,
-      "technical_cluster": "CONFLICTED",
-      "source_families": [
-        "PRICE_VOLUME_HISTORY",
-        "RELATIVE_STRENGTH"
-      ]
-    },
-    {
-      "symbol": "VND",
-      "status": "TECHNICAL_CLUSTER_CONFLICT",
-      "direction": "UNKNOWN",
-      "verified_family_count": 2,
-      "technical_cluster": "CONFLICTED",
-      "source_families": [
-        "PRICE_VOLUME_HISTORY",
-        "RELATIVE_STRENGTH"
-      ]
+    "T+7": {
+      "total_records": 15,
+      "pending_count": 15,
+      "matured_unsettled_count": 0,
+      "settled_valid_count": 0,
+      "settled_invalid_count": 0,
+      "metric_status": "NO_SETTLED_OUTCOMES",
+      "sample_count": 0,
+      "direction_scored_count": 0,
+      "direction_hit_rate_pct": null,
+      "direction_hit_rate_ci95_pct": null,
+      "majority_direction_baseline_pct": null,
+      "direction_skill_vs_majority_pct": null,
+      "mae_pct": null,
+      "rmse_pct": null,
+      "bias_pct": null,
+      "zero_return_baseline_mae_pct": null,
+      "mae_skill_vs_zero_pct": null,
+      "p_win_brier": null,
+      "p_win_brier_climatology": null,
+      "calibration_sample_count": 0,
+      "calibration_status": "INSUFFICIENT_SETTLED_SAMPLE",
+      "excluded_reasons": {},
+      "settlement_coverage_pct": null
     }
-  ],
+  },
   "guardrails": [
-    "P6 fuses only VERIFIED evidence grouped by distinct data families.",
-    "Market Structure, VSA, Wyckoff A/D and legacy price-patterns sharing OHLCV are one PRICE_VOLUME_HISTORY family.",
-    "Macro/Sector are contextual, not per-stock directional votes.",
-    "Time & Sales capped samples do not vote as full-session Order Flow.",
-    "Fusion does not create a buy/sell signal or calibrated probability; decision_impact remains NONE.",
-    "P6 replay applies the new fusion code to persisted 2.5 evidence; it does not rewrite the uploaded production backup."
+    "Chỉ bảng predictions được tính; prediction_versions không phải dự báo độc lập.",
+    "Chỉ SETTLED rows có giá/return/date nhất quán mới được đưa vào metric.",
+    "Dự báo chưa đến hạn và đã đến hạn nhưng chưa có giá được tách riêng.",
+    "Settlement date phải khớp T+N theo lịch giao dịch cấu hình; cập nhật QUANTS_NON_TRADING_DATES cho ngày nghỉ chính thức.",
+    "Metrics chỉ đủ điều kiện hiển thị từ ngưỡng mẫu; calibration yêu cầu tối thiểu 100 mẫu và ít nhất 20 mẫu mỗi lớp.",
+    "P7 chỉ đánh giá; không huấn luyện, phê duyệt calibrator hoặc thay đổi dự báo live."
   ]
 }

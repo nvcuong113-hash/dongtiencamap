@@ -1,32 +1,19 @@
-QUANTS PRO V17.4 — TEST & PACKAGE VERIFICATION REPORT
-Build: SMF-P6-EVIDENCE-FUSION-20261031
-SMF Shadow report schema: 2.6
+QUANTS PRO V17.5 — P7 TEST REPORT
+Date: 2026-10-31
+Baseline: uploaded V17.4 source ZIP.
 
-SOURCE CHECKS
+Checks:
 - python -m compileall -q app.py worker.py quants tests: PASS
-- Critical package import contract: PASS
-- Root deployment layout (app.py and quants/ directly at root): PASS
+- python -m pytest -q: 362 passed, 1 skipped
+- Skip reason: tests/test_mcp_runtime_smoke.py:21 — MCP SDK is not installed in this local test environment.
+- Both release ZIPs were extracted to clean folders and independently passed compileall + 362 passed, 1 skipped.
+- P7 replay against uploaded production backup: 45 pending, 0 matured-unsettled, 0 valid settled, 0 invalid settled.
+- No SQLite migration introduced.
+- P7 report builder is read-only and pure; it does not settle, train, fetch providers or write to DB.
 
-TEST SUITE
-- python -m pytest -q: 346 passed, 1 skipped
-- Skipped: MCP runtime subprocess smoke test because MCP SDK is not installed in this local verification environment. requirements.txt pins MCP v1.x and CI installs the declared dependencies.
+Deployment evidence:
+- User-provided Streamlit log confirms repository clone, dependency installation and Uvicorn server start at 03:33:34 UTC.
+- Uploaded DB confirms one persisted SMF schema 2.6 run at 03:34:15 UTC with 15 instruments and 121 evidence.
+- A browser/UI AppTest was not run in this local container because Streamlit is not installed there. Therefore the P7 UI panel still needs a post-deploy browser smoke check.
 
-PACKAGED ARTIFACT VERIFICATION
-- Full Source ZIP: CRC PASS; 187 files; no dongtiencamap-main/ wrapper; no cache folders; no SQLite seed DB.
-- Patch ZIP: CRC PASS; 29 root-relative changed/new files; no wrapper folder.
-- Full Source ZIP extracted into a clean directory: compileall PASS; 346 passed, 1 skipped.
-- V17.3 source ZIP extracted, Patch overlaid at repository root: compileall PASS; 346 passed, 1 skipped.
-- Both package layouts contain app.py at repository root and quants/smf_v2/fusion.py.
-
-NEW / UPDATED TEST COVERAGE
-- OHLCV technical views collapse into one PRICE_VOLUME_HISTORY family.
-- Two independent verified families can align without creating a trade signal.
-- Conflicting independent families remain conflicted.
-- Capped Time & Sales samples cannot be promoted to verified full-session Order Flow.
-- Fusion summary and Shadow integration retain decision_impact=NONE.
-- Release entrypoint/package-layout imports are present.
-- Existing media search fixture now uses a relative timestamp; production 48-hour query is unchanged.
-
-LIMITATIONS
-- Streamlit itself is not installed in the local packaging runner, so no full UI/browser runtime smoke test was performed here. Source compile, module tests and package-layout checks passed.
-- The single skipped MCP subprocess test requires MCP SDK installation. The repository CI installs requirements before running tests.
+Important: Unit tests, compilation and the Streamlit platform startup log do not replace an interactive browser test of the new P7 panel.

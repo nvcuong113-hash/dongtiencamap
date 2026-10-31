@@ -1,19 +1,17 @@
-# V17.4 — Safe source cleanup
+# V17.5 source cleanup guide
 
-The V17.4 Full Source ZIP excludes these generated/empty items from the uploaded V17.3 archive:
+## Safe to exclude from a source release archive
+- All `__pycache__/`, `.pytest_cache/`, `*.pyc`, `*.pyo` build artifacts.
+- `data/quants_pro.sqlite3` in the uploaded source ZIP (20 KB seed containing only empty `media_articles` and `media_symbol_daily` tables). It is not the production backup.
+- `data/quants` (one-byte placeholder).
 
-| Path | Action | Reason |
-|---|---|---|
-| `__pycache__/` (including its `v/cache` test cache) | Excluded | Generated/interpreter/test cache; not runtime code |
-| `.pytest_cache/` and all nested `__pycache__/` | Excluded | Generated test/import cache |
-| `*.pyc`, `*.pyo` | Excluded | Compiled Python artifacts regenerated at runtime |
-| `data/quants_pro.sqlite3` | Excluded from release ZIP | 20 KB seed file containing only media tables; must never overwrite production DB |
-| `data/quants` | Excluded | One-byte empty/placeholder file |
+## Keep
+- `app.py`, `quants/`, `worker.py`, `requirements.txt`, `.streamlit/config.toml`, `.streamlit/secrets.toml.example`, CI workflow, scripts, assets and tests.
+- `quants/smf_v2/` all modules; these are runtime dependencies.
 
-Not removed:
+## Do not bulk-delete yet
+- Root-level legacy modules such as `engine.py`, `db.py`, `providers.py`, `audit.py`, `ai_engine.py`, `mcp_*`, `media.py`, `learning.py` and related files. The app's internal imports point to `quants.*`, but external notebooks/cron jobs/old entry points may import root modules. Search all deploy scripts and external consumers before removal.
+- Historical `CHANGELOG_*`, test reports, release docs: archive under `docs/releases/` rather than deleting if traceability matters.
 
-- Root-level duplicate legacy modules (`ai_engine.py`, `engine.py`, `providers.py`, etc.) are retained. Internal imports use `quants.*`, but external scripts/notebooks may still import root modules; no safe proof of no external dependency exists.
-- `mcp_server.py`, `.streamlit/config.toml`, `.streamlit/secrets.toml.example`, `requirements.txt`, docs and source tests are retained.
-- Never delete the Cloud production database merely because its name matches the excluded seed file. Confirm actual file path, size, table counts and backup before any manual cleanup.
-
-Recommended Git hygiene: add `__pycache__/`, `.pytest_cache/`, `*.py[cod]`, and `data/*.sqlite3*` to `.gitignore` (already configured in this source). Keep production backups outside the repository.
+## Production DB warning
+Never delete or overwrite `/mount/src/dongtiencamap/data/quants_pro.sqlite3` in the live Streamlit environment based on the seed-file observation above. The 20 KB ZIP seed and the 1.9 MB uploaded backup are different files with different purposes.
