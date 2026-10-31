@@ -7,7 +7,7 @@ from pandas.io.formats.style import Styler
 import streamlit as st
 
 st.set_page_config(
-    page_title="QUANTS PRO V17.4 - Evidence Fusion",
+    page_title="QUANTS PRO V17.5 - Forecast Validation",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -49,6 +49,7 @@ from quants.chat_support import build_chat_prompt
 from quants.table_config import normalize_visible_columns, parse_saved_visible_columns, serialize_visible_columns
 from quants.user_settings import normalize_watchlist
 from quants.audit import settle_predictions, build_performance, adaptive_feedback
+from quants.forecast_validation import build_forecast_validation_report
 from quants.learning import learning_status, approve_calibrator, reject_calibrator, rollback_calibrator
 from quants.vsa_chart import prepare_vsa_bars, extract_chart_levels, build_vsa_plotly_figure
 from quants.smf_v2 import build_shadow_report
@@ -1969,6 +1970,76 @@ with tabs[3]:
         else:
             st.info("Chưa có dự báo nào được ghi vào sổ kiểm toán. Các dự báo mới cần được lưu bằng save_prediction_audit().")
 
+        # P7: independent validation diagnostics. This is read-only and consumes
+        # only the canonical predictions ledger (never prediction_versions).
+        st.markdown("#### 🧪 P7 — Forecast Validation & Walk-forward Readiness")
+        try:
+            validation_rows = query("""
+                SELECT id, created_at, trade_date, symbol, horizon, base_price,
+                       predicted_pct, p_win, regime, ai_provider, ai_model,
+                       feature_json, status, settle_trade_date, actual_price,
+                       actual_pct, outcome
+                FROM predictions
+                ORDER BY trade_date, symbol, horizon, id
+            """)
+            latest_session_rows = query("SELECT MAX(session_date) AS latest_session FROM market_bars")
+            latest_validation_session = (
+                latest_session_rows.iloc[0].get("latest_session")
+                if not latest_session_rows.empty else None
+            )
+            if latest_validation_session:
+                p7_report = build_forecast_validation_report(
+                    validation_rows.to_dict("records"),
+                    latest_completed_session=str(latest_validation_session),
+                )
+                p7a, p7b, p7c, p7d, p7e = st.columns(5)
+                p7a.metric("Dự báo trong sổ", p7_report.get("total_prediction_records", 0))
+                p7b.metric("Đã settle hợp lệ", p7_report.get("settled_valid_count", 0))
+                p7c.metric("Chưa đến hạn", p7_report.get("pending_count", 0))
+                p7d.metric("Đến hạn, chờ giá", p7_report.get("matured_unsettled_count", 0))
+                p7e.metric("Settlement bị loại", p7_report.get("settled_invalid_count", 0))
+                horizon_view = []
+                for horizon_label, item in (p7_report.get("horizons") or {}).items():
+                    ci = item.get("direction_hit_rate_ci95_pct")
+                    ci_text = f"{ci[0]:.1f}–{ci[1]:.1f}%" if isinstance(ci, list) and len(ci) == 2 else "—"
+                    horizon_view.append({
+                        "Khung": horizon_label,
+                        "Mẫu đã settle": item.get("sample_count", 0),
+                        "Tình trạng metric": item.get("metric_status"),
+                        "Hit rate hướng (%)": item.get("direction_hit_rate_pct"),
+                        "CI 95%": ci_text,
+                        "MAE (%)": item.get("mae_pct"),
+                        "RMSE (%)": item.get("rmse_pct"),
+                        "Bias (%)": item.get("bias_pct"),
+                        "Skill vs zero (%)": item.get("mae_skill_vs_zero_pct"),
+                        "Brier P_Win": item.get("p_win_brier"),
+                        "Calibration": item.get("calibration_status"),
+                    })
+                show_configurable_table(pd.DataFrame(horizon_view), "p7_forecast_validation")
+                if p7_report.get("status") == "NO_VALID_SETTLED_OUTCOMES":
+                    st.warning("Chưa có dự báo nào đủ điều kiện quyết toán. Không hiển thị Win Rate/MAE như kết quả thực tế; chờ đủ phiên T+N và giá đóng cửa xác minh.")
+                elif p7_report.get("status") == "INSUFFICIENT_SAMPLE":
+                    st.info("Đã có kết quả nhưng chưa đủ 30 mẫu mỗi khung để công bố metric đánh giá.")
+                st.caption(
+                    f"Validation tính đến phiên dữ liệu {p7_report.get('as_of_session')}. "
+                    "Chỉ bảng predictions được tính; prediction_versions không được đếm thành lệnh mới. "
+                    "P7 không tự settle, train, approve calibrator hay thay đổi dự báo live. "
+                    "Ngày nghỉ chính thức phải được cấu hình trong QUANTS_NON_TRADING_DATES để kiểm tra đúng T+N."
+                )
+                with st.expander("Chi tiết các bản ghi bị loại khỏi validation"):
+                    exclusion_rows = []
+                    for horizon_label, item in (p7_report.get("horizons") or {}).items():
+                        for reason, count in (item.get("excluded_reasons") or {}).items():
+                            exclusion_rows.append({"Khung": horizon_label, "Lý do": reason, "Số bản ghi": count})
+                    if exclusion_rows:
+                        show_configurable_table(pd.DataFrame(exclusion_rows), "p7_validation_exclusions")
+                    else:
+                        st.caption("Chưa có bản ghi settlement nào bị loại.")
+            else:
+                st.info("Chưa có market_bars để xác định phiên hoàn tất; P7 giữ trạng thái INSUFFICIENT_AS_OF_DATA.")
+        except Exception as p7_error:
+            st.warning(f"Chưa dựng được P7 validation report: {type(p7_error).__name__}: {p7_error}")
+
         with st.expander("🕘 Lịch sử các phiên bản dự báo (không tính là lệnh độc lập)"):
             versions = query("""
                 SELECT created_at, trade_date, symbol, horizon, base_price,
@@ -2106,7 +2177,7 @@ with tabs[3]:
                                 else:
                                     st.error(result.get("reason", "Rollback thất bại."))
 
-st.caption(f"Hệ thống QUANTS PRO V17.4 • Build: SMF-P6-EVIDENCE-FUSION-20261031 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
+st.caption(f"Hệ thống QUANTS PRO V17.5 • Build: P7-FORECAST-VALIDATION-20261031 • SMF Shadow schema 2.6 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
 
 with st.popover("💬 Trợ Lý AI Trực Tuyến"):
     st.markdown("#### 🤖 Trợ Lý Định Lượng AI (Bảng điện + Danh mục + Media + Vĩ mô)")

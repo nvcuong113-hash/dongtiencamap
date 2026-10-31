@@ -1,0 +1,34 @@
+QUANTS PRO V17.5 — P7 FORECAST VALIDATION
+
+Upgrade path: V17.4 -> V17.5
+SMF Shadow schema: remains 2.6
+SQLite migration: NONE
+
+PACKAGE LAYOUT
+- PATCH ZIP: all paths are relative to the Git repository root; extract/overlay into the existing repository root.
+- FULL SOURCE ZIP: app.py, quants/, worker.py and requirements.txt are directly at the archive root. Extract its contents into the Git repository root. Do NOT create or commit a nested dongtiencamap-main/ directory.
+
+DEPLOY
+1. Take a fresh production SQLite backup.
+2. Apply the Patch ZIP to the repository root, preserving relative paths, or replace the repository contents with the Full Source ZIP contents.
+3. Commit/push all files in ONE Git commit. Do not upload app.py and quants/ piecemeal; this avoids a mixed-version import state during Streamlit Cloud reload.
+4. Wait for dependency/build completion, then open the app and run a normal full sync.
+5. In Audit > P7, confirm the build label P7-FORECAST-VALIDATION-20261031 and review pending/matured/settled counts.
+
+EXPECTED ON PROVIDED BACKUP
+- Latest market session: 2026-10-30
+- Predictions: 45 (15 symbols x 3 horizons)
+- Valid settled: 0
+- Pending: 45
+- Matured but unsettled: 0
+- Win rate / MAE / Brier: unavailable (must not be reported as zero performance)
+
+P7 SAFETY
+- Reads only the canonical `predictions` table; `prediction_versions` is not counted as independent forecasts.
+- Does not settle predictions, call market-data providers, train models, create calibration candidates, approve calibrators, or modify live forecasts.
+- Settlement date validation relies on `QUANTS_NON_TRADING_DATES`. Keep this setting synchronized with official Vietnam exchange holidays; mismatches fail closed and are shown in exclusion reasons.
+- No database migration. Do not replace the production DB with the seed DB shipped in older source archives.
+
+ROLLBACK
+- Revert the single V17.5 commit or restore V17.4 source.
+- No DB rollback is required because P7 does not write to the schema or prediction rows.

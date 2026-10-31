@@ -1,11 +1,5 @@
-QUANTS PRO V17.4 PATCH — V17.3 to V17.4
-Build: SMF-P6-EVIDENCE-FUSION-20261031
-Report schema: 2.6
+QUANTS PRO V17.5 PATCH — V17.4 to V17.5
 
-Apply this Patch ZIP to the ROOT of the existing V17.3 repository.
-The archive stores root-relative paths (app.py, quants/, tests/, .github/, docs/).
-Do NOT place the contents inside a new dongtiencamap-main/ subfolder.
+Apply this archive from the Git repository root. Paths in this ZIP are relative to the repository root and do not include a wrapper folder. Commit all files in one Git commit so Streamlit never sees a partially updated app/package.
 
-The Patch archive contains 29 changed/new files. Extract all patch files into the repository root and commit them together in one Git commit. Avoid intermediate commits where app.py imports modules that have not yet been committed. The uploaded Streamlit logs showed transient ModuleNotFoundError / KeyError: quants while the repository was incomplete during refresh.
-
-No SQLite schema migration. Backup the production DB before deployment. Do not replace the production DB with a seed SQLite file.
+P7 adds read-only forecast validation. No SQLite migration or settlement/training side effects are introduced. See DEPLOY_QUANTS_PRO_V17.5_P7_20261031.txt.

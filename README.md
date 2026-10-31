@@ -1,4 +1,4 @@
-# QUANTS PRO V17.4 — Dependency-aware Evidence Fusion
+# QUANTS PRO V17.5 — P7 Forecast Validation & Walk-forward Readiness
 
 ## What is included
 - Streamlit dashboard inspired by the supplied HTML concepts: Smart Flow Radar, Order Flow, Wyckoff Matrix, Alpha Factor Screener, Media Intelligence, Market Breadth/Sector Rotation, Macro & Backtest, System Health.
@@ -85,3 +85,8 @@ python -m compileall -q app.py worker.py quants tests
 - P6 fuses evidence by independent source family; technical features sharing OHLCV history are collapsed to avoid double counting.
 - The first-sync macro ordering is corrected: macro history is refreshed before the Shadow report is built.
 - SMF report schema: 2.6. No database schema migration is required.
+
+
+## P7 — Forecast Validation & Walk-forward Readiness
+
+P7 adds a read-only validation layer over the canonical `predictions` ledger. It distinguishes pending forecasts, matured-but-unsettled forecasts and valid settlements; rejects duplicate keys, inconsistent realized returns, wrong settlement horizons and explicit look-ahead/unusable-input flags. It reports MAE, RMSE, bias, directional hit rate with Wilson 95% interval and skill against a zero-return baseline only when each horizon reaches 30 valid settled samples. `p_win` Brier diagnostics require at least 100 valid directional samples, at least 20 cases in each class and at least 3 distinct forecast sessions; passing this threshold is not an approval. Existing `train_calibrator` remains subject to its own purged chronological holdout and explicit Admin governance. P7 performs no settlement, training, DB migration or live decision changes.
