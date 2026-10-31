@@ -1,4 +1,4 @@
-# QUANTS PRO V16.1 — Streamlit Edition
+# QUANTS PRO V16.9 — Streamlit Edition
 
 ## What is included
 - Streamlit dashboard inspired by the supplied HTML concepts: Smart Flow Radar, Order Flow, Wyckoff Matrix, Alpha Factor Screener, Media Intelligence, Market Breadth/Sector Rotation, Macro & Backtest, System Health.
@@ -32,6 +32,19 @@ Never commit API keys. Rotate any key pasted into chat or a public repository.
 
 ## SQLite and deployment
 Default database: `<project-root>/data/quants_pro.sqlite3` (resolved independently of the process working directory). If the previous relative-path database exists only at the parent checkout `data/` path, startup keeps using that existing file; if multiple candidate databases exist, startup refuses to guess and requires explicit `QUANTS_DB_PATH`. Override with `QUANTS_DB_PATH` (absolute path recommended for persistent volumes). Startup validates the schema and runs additive migrations before importing database consumers. SQLite is suitable for one Streamlit process and local/persistent disks. Streamlit Community Cloud's local filesystem may not be durable across rebuild/restarts. For persistent use, deploy on a VPS with a persistent volume or migrate DB access to PostgreSQL. The included worker should run on a persistent host (e.g. cron), not as a background daemon in Streamlit Community Cloud.
+
+## Database schema audit (read-only)
+
+Run a whole-project SQLite schema/SQL audit against an exported database backup:
+
+```bash
+python scripts/audit_database_schema.py \
+  --db-path ./quants_pro_backup.sqlite3 \
+  --baseline ./previous_backup.sqlite3 \
+  --json-out ./database_schema_audit.json
+```
+
+The audit opens inspected databases read-only. It compares canonical tables, columns, types, primary keys, NOT NULL constraints, foreign keys and indexes; runs SQLite integrity/foreign-key checks; compiles literal SQL call sites using `EXPLAIN`; inventories table access and dynamic SQL; and optionally compares row continuity with a previous backup. The audit does not migrate, delete, or repair the inspected file. Run normal application bootstrap only on a separate copy before production deployment.
 
 ## Optional worker commands
 ```bash

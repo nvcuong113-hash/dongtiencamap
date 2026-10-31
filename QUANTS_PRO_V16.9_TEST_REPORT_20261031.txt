@@ -1,0 +1,54 @@
+QUANTS PRO V16.9 — RELEASE TEST REPORT
+Date: 2026-10-31
+
+SOURCE / CHANGES
+- Read-only whole-project SQLite schema audit: quants/schema_audit.py
+- CLI: scripts/audit_database_schema.py
+- DB_SCHEMA_VERSION: 20261031_v169_schema_audit_fk_v1
+- Every quants.db.connect() enables PRAGMA foreign_keys=ON.
+- Additive index migration: idx_macro_factor_id on macro_snapshots(factor,id).
+- VNDIRECT/TCBS daily history adapter preserves actual open; invalid/incomplete OHLC rows are rejected instead of fabricated.
+- Legacy trading scores, forecasts, AI prompts and decision gates unchanged; SMF V2 remains SHADOW-only.
+
+FULL TEST SUITE
+- pytest -q: 313 passed, 1 skipped.
+- python -m compileall -q app.py worker.py quants tests scripts: PASS.
+- New schema audit tests: 4 passed.
+- New historical OHLCV/provider tests: 4 passed.
+
+DATABASE AUDIT — UPLOADED BACKUP
+- Integrity check: ok.
+- Foreign key violations: 0.
+- Canonical tables: 18/18 present.
+- Columns/types/PK/NOT NULL/FK: no structural mismatch.
+- Missing index before migration: idx_macro_factor_id.
+- Default drift warning: media_symbol_daily.recorded_at and symbol default to empty string instead of no default; table currently empty.
+- Static SQL call sites: 121/121 compile using EXPLAIN.
+- Dynamic/non-literal SQL templates: 30, manually reviewed by module/category.
+- Table access inventory: 18 app tables plus sqlite_master.
+- Root module mirrors: 24; 21 byte-match quants copies, 3 differ (config.py, db.py, engine.py); app runtime imports quants.*.
+
+MIGRATION REHEARSAL ON A COPY
+- ensure_database_ready(): READY.
+- V16.9 schema audit: PASS.
+- Runtime foreign_keys: 1.
+- integrity_check: ok; foreign_key_check: [] .
+- Hashes and row counts of media_articles, prediction_versions, predictions, macro_snapshots,
+  smf_v2_runs, smf_v2_evidence, users, auth_sessions were identical before/after migration.
+- Uploaded original DB and older comparison DB were not modified.
+
+DATA CONTINUITY ALERT
+Compared with the older 2026-10-30 16:35 backup, the 18:16 backup has 524 fewer media_articles, 149 fewer prediction_versions, 6 fewer macro_snapshots; 45 predictions remain but their created_at changed and 26 predicted_pct changed. Macro rows also have changed ts/value/change_pct. This is not proof of deletion; database path switch, different source DB, partial export, or other historical changes must be verified. No auto-merge or restore was performed.
+
+SMF DATA QUALITY FINDING / FIX
+- The saved run has 15 symbols; each has 127 received history bars but 127 rejected because the history adapter omitted `open`.
+- market_bars is empty and native market_structure_v2 / vsa_volume_v2 evidence counts are 0; saved evidence is legacy_adapter_v2 only.
+- V16.9 now preserves provider `open`, validates all OHLC fields, and refuses to synthesize missing prices.
+- Synthetic end-to-end test confirms 80 valid OHLCV bars pass shared QC, produce native Market Structure evidence, and persist to market_bars.
+- No historical alpha/lead-time/precision/recall claim is made: supplied DB has no OHLCV bars or settled predictions.
+
+DEPLOYMENT GATE
+- Apply the Patch at repository root, keeping app.py at root.
+- Do not upload or overwrite the live database with either backup.
+- Back up Cloud DB first and compare with older backup using the read-only audit CLI.
+- Cloud production remains unverified until the deployed app shows the V16.9 build marker and a new backup passes the audit.

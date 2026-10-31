@@ -7,7 +7,7 @@ from pandas.io.formats.style import Styler
 import streamlit as st
 
 st.set_page_config(
-    page_title="QUANTS PRO V16.8 - Combat Trading Terminal",
+    page_title="QUANTS PRO V16.9 - Combat Trading Terminal",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -2094,7 +2094,7 @@ with tabs[3]:
                                 else:
                                     st.error(result.get("reason", "Rollback thất bại."))
 
-st.caption(f"Hệ thống QUANTS PRO V16.8 • Build: DB-BOOTSTRAP-ADMIN-INIT-20261031 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
+st.caption(f"Hệ thống QUANTS PRO V16.9 • Build: DATABASE-SCHEMA-AUDIT-20261031 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
 
 with st.popover("💬 Trợ Lý AI Trực Tuyến"):
     st.markdown("#### 🤖 Trợ Lý Định Lượng AI (Bảng điện + Danh mục + Media + Vĩ mô)")

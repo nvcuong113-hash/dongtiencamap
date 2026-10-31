@@ -1,0 +1,39 @@
+DEPLOY — QUANTS PRO V16.9 DATABASE SCHEMA AUDIT
+
+1) Before deploy
+- In Streamlit Community Cloud, create/download a fresh SQLite backup using the app's own "Tạo bản sao DB" function.
+- Keep this backup and the previous backup separately. Do not rename one over the other.
+- Do not put any .sqlite3/.db file from this release package into the repository or Cloud storage.
+
+2) Apply patch
+- Download QUANTS_PRO_V16.9_DATABASE_SCHEMA_AUDIT_PATCH_20261031.zip.
+- Extract at the Git repository root (the directory containing app.py).
+- Preserve the folder structure, especially quants/, scripts/, tests/, docs/.
+- Commit and push to the branch configured for the Streamlit app.
+
+3) Secrets / database path
+- Do not modify admin Secrets as part of this release.
+- Keep QUANTS_DB_PATH unchanged unless the audit shows that Cloud is opening the wrong database.
+- If multiple candidate DB files exist, set QUANTS_DB_PATH to the exact persistent production file; do not guess.
+
+4) After deploy
+- Confirm footer: QUANTS PRO V16.9 / DATABASE-SCHEMA-AUDIT-20261031.
+- Trigger one full sync, then confirm market_bars receives valid OHLCV observations and the data-quality panel no longer rejects all daily bars for a missing open field.
+- Check the newest Shadow run for native market_structure_v2 evidence. VSA evidence will appear only when its event rules actually detect an event.
+- Confirm flow remains UNAVAILABLE/BLOCKED whenever timestamp/deal provenance is not verified; do not coerce it to zero.
+
+5) Run local read-only audit against exported backups
+
+  python scripts/audit_database_schema.py \
+    --db-path ./quants_pro_backup.sqlite3 \
+    --baseline ./previous_backup.sqlite3 \
+    --json-out ./database_schema_audit.json
+
+- Exit code 0 means structural schema and literal SQL compile checks passed. Data readiness and baseline continuity still require reading the report.
+- Exit code 2 means a structural schema or static SQL incompatibility remains; inspect `schema` and `static_sql_audit.failures` in JSON.
+- `DATA_CONTINUITY_REVIEW_REQUIRED` means do not restore/merge automatically; compare row IDs, changed columns, database path and backup provenance first.
+
+6) Rollback / safety
+- Keep the downloaded pre-deploy backup.
+- V16.9 schema change is additive (index creation) and does not delete rows.
+- If a deploy issue occurs, revert source code to the prior Git commit; do not replace the live DB with an older backup unless a separately approved recovery plan is followed.
