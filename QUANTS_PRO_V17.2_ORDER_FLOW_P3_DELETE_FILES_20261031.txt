@@ -1,0 +1,22 @@
+QUANTS PRO V17.2 — CLEANUP / DELETE MANIFEST
+
+SAFE TO REMOVE FROM THE SOURCE CHECKOUT OR RELEASE ARCHIVE ONLY:
+- data/quants_pro.sqlite3  [the 20 KB empty local stub shipped in the uploaded source ZIP only]
+- data/quants              [one-byte stray file]
+- tests/dnse_provider.py   [stale duplicate; active adapter is quants/dnse_provider.py]
+- docs/VNSTOCK_COMUNITY_SETUP.md [empty misspelled duplicate; keep docs/VNSTOCK_COMMUNITY_SETUP.md]
+- every __pycache__/ directory, .pytest_cache/, *.pyc and *.pyo
+
+DO NOT DELETE:
+- The deployed production database or any backup, even if its filename is data/quants_pro.sqlite3.
+- The local file listed above in a live production deployment unless you have proven it is the empty 20 KB seed and not the active database. Do not replace production DB with the source seed.
+
+OPTIONAL LEGACY ROOT MODULES — REMOVE ONLY AFTER VERIFYING NO EXTERNAL IMPORTS:
+ai_engine.py, audit.py, calendar_vn.py, chat_support.py, config.py, db.py,
+decision_report.py, dnse_provider.py, economic_framework.py, engine.py,
+learning.py, market_display.py, mcp_chat.py, mcp_tools.py, media.py,
+model_stack.py, practical_flow.py, providers.py, reversal.py, table_config.py,
+table_values.py, user_settings.py, vnstock_quality.py, vsa_chart.py,
+root __init__.py. Keep root mcp_server.py if any process still invokes it.
+
+The source-internal import scan found no imports of the root module list from the current app/worker/scripts/tests. It cannot detect imports from private external jobs, notebooks, or other repositories.

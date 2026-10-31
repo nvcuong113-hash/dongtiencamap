@@ -1,4 +1,4 @@
-# QUANTS PRO V17.1 — VSA Event Intelligence
+# QUANTS PRO V17.2 — Order Flow Sample Intelligence
 
 ## What is included
 - Streamlit dashboard inspired by the supplied HTML concepts: Smart Flow Radar, Order Flow, Wyckoff Matrix, Alpha Factor Screener, Media Intelligence, Market Breadth/Sector Rotation, Macro & Backtest, System Health.
@@ -8,6 +8,7 @@
 - Media RSS ingestion over a configurable 48-hour window, ticker buzz summaries and optional custom RSS. Manual insight entry.
 - Gemini or OpenAI JSON inference in mini-batches of 6, deterministic post-processing, hard bounds and audit log.
 - T+2/T+3/T+7 settlement and MAE/Bias/directional accuracy by horizon and market regime.
+- SMF P3 Time & Sales sample diagnostics with provenance/freshness/coverage gates; strictly non-voting and sample-only.
 - Optional `worker.py` jobs for persistent VPS scheduling.
 
 ## Run locally
@@ -63,6 +64,7 @@ Suggested host cron schedule (Asia/Ho_Chi_Minh): market quant each minute during
 - Index fallback basket aggregation is not used to fabricate the VN-Index. If all official/provider sources fail, the index is shown as unavailable.
 - The P_Win score is a rules-based heuristic, not a calibrated probability. Do not infer edge until enough out-of-sample settlements exist.
 - Holiday dates are configurable and should be updated annually against the official exchange calendar.
+- Order Flow P3 analyses only the optional, capped Vnstock Community Time & Sales sample. It is non-voting and is never promoted to full-session flow, investor identity, order-book absorption or a trading signal. A live-market authenticated smoke test is still required.
 - SRS describes a 2.5-second 50–100 ticker SLA, but public REST calls are sequential and no SLA is claimed. To meet it, add parallel ingestion, caching and a persistent worker/queue after provider contracts are confirmed.
 - The supplied HTML files are design references, not connected live applications. This is a simplified Streamlit interface, not pixel-perfect HTML reproduction.
 

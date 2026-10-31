@@ -1,0 +1,35 @@
+QUANTS PRO V17.2 — SMF P3 Order Flow Sample Intelligence
+Date: 2026-10-31
+
+SOURCE VERIFICATION
+- Source base: uploaded QUANTS PRO V17.1/P2 source archive (build VSA-EVENT-P2-20261031).
+- Latest uploaded production backup: quants_pro_backup(20261031-012240).sqlite3.
+- P2 runtime verified: SMF schema 2.3, 15 instruments, 106 evidence rows, Market Structure 2.2.0, VSA 3.0.0.
+
+P3 IMPLEMENTATION
+- Added order_flow_sample_v1 engine 1.0.0.
+- Added sample provenance, freshness, minimum-row-count, classified-volume and reconciliation checks.
+- Added sample Buy/Sell imbalance labels; all statuses remain sample-only.
+- Added ORDER_FLOW evidence with contributes_to_consensus=false.
+- SMF shadow schema advanced to 2.4.
+- Updated app UI, README, changelog and P3 technical documentation.
+- No SQLite schema change/migration. Legacy decision path unchanged.
+
+TESTS
+- Source checkout: pytest 328 passed, 1 skipped; compileall passed.
+- Exact Full Source ZIP extracted and tested: pytest 328 passed, 1 skipped; compileall passed.
+- Exact Patch ZIP applied to a fresh extraction of the uploaded V17.1 baseline and tested: pytest 328 passed, 1 skipped; compileall passed.
+- Skipped: tests/test_mcp_runtime_smoke.py because MCP SDK is not installed in this test environment.
+- P3 tests cover sample-only bias, sell/buy dominance, low coverage, source mismatch, stale data, inconsistent totals, non-voting evidence, and no mutation of legacy rows.
+
+PRODUCTION BACKUP AUDIT
+- SQLite integrity: ok.
+- Schema: 18/18 tables present; compatible.
+- Foreign-key violations: 0.
+- Static SQL: 121/121 compiled; 30 dynamic/non-literal SQL statements inventoried.
+- Warning: media_symbol_daily.recorded_at and symbol default-value drift remains for review.
+- Backup rows: market_bars 1,905; media_articles 463; macro_snapshots 429; smf_v2_runs 1; smf_v2_evidence 106; stock_snapshots 0; flow_snapshots 0.
+
+LIMITATION
+- The uploaded backup has no persisted Time & Sales sample payload and was captured off-session on Saturday 2026-10-31. Real provider validation of P3 requires an authenticated Vnstock Community sync during a weekday market session. No claim of live Time & Sales working is made.
+- No production deployment was executed from this workspace; the V17.2 Patch and Full Source release packages are prepared and verified only.

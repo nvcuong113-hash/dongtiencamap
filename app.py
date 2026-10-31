@@ -7,7 +7,7 @@ from pandas.io.formats.style import Styler
 import streamlit as st
 
 st.set_page_config(
-    page_title="QUANTS PRO V17.1 - VSA Event Intelligence",
+    page_title="QUANTS PRO V17.2 - Order Flow Sample Intelligence",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -2094,7 +2094,7 @@ with tabs[3]:
                                 else:
                                     st.error(result.get("reason", "Rollback thất bại."))
 
-st.caption(f"Hệ thống QUANTS PRO V17.1 • Build: VSA-EVENT-P2-20261031 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
+st.caption(f"Hệ thống QUANTS PRO V17.2 • Build: ORDER-FLOW-P3-20261031 • Đang kết nối: {cur_user['username']} • Cập nhật lúc: {st.session_state.last_run or 'Chưa đồng bộ'}")
 
 with st.popover("💬 Trợ Lý AI Trực Tuyến"):
     st.markdown("#### 🤖 Trợ Lý Định Lượng AI (Bảng điện + Danh mục + Media + Vĩ mô)")
@@ -2286,6 +2286,10 @@ with tabs[4]:
                 "VSA failed": (item.get("vsa") or {}).get("event_counts", {}).get("failed", 0),
                 "VSA pending": (item.get("vsa") or {}).get("event_counts", {}).get("pending", 0),
                 "Chất lượng VSA": (item.get("vsa") or {}).get("quality_status"),
+                "T&S sample bias": (item.get("order_flow_sample") or {}).get("sample_bias"),
+                "T&S buy share mẫu (%)": (item.get("order_flow_sample") or {}).get("sample_buy_share_pct"),
+                "T&S classified volume (%)": (item.get("order_flow_sample") or {}).get("sample_classified_volume_pct"),
+                "T&S QC": (item.get("order_flow_sample") or {}).get("status"),
                 "Trạng thái": consensus.get("status"),
             })
         if overview:
@@ -2372,6 +2376,34 @@ with tabs[4]:
                     st.caption(vsa_detail.get("quality_reason") or "")
                 else:
                     st.info("Chưa có kết quả VSA V2 cho mã này.")
+            order_flow_detail = selected.get("order_flow_sample") or {}
+            with st.expander("⚖️ Order Flow P3 — Time & Sales sample (không bỏ phiếu)", expanded=True):
+                if order_flow_detail.get("sample_available"):
+                    st.caption(
+                        f"Engine {order_flow_detail.get('engine_version', 'N/A')} · "
+                        f"QC: {order_flow_detail.get('status')} / {order_flow_detail.get('quality_status')} · "
+                        f"Coverage: {order_flow_detail.get('sample_coverage')} · "
+                        f"Source match: {order_flow_detail.get('source_match')} · "
+                        f"Age: {order_flow_detail.get('sample_latest_age_seconds')} giây"
+                    )
+                    o1, o2, o3, o4 = st.columns(4)
+                    o1.metric("Lệnh hợp lệ trong mẫu", order_flow_detail.get("sample_rows_valid", 0))
+                    o2.metric("Buy share mẫu", f"{order_flow_detail.get('sample_buy_share_pct'):.1f}%" if isinstance(order_flow_detail.get('sample_buy_share_pct'), (int, float)) else "—")
+                    o3.metric("Volume phân loại", f"{order_flow_detail.get('sample_classified_volume_pct'):.1f}%" if isinstance(order_flow_detail.get('sample_classified_volume_pct'), (int, float)) else "—")
+                    o4.metric("Net aggressive value mẫu (tỷ)", order_flow_detail.get("sample_net_aggressive_value_billion") if order_flow_detail.get("sample_net_aggressive_value_billion") is not None else "—")
+                    st.caption(
+                        f"Bias mẫu: {order_flow_detail.get('sample_bias')} · "
+                        f"Sample VWAP: {order_flow_detail.get('sample_vwap')} · "
+                        f"Cửa sổ mẫu: {order_flow_detail.get('sample_window_minutes')} phút · "
+                        f"Truncated: {order_flow_detail.get('sample_truncated')}"
+                    )
+                    if order_flow_detail.get("reason_codes"):
+                        st.warning(" / ".join(order_flow_detail.get("reason_codes", [])))
+                else:
+                    st.info("Chưa có mẫu Time & Sales đủ điều kiện. Flow thật vẫn chưa khả dụng; không thay thế bằng proxy.")
+                for limitation in order_flow_detail.get("limitations", []):
+                    st.caption("• " + str(limitation))
+
             details = selected.get("evidence", [])
             if details:
                 evidence_df = pd.DataFrame(details)
