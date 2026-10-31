@@ -5,7 +5,7 @@
 2. Deploy the V18.0 source code to the same application repository/runtime.
 3. Confirm the runtime has network egress to RSS, Google News RSS, U.S. Treasury and World Bank endpoints.
 4. Configure `GEMINI_API_KEY` in the runtime secrets/environment if semantic analysis is desired. Do not commit API keys.
-5. Optional cost setting: `MEDIA_AI_DAILY_CALL_LIMIT=2` (default; global daily media-semantic requests, maximum 10). Each scheduled/manual run analyzes at most 8 articles by default; one request can analyze a batch. Cached content does not spend another request.
+5. Optional cost setting: `MEDIA_AI_DAILY_CALL_LIMIT=2` (default; global daily media-semantic requests, maximum 10). Each request analyzes up to 8 articles; a single scheduled/manual run automatically continues into the next batch until the shared daily quota is exhausted or the eligible 72-hour queue is empty. Default maximum is 16 uncached articles/day. Cached content does not spend another request. A failed/partial model response stops the current run and leaves unresolved rows in `RETRY` for a later run; it does not repeatedly call the same batch.
 6. Optional MCP paid fallback: keep `MCP_ALLOW_PAID_FALLBACK=false` (default). Set it to `true` only if you knowingly permit Gemini failures to fall back to the configured OpenAI API, which may incur charges.
 
 ## Database migration
@@ -38,7 +38,7 @@ The worker must use the exact same persistent database as the Streamlit applicat
 - Confirm app title/version shows V18.0.
 - Run the manual combined job once and inspect `intelligence_job_runs`.
 - Check `media_articles` for source, sector, geography, source-family and content-quality metadata.
-- Check `media_ai_usage` and `media_semantic_cache` to confirm quota and cache behavior.
+- Check `media_ai_usage` and `media_semantic_cache` to confirm quota and cache behavior. In the Media Intelligence tab, compare `Còn chờ AI (72h)`, `Quota AI hôm nay`, and `Tin chờ quá 72h`; the cross-article semantic rollup is descriptive only and must not be treated as a trading signal.
 - Check `macro_source_runs` for successful Treasury/World Bank fetches; distinguish partial data availability from full macro coverage.
 - Confirm `intelligence_shadow_forecasts` is populated separately from `predictions`; after settlement, verify both `direction_correct` and `legacy_direction_correct` are available for paired comparison.
 - Verify P1–P7 run remains `SHADOW` / `decision_impact=NONE`; do not enable voting or automatic model adjustment.

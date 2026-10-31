@@ -1,0 +1,54 @@
+MEDIA AI BATCH-DRAIN PATCH — TEST REPORT
+Date: 2026-10-31
+Source baseline: dongtiencamap-main(20261031-074303).zip
+
+1. AUTOMATED VALIDATION
+- Python compile check: PASS
+  Command: python -m compileall -q app.py worker.py quants tests
+- Full project test suite: PASS
+  Result: 377 passed, 1 skipped in 16.57s
+- Media/Macro Intelligence test module: included in the full suite and passed.
+
+2. NEW REGRESSION COVERAGE
+- A single media analysis invocation continues across consecutive 8-article batches until the shared daily quota is reached.
+- The existing daily quota is not exceeded; each model call is reserved atomically in SQLite.
+- A failed Gemini call does not retry the same batch during the same invocation or consume the remaining request slots.
+- Unresolved items remain PENDING/RETRY for a later run.
+- Legacy sentiment fields remain unchanged after semantic enrichment.
+- Cross-article snapshot aggregates events/sectors/evidence but does not alter a stored prediction.
+- Queue status reports eligible backlog, stale backlog, daily usage and remaining quota.
+
+3. DRY-RUN AGAINST THE PROVIDED DATABASE BACKUP
+The backup was opened read-only and copied to a temporary test database. The mock Gemini adapter returned deterministic fixture responses; no live Gemini API call was made.
+
+Before the dry-run:
+- media_articles total: 1,099
+- DONE: 8
+- PENDING: 1,091
+- Eligible PENDING/RETRY within 72 hours: 1,091
+- media_ai_usage for 2026-10-31: 1/2 calls; 8 articles analyzed
+
+One patched invocation:
+- Additional articles processed: 8
+- Additional API calls simulated: 1
+- Batch sizes: [8]
+- Daily quota after run: 2/2
+- DONE: 16
+- Remaining eligible PENDING: 1,083
+- Queue state: QUOTA_REACHED; remaining articles were preserved, not deleted or marked complete
+
+The default quota was deliberately not increased. With no earlier usage that day, the default 2 calls/day can process up to 16 uncached articles/day. `MEDIA_AI_DAILY_CALL_LIMIT` remains configurable up to 10; increasing it may increase API/token costs.
+
+4. MODEL-SAFETY CHECKS
+- No edits to legacy scoring, feature engineering, signal calculation, prediction generation, P_WIN, decision gates, P1–P7, or SMF V2 fusion/forecast code.
+- Semantic output remains an enrichment field on media_articles.
+- The cross-article overview is descriptive only and carries decision_impact=NONE.
+- Existing prediction values were asserted unchanged by regression test.
+
+5. LIMITATIONS / NOT CLAIMED
+- Live Gemini connectivity, account quota, and response quality were not tested because this run used a mocked Gemini adapter and no live API credentials.
+- RSS title/summary is not guaranteed to be a full article body; the system continues to expose content_quality.
+- New semantic processing retains the existing 72-hour eligibility window. Older pending items are reported as stale backlog, not silently backfilled.
+- A finite daily quota means a large backlog drains over multiple days unless the operator explicitly raises the configured daily request cap.
+
+RESULT: PATCH PASSED AUTOMATED REGRESSION AND DATABASE-COPY DRY-RUN. No forecast/model tables were modified by the semantic patch tests.

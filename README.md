@@ -4,7 +4,7 @@
 
 ## V18.0 operating notes
 - Media sources now include publisher RSS feeds, Google News ticker/macro/global/sector queries, and official-statistics/news discovery candidates. RSS content is not the same as guaranteed full-article text; each item carries a content-quality marker.
-- Semantic AI uses Gemini batching (default 8 articles/call), cache-by-content, and a shared daily request cap (`MEDIA_AI_DAILY_CALL_LIMIT`, default 2; maximum 10). Without `GEMINI_API_KEY`, new items remain pending while cached interpretations remain usable. Manual runs share the same quota.
+- Semantic AI uses Gemini batches of up to 8 articles/request, cache-by-content, and a shared daily request cap (`MEDIA_AI_DAILY_CALL_LIMIT`, default 2; maximum 10). A single manual/scheduled run drains consecutive batches until the daily quota is reached or no eligible articles remain; at the default quota this is up to 16 uncached articles per day. Failed/partial batches stop the current run rather than retrying the same articles repeatedly. Without `GEMINI_API_KEY`, new items remain pending while cached interpretations remain usable. Manual runs share the same quota. The 72-hour eligibility window is explicit; older pending items are surfaced separately as stale backlog.
 - MCP does not silently fall back from Gemini to a potentially paid OpenAI API by default. `MCP_ALLOW_PAID_FALLBACK=true` explicitly enables that fallback.
 - New Media+Macro forecasts are stored separately in `intelligence_shadow_forecasts`; they do not overwrite legacy predictions, P_WIN, score, or decision gates. Initial overlay weights are exploratory and not calibrated.
 - The framework evidence map measures input coverage; it is not a causal/econometric model and does not prove actual money flows.

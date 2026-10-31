@@ -46,7 +46,7 @@ from quants.decision_report import build_decision_report, apply_decision_gates
 from quants.ai_engine import run_ai, enforce_predictions, save_prediction_audit, persist_forecast_rows, public_ai_error
 from quants.mcp_chat import generate_mcp_chat_response
 from quants.mcp_tools import dispatch_tool as dispatch_mcp_tool
-from quants.media import crawl_media, analyze_media_semantics, sector_media_summary, recent_media, media_summary
+from quants.media import crawl_media, analyze_media_semantics, sector_media_summary, recent_media, media_summary, media_ai_queue_status, media_intelligence_snapshot
 from quants.chat_support import build_chat_prompt
 from quants.table_config import normalize_visible_columns, parse_saved_visible_columns, serialize_visible_columns
 from quants.user_settings import normalize_watchlist
@@ -1120,8 +1120,12 @@ with c_btn2:
         with st.spinner("Đang quét ticker, ngành, nguồn tin Việt Nam và tin ngành toàn cầu..."):
             count, media_errors = crawl_media(st.session_state.active_watchlist, 48)
             analyzed, ai_errors = analyze_media_semantics(limit=8)
+            queue = media_ai_queue_status(hours=72)
             st.session_state.pop("market_inventory_payload", None)
-            st.toast(f"Đã lưu {count} tin mới; AI đã đọc {analyzed} bài.", icon="📰")
+            st.toast(
+                f"Đã lưu {count} tin mới; AI đọc {analyzed} bài; còn {queue['eligible_pending']} bài chờ trong 72h.",
+                icon="📰",
+            )
             if media_errors:
                 st.warning(f"{len(media_errors)} luồng RSS lỗi; các nguồn còn lại vẫn được xử lý.")
             if ai_errors:
@@ -1839,13 +1843,44 @@ with tabs[1]:
 with tabs[2]:
     st.markdown("### 📰 Media Intelligence — mã, ngành và chuỗi cung ứng toàn cầu")
     st.caption("Nguồn gồm RSS nhà xuất bản, Google News theo mã/ngành và truy vấn quốc tế. Nhãn keyword được giữ riêng; semantic AI là lớp diễn giải chưa xác minh, không phải tín hiệu giao dịch.")
+    _ai_queue = media_ai_queue_status(hours=72)
+    _queue_cols = st.columns(4)
+    _queue_cols[0].metric("AI đã đọc (72h)", f"{_ai_queue['analyzed_recent']:,}")
+    _queue_cols[1].metric("Còn chờ AI (72h)", f"{_ai_queue['eligible_pending']:,}")
+    _queue_cols[2].metric("Quota AI hôm nay", f"{_ai_queue['ai_calls']}/{_ai_queue['daily_limit']}")
+    _queue_cols[3].metric("Tin chờ quá 72h", f"{_ai_queue['stale_pending']:,}")
+    if _ai_queue['last_error']:
+        st.caption("Trạng thái lượt AI gần nhất: " + _ai_queue['last_error'][:300])
+    _media_snapshot = media_intelligence_snapshot(hours=72)
+    with st.expander("🧠 Tổng hợp chéo các bài AI đã đọc trong 72h", expanded=True):
+        st.caption(_media_snapshot['note'])
+        st.write(
+            f"{_media_snapshot['semantic_articles']:,} bài semantic · "
+            f"{_media_snapshot['source_families']:,} nhóm nguồn · "
+            f"{_media_snapshot['high_confidence_articles']:,} bài confidence ≥ 0,7 · "
+            f"cân bằng hướng có trọng số: {_media_snapshot['weighted_direction'] if _media_snapshot['weighted_direction'] is not None else 'Chưa đủ dữ liệu'}"
+        )
+        if _media_snapshot['event_clusters']:
+            st.markdown("**Chủ đề / loại sự kiện nổi bật**")
+            st.dataframe(pd.DataFrame(_media_snapshot['event_clusters']), width="stretch", hide_index=True)
+        if _media_snapshot['sector_impacts']:
+            st.markdown("**Ngành hưởng lợi / chịu bất lợi theo semantic**")
+            st.dataframe(pd.DataFrame(_media_snapshot['sector_impacts']), width="stretch", hide_index=True)
+        if _media_snapshot['top_evidence']:
+            st.markdown("**Bằng chứng nổi bật và phản chứng**")
+            st.dataframe(pd.DataFrame(_media_snapshot['top_evidence']), width="stretch", hide_index=True)
     _media_col1, _media_col2, _media_col3 = st.columns(3)
     with _media_col1:
         if st.button("📰 Chạy Media job ngay", key="media_intelligence_manual", width="stretch"):
             with st.spinner("Thu thập nhiều nguồn và phân tích semantic theo lô..."):
                 _new_media, _media_errs = crawl_media(st.session_state.active_watchlist, 48)
                 _semantic_n, _semantic_errs = analyze_media_semantics(limit=8)
-            st.success(f"Lưu mới {_new_media} bài; AI đọc {_semantic_n} bài.")
+                _queue = media_ai_queue_status(hours=72)
+            st.success(
+                f"Lưu mới {_new_media} bài; AI đọc {_semantic_n} bài; "
+                f"còn {_queue['eligible_pending']} bài chờ trong 72h; "
+                f"quota {_queue['ai_calls']}/{_queue['daily_limit']} request hôm nay."
+            )
             if _media_errs: st.warning(f"Có {len(_media_errs)} nguồn không truy cập được.")
             if _semantic_errs: st.info("AI: " + "; ".join(_semantic_errs[:2]))
     with _media_col2:
