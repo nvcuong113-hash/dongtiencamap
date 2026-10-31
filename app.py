@@ -48,6 +48,7 @@ from quants.mcp_chat import generate_mcp_chat_response
 from quants.mcp_tools import dispatch_tool as dispatch_mcp_tool
 from quants.media import crawl_media, analyze_media_semantics, sector_media_summary, recent_media, media_summary, media_ai_queue_status, media_intelligence_snapshot
 from quants.media_intelligence_v2 import (fetch_media_fulltext, build_market_narratives, media_price_flow_alignment, build_media_early_warnings, build_media_signal_backtest)
+from quants.money_flow_story import build_money_flow_story
 from quants.chat_support import build_chat_prompt
 from quants.table_config import normalize_visible_columns, parse_saved_visible_columns, serialize_visible_columns
 from quants.user_settings import normalize_watchlist
@@ -1144,7 +1145,7 @@ st.divider()
 tabs = st.tabs([
     "💼 QUẢN TRỊ DANH MỤC & TÍN HIỆU SỚM",
     "🎯 RADAR TÍN HIỆU ĐẦY ĐỦ",
-    "📰 TÂM LÝ NHỎ LẺ & Ý ĐỒ LÁI 48H",
+    "🧭 CÂU CHUYỆN DÒNG TIỀN 48H",
     "📊 HIỆU NĂNG AUDIT & CẤU HÌNH",
     "🧩 BẰNG CHỨNG V2 (SHADOW)"
 ])
@@ -1842,170 +1843,187 @@ with tabs[1]:
         st.info("Chưa có dữ liệu snapshot. Vui lòng bấm nút **⚡ ĐỒNG BỘ TOÀN DIỆN** ở trên.")
 
 with tabs[2]:
-    st.markdown("### 📰 Media Intelligence — mã, ngành và chuỗi cung ứng toàn cầu")
-    st.caption("Nguồn gồm RSS nhà xuất bản, Google News theo mã/ngành và truy vấn quốc tế. Nhãn keyword được giữ riêng; semantic AI là lớp diễn giải chưa xác minh, không phải tín hiệu giao dịch.")
+    st.markdown("### 🧭 CÂU CHUYỆN DÒNG TIỀN — TỪ VĨ MÔ ĐẾN TỪNG CỔ PHIẾU")
+    st.caption("Cửa sổ tin/tâm lý: 48 giờ · Giá: 3 phiên gần nhất · Vĩ mô: xu hướng 20 phiên khi đủ dữ liệu. Tab kể mối liên hệ từ điều kiện tiền tệ đến ngành, cổ phiếu và phản ứng cung cầu; không suy đoán danh tính hay ý đồ của một tổ chức/cá nhân.")
+
+    # Refresh the same source data used by the research engines; presentation is a separate layer.
     _ai_queue = media_ai_queue_status(hours=72)
-    _queue_cols = st.columns(4)
-    _queue_cols[0].metric("AI đã đọc (72h)", f"{_ai_queue['analyzed_recent']:,}")
-    _queue_cols[1].metric("Còn chờ AI (72h)", f"{_ai_queue['eligible_pending']:,}")
-    _queue_cols[2].metric("Quota AI hôm nay", f"{_ai_queue['ai_calls']}/{_ai_queue['daily_limit']}")
-    _queue_cols[3].metric("Tin chờ quá 72h", f"{_ai_queue['stale_pending']:,}")
-    if _ai_queue['last_error']:
-        st.caption("Trạng thái lượt AI gần nhất: " + _ai_queue['last_error'][:300])
-    _media_snapshot = media_intelligence_snapshot(hours=72)
-    with st.expander("🧠 Tổng hợp chéo các bài AI đã đọc trong 72h", expanded=True):
-        st.caption(_media_snapshot['note'])
-        st.write(
-            f"{_media_snapshot['semantic_articles']:,} bài semantic · "
-            f"{_media_snapshot['source_families']:,} nhóm nguồn · "
-            f"{_media_snapshot['high_confidence_articles']:,} bài confidence ≥ 0,7 · "
-            f"cân bằng hướng có trọng số: {_media_snapshot['weighted_direction'] if _media_snapshot['weighted_direction'] is not None else 'Chưa đủ dữ liệu'}"
-        )
-        if _media_snapshot['event_clusters']:
-            st.markdown("**Chủ đề / loại sự kiện nổi bật**")
-            st.dataframe(pd.DataFrame(_media_snapshot['event_clusters']), width="stretch", hide_index=True)
-        if _media_snapshot['sector_impacts']:
-            st.markdown("**Ngành hưởng lợi / chịu bất lợi theo semantic**")
-            st.dataframe(pd.DataFrame(_media_snapshot['sector_impacts']), width="stretch", hide_index=True)
-        if _media_snapshot['top_evidence']:
-            st.markdown("**Bằng chứng nổi bật và phản chứng**")
-            st.dataframe(pd.DataFrame(_media_snapshot['top_evidence']), width="stretch", hide_index=True)
-    # P0: narratives are clustered across articles, not merely counted by event type.
-    _narratives_v2 = build_market_narratives(hours=72)
-    with st.expander("🧩 Market Narrative — ghép sự kiện xuyên nhiều bài", expanded=True):
-        st.caption("Gom nhóm dựa trên loại sự kiện, nội dung tiêu đề/chuỗi nhân quả và ngành liên quan. Đây là tổng hợp bằng chứng, không phải kết luận nhân quả độc lập.")
-        if _narratives_v2["narratives"]:
-            _narrative_rows = [{k: v for k, v in x.items() if k not in ("evidence", "causal_chains", "first_order_effects")} for x in _narratives_v2["narratives"]]
-            st.dataframe(pd.DataFrame(_narrative_rows), width="stretch", hide_index=True)
-            for _narrative in _narratives_v2["narratives"][:5]:
-                with st.expander(f"{_narrative['event_type']} · {_narrative['article_count']} bài · {_narrative['direction']}"):
-                    st.write("**Tiêu đề:** " + " | ".join(_narrative.get("headlines", [])[:4]))
-                    st.write("**Chuỗi tác động:** " + " | ".join(_narrative.get("causal_chains", [])[:3]))
-                    st.write("**Nguồn/bằng chứng:**")
-                    st.dataframe(pd.DataFrame(_narrative.get("evidence", [])), width="stretch", hide_index=True)
-        else:
-            st.info("Chưa có đủ bài semantic để hình thành Market Narrative.")
-
-    # P0: cross-check news against validated prices and provenance-qualified flow.
+    _media_snapshot = media_intelligence_snapshot(hours=48)
+    _narratives_v2 = build_market_narratives(hours=48)
     _media_alignment = media_price_flow_alignment(hours=168, watchlist=st.session_state.active_watchlist)
-    with st.expander("🔬 Đối chiếu tin tức với giá và dòng tiền (Shadow)", expanded=True):
-        st.caption("Chỉ xác nhận dòng tiền khi flow_status=REAL_DEAL_VERIFIED và quote được xác minh. Flow proxy được hiển thị riêng, không nâng thành dòng tiền thực.")
-        if _media_alignment["items"]:
-            _alignment_cols = ["symbol", "sector", "media_direction", "media_score", "articles", "direct_ticker_articles", "sector_context_articles", "ret_3_session_pct", "bar_age_calendar_days", "bar_is_recent", "volume_ratio_20d", "flow_status", "flow_age_calendar_days", "flow_fresh", "net_flow_billion", "flow_verified", "vwap_position", "alignment"]
-            st.dataframe(pd.DataFrame(_media_alignment["items"])[[c for c in _alignment_cols if c in pd.DataFrame(_media_alignment["items"]).columns]], width="stretch", hide_index=True)
-        else:
-            st.info("Chưa có dữ liệu semantic đủ điều kiện để đối chiếu.")
+    _media_warnings = build_media_early_warnings(hours=48, watchlist=st.session_state.active_watchlist)
+    _macro_brief = build_macro_analysis()
+    _retail_frame = media_summary()
+    _retail_rows = _retail_frame.to_dict("records") if not _retail_frame.empty else []
+    try:
+        _social_count_frame = query("""SELECT COUNT(DISTINCT COALESCE(NULLIF(source_family,''),source)) AS n
+            FROM media_articles
+            WHERE datetime(COALESCE(published_at,crawled_at,fetched_at)) >= datetime('now','-48 hours')
+              AND (LOWER(COALESCE(source_family,'')) LIKE '%social%'
+                OR LOWER(COALESCE(source_family,'')) LIKE '%forum%'
+                OR LOWER(COALESCE(source,'')) LIKE '%f319%'
+                OR LOWER(COALESCE(source,'')) LIKE '%facebook%'
+                OR LOWER(COALESCE(source,'')) LIKE '%reddit%')""")
+        _social_source_count = int(_social_count_frame.iloc[0]["n"] or 0) if not _social_count_frame.empty else 0
+    except Exception:
+        _social_source_count = 0
+    _money_story = build_money_flow_story(
+        snapshot=_media_snapshot, narratives=_narratives_v2, alignment=_media_alignment,
+        warnings=_media_warnings, macro=_macro_brief, retail_rows=_retail_rows,
+        social_source_count=_social_source_count,
+    )
 
-    _media_warnings = build_media_early_warnings(hours=24, watchlist=st.session_state.active_watchlist)
-    with st.expander("🚨 Early Warning — sự kiện và phân kỳ tin/giá/flow", expanded=True):
-        st.caption("Các nhãn đều là candidate để kiểm tra, không phải tín hiệu mua/bán. Phân kỳ cần được xem cùng chất lượng dữ liệu và timestamp.")
-        if _media_warnings["warnings"]:
+    if _money_story["evidence_state"] == "NO_SEMANTIC_DATA":
+        st.warning(_money_story["evidence_label"])
+    elif _money_story["evidence_state"] == "LOW_EVIDENCE":
+        st.warning(_money_story["evidence_label"])
+    else:
+        st.info(_money_story["evidence_label"])
+
+    _story_cols = st.columns(4)
+    _story_cols[0].metric("Tin AI đã đọc · 72h", f"{_media_snapshot.get('semantic_articles', 0):,}")
+    _story_cols[1].metric("Nhóm nguồn", f"{_media_snapshot.get('source_families', 0):,}")
+    _story_cols[2].metric("Câu chuyện nhận diện", f"{_narratives_v2.get('narrative_count', 0):,}")
+    _story_cols[3].metric("Mã có đối chiếu", f"{_media_alignment.get('symbols_covered', 0):,}")
+
+    st.markdown("## 1. Bắt đầu từ cổ phiếu: tiền đang làm gì trên bảng điện?")
+    st.caption("Đọc phản ứng giá trước, sau đó mới đối chiếu tin tức. Giá dùng 3 phiên gần nhất; dòng tiền chỉ được gọi là xác minh khi đủ nguồn, độ mới và độ phủ.")
+    if _money_story["stock_stories"]:
+        for _item in _money_story["stock_stories"]:
+            with st.container(border=True):
+                _left, _right = st.columns([1, 4])
+                with _left:
+                    st.markdown(f"### {_item['symbol']}")
+                    if _item["sector"]: st.caption(_item["sector"])
+                with _right:
+                    st.write(_item["story"])
+                    st.caption(f"{_item['articles']} bài liên quan · { _item['source_families'] } nhóm nguồn")
+    else:
+        st.info("Chưa có mã nào đủ dữ liệu semantic để đối chiếu với giá và dòng tiền.")
+
+    st.markdown("## 2. Đám đông đang nghiêng về phía nào?")
+    st.write(_money_story["sentiment_text"])
+    if _money_story["sentiment_state"] == "NO_SOCIAL_DATA":
+        st.warning("Chưa có dữ liệu mạng xã hội/diễn đàn đủ điều kiện. Không lấy số lượng bài báo thay cho tâm lý nhà đầu tư cá nhân.")
+    if _retail_rows:
+        _retail_view = [{
+            "Mã": _r.get("symbol"), "Số tin": _r.get("article_count"),
+            "Mức độ được nhắc": _r.get("pr_level"), "Chiều tin": _r.get("sentiment"),
+            "Nguồn độc lập": _r.get("independent_sources"),
+        } for _r in _retail_rows[:12]]
+        st.caption("Bảng này chỉ cho biết mã nào đang được nhắc đến trên các nguồn đã thu thập; không phải tỷ lệ lạc quan/bi quan của nhỏ lẻ.")
+        st.dataframe(pd.DataFrame(_retail_view), width="stretch", hide_index=True)
+
+    st.markdown("## 3. Từ các mã riêng lẻ, câu chuyện nào đang lan sang cả ngành?")
+    if _money_story["narratives"]:
+        for _idx, _n in enumerate(_money_story["narratives"], 1):
+            with st.container(border=True):
+                st.markdown(f"**{_idx}. {_n['title']}**")
+                st.write(_n["summary"])
+                st.write("**Điều đang được phản ánh:** " + _n["causal"])
+                if _n["sectors"]:
+                    st.write("**Ngành có liên quan:** " + " · ".join(_n["sectors"]))
+                if _n["source_families"] < 2:
+                    st.caption("Mới có một nhóm nguồn; chưa phải xác nhận độc lập.")
+                if _n["conflict_ratio"] is not None and _n["conflict_ratio"] >= 0.35:
+                    st.warning("Các bài đang có thông tin trái chiều; chưa nên chốt một hướng tác động.")
+                if _n["evidence"]:
+                    with st.expander("Xem tin gốc và phản chứng"):
+                        for _ev in _n["evidence"][:5]:
+                            st.markdown(f"- **{_ev.get('source') or 'Nguồn chưa rõ'}:** {_ev.get('title') or 'Không có tiêu đề'}")
+                            if _ev.get("counter_evidence"):
+                                st.caption("Phản chứng: " + str(_ev["counter_evidence"]))
+                            if _ev.get("url"):
+                                st.markdown(f"  [Mở bài gốc]({_ev['url']})")
+    else:
+        st.info("Chưa có đủ bài semantic để hình thành câu chuyện ngành. Hệ thống không tự tạo nhận định thay cho dữ liệu.")
+
+    st.markdown("## 4. Bối cảnh vĩ mô: dòng tiền đang chịu lực kéo nào?")
+    st.markdown(f"**{_money_story['macro_label']}.** Đây là bối cảnh 20 phiên khi đủ dữ liệu, không phải dự báo chắc chắn cho 48 giờ tới.")
+    _macro_a, _macro_b = st.columns(2)
+    with _macro_a:
+        st.markdown("**Yếu tố hỗ trợ**")
+        if _money_story["macro_supports"]:
+            for _x in _money_story["macro_supports"]: st.markdown(f"- {_x}")
+        else:
+            st.caption("Chưa có biến vĩ mô đủ dữ liệu để xác nhận lực hỗ trợ.")
+    with _macro_b:
+        st.markdown("**Yếu tố gây áp lực**")
+        if _money_story["macro_risks"]:
+            for _x in _money_story["macro_risks"]: st.markdown(f"- {_x}")
+        else:
+            st.caption("Chưa có biến vĩ mô đủ dữ liệu để xác nhận áp lực nổi trội.")
+
+    st.markdown("## 5. Câu chuyện dòng tiền trong 48 giờ — điều gì đã rõ, điều gì còn là giả thuyết?")
+    st.markdown(_money_story["lead"])
+    if _money_story["warnings"]:
+        for _w in _money_story["warnings"]:
+            st.warning(f"**{_w['symbol']} — {_w['label']}**\n\n{_w['reason']}")
+    else:
+        st.info("Chưa có cảnh báo đủ điều kiện. Điều này không đồng nghĩa thị trường không có rủi ro; có thể dữ liệu chưa đủ.")
+
+    st.markdown("## 6. 48 giờ tới cần theo dõi điều gì?")
+    for _watch in _money_story["watch_next"]:
+        st.markdown(f"- {_watch}")
+
+    with st.expander("Bằng chứng, độ tin cậy và giới hạn dữ liệu", expanded=False):
+        st.write(f"Quota AI: {_ai_queue['ai_calls']}/{_ai_queue['daily_limit']} request hôm nay · Còn {_ai_queue['eligible_pending']} bài chờ · {_ai_queue['stale_pending']} bài chờ quá 72h.")
+        st.write(f"Tổng hợp semantic: {_media_snapshot.get('note', '')}")
+        if _money_story["macro_gaps"]:
+            st.markdown("**Khoảng trống vĩ mô:**")
+            for _gap in _money_story["macro_gaps"]: st.markdown(f"- {_gap}")
+        if _money_story["narratives"]:
+            st.markdown("**Nguồn và phản chứng của các câu chuyện:**")
+            for _n in _money_story["narratives"][:5]:
+                st.markdown(f"**{_n['title']}**")
+                if _n["evidence"]:
+                    _ev = [{"Thời điểm": e.get("published_at"), "Nguồn": e.get("source"), "Tiêu đề": e.get("title"), "Chất lượng": e.get("content_quality"), "Confidence": e.get("confidence"), "Phản chứng": e.get("counter_evidence"), "URL": e.get("url")} for e in _n["evidence"]]
+                    st.dataframe(pd.DataFrame(_ev), width="stretch", hide_index=True)
+        st.caption("Mọi kết quả trong tab là nghiên cứu/Shadow, không thay đổi điểm SMF, P_WIN, P1–P7 hoặc quyết định giao dịch.")
+
+    with st.expander("Nhật ký kỹ thuật và kiểm định (dành cho kiểm tra hệ thống)", expanded=False):
+        if _media_alignment.get("items"):
+            st.dataframe(pd.DataFrame(_media_alignment["items"]), width="stretch", hide_index=True)
+        if _media_warnings.get("warnings"):
             st.dataframe(pd.DataFrame(_media_warnings["warnings"]), width="stretch", hide_index=True)
-        else:
-            st.info("Chưa phát hiện cảnh báo đủ điều kiện hoặc chưa có đủ dữ liệu xác minh.")
-
-    with st.expander("📈 Event Study — kiểm định độ trễ và sức mạnh dự báo Media", expanded=False):
-        st.caption("Dùng ngày đăng tin làm mốc; giá vào là close hợp lệ đầu tiên sau ngày đăng để tránh dùng close cùng ngày. Đây là kiểm định hướng, chưa phải PnL thực thi.")
-        if st.button("Chạy backtest Media 365 ngày", key="media_event_study_run", width="stretch"):
-            with st.spinner("Đang ghép lịch sử sự kiện với OHLCV đã kiểm tra chất lượng..."):
+        if st.button("Chạy Event Study Media 365 ngày", key="media_event_study_run", width="stretch"):
+            with st.spinner("Đang ghép lịch sử sự kiện với OHLCV..."):
                 st.session_state["media_event_study_report"] = build_media_signal_backtest(days=365)
         _event_study = st.session_state.get("media_event_study_report")
         if _event_study:
             st.write(f"Tín hiệu đủ điều kiện: {_event_study.get('signal_count', 0)}")
-            st.markdown("**Độ trễ xác nhận giá (ngưỡng 1,5% cùng chiều tín hiệu)**")
             st.json(_event_study.get("time_to_confirmation", {}))
-            st.markdown("**Kết quả theo thời hạn**")
-            st.dataframe(pd.DataFrame([{"Horizon": h, **v} for h, v in _event_study.get("horizons", {}).items()]), width="stretch", hide_index=True)
-            for _limitation in _event_study.get("limitations", []):
-                st.caption("• " + _limitation)
-            if _event_study.get("signals_sample"):
-                st.dataframe(pd.DataFrame(_event_study["signals_sample"][:30]), width="stretch", hide_index=True)
+            st.dataframe(pd.DataFrame([{"Kỳ hạn": h, **v} for h, v in _event_study.get("horizons", {}).items()]), width="stretch", hide_index=True)
+            for _limitation in _event_study.get("limitations", []): st.caption("• " + _limitation)
+
     _media_col1, _media_col2, _media_col3 = st.columns(3)
     with _media_col1:
-        if st.button("📰 Chạy Media job ngay", key="media_intelligence_manual", width="stretch"):
-            with st.spinner("Thu thập nhiều nguồn và phân tích semantic theo lô..."):
+        if st.button("📰 Cập nhật tin & phân tích AI", key="media_intelligence_manual", width="stretch"):
+            with st.spinner("Thu thập tin, lấy toàn văn và phân tích theo quota..."):
                 _new_media, _media_errs = crawl_media(st.session_state.active_watchlist, 48)
                 _fulltext_status = fetch_media_fulltext(hours=72, limit=16)
                 _semantic_n, _semantic_errs = analyze_media_semantics(limit=8)
                 _queue = media_ai_queue_status(hours=72)
-            st.success(
-                f"Lưu mới {_new_media} bài; AI đọc {_semantic_n} bài; "
-                f"còn {_queue['eligible_pending']} bài chờ trong 72h; "
-                f"quota {_queue['ai_calls']}/{_queue['daily_limit']} request hôm nay; "
-                f"toàn văn { _fulltext_status['fetched'] } bài / { _fulltext_status['attempted'] } lần thử."
-            )
-            if _media_errs: st.warning(f"Có {len(_media_errs)} nguồn không truy cập được.")
+            st.success(f"Đã thu thập {_new_media} bài; AI đọc {_semantic_n}; còn {_queue['eligible_pending']} bài chờ; quota {_queue['ai_calls']}/{_queue['daily_limit']}.")
+            if _media_errs: st.warning(f"{len(_media_errs)} nguồn RSS gặp lỗi.")
             if _semantic_errs: st.info("AI: " + "; ".join(_semantic_errs[:2]))
+            st.rerun()
     with _media_col2:
-        if st.button("🌐 Cập nhật Macro mở rộng", key="macro_intelligence_manual", width="stretch"):
-            with st.spinner("Đồng bộ market proxies, đường cong Treasury và World Bank..."):
+        if st.button("🌐 Cập nhật dữ liệu vĩ mô", key="macro_intelligence_manual", width="stretch"):
+            with st.spinner("Đồng bộ các biến vĩ mô và proxy liên thị trường..."):
                 _macro_data, _macro_errs = fetch_macro_extended(include_official=True, force=True)
                 st.session_state.macro_data = _macro_data
-            st.success(f"Đã đồng bộ {len(_macro_data)} market proxies; kiểm tra thêm dữ liệu official ở bảng vĩ mô.")
+            st.success(f"Đã đồng bộ {len(_macro_data)} chuỗi dữ liệu.")
             if _macro_errs: st.warning("Một số nguồn lỗi: " + "; ".join(_macro_errs[:3]))
+            st.rerun()
     with _media_col3:
-        if st.button("🧠 Chạy toàn bộ Intelligence", key="intelligence_manual_full", width="stretch"):
-            with st.spinner("Đang chạy Media + Macro + Shadow forecast..."):
+        if st.button("🧠 Chạy toàn bộ cập nhật", key="intelligence_manual_full", width="stretch"):
+            with st.spinner("Đang chạy Media + Macro + Shadow..."):
                 _job_result = run_intelligence_job(slot="manual", watchlist=st.session_state.active_watchlist, force_macro=True)
-            st.success(f"Job: {_job_result.get('status')} · tin mới {_job_result.get('media_new_articles', 0)} · AI đọc {_job_result.get('media_ai_articles_analyzed', 0)} · forecast Shadow {_job_result.get('shadow_forecasts', {}).get('created', 0)}")
+            st.success(f"Job {_job_result.get('status')} · tin mới {_job_result.get('media_new_articles', 0)} · AI đọc {_job_result.get('media_ai_articles_analyzed', 0)}.")
             if _job_result.get("macro_errors") or _job_result.get("media_sources_errors") or _job_result.get("media_ai_errors"):
-                st.warning("Job có cảnh báo nguồn/quota; mở nhật ký job để xem chi tiết.")
-    msum = media_summary()
-    if not msum.empty:
-        st.markdown("#### 📊 Tần suất bàn luận & Mức độ quan tâm (Retail Buzz)")
-        summary_cols = [c for c in ["symbol", "article_count", "pr_level", "attention_score", "baseline_count", "independent_sources", "retail_buzz", "sentiment", "lai_intent", "warning"] if c in msum.columns]
-        show_configurable_table(msum[summary_cols], "media_summary")
-
-    _sector_media = sector_media_summary(hours=168)
-    if _sector_media:
-        st.markdown("#### 🏭 Media theo ngành và thông tin quốc tế (7 ngày)")
-        show_configurable_table(pd.DataFrame(_sector_media), "sector_media_intelligence")
-    mdf = recent_media(hours=48, limit=100, refresh=False)
-    if not mdf.empty:
-        media_cols = [c for c in ["published_at", "source", "source_family", "geo_scope", "title", "sector_tags", "content_quality", "fulltext_status", "event_type", "event_confidence", "source_reliability", "semantic_status", "semantic_json", "sentiment", "retail_buzz", "lai_intent", "warning"] if c in mdf.columns]
-        display_m = mdf[media_cols].copy()
-        display_m.columns = ["Thời Gian" if c == "published_at" else "Nguồn" if c == "source" else "Nhóm nguồn" if c == "source_family" else "Phạm vi" if c == "geo_scope" else "Tiêu Đề" if c == "title" else "Ngành" if c == "sector_tags" else "Chất lượng nội dung" if c == "content_quality" else "Trạng thái toàn văn" if c == "fulltext_status" else "Loại sự kiện" if c == "event_type" else "Độ tin cậy rule" if c == "event_confidence" else "Điểm nguồn" if c == "source_reliability" else "Trạng thái AI" if c == "semantic_status" else "AI đọc hiểu / chuỗi tác động" if c == "semantic_json" else "Chiều Hướng" if c == "sentiment" else "Tâm Lý Nhỏ Lẻ" if c == "retail_buzz" else "Ý đồ (ứng viên)" if c == "lai_intent" else "Cảnh Báo Quants" for c in media_cols]
-        show_configurable_table(display_m, "media_articles")
-    else:
-        st.info("Chưa có tin tức trong 48h qua. Hãy bấm 'Quét Tin Media 48h'.")
-
-    st.markdown("#### 🌐 Macro Intelligence — liên thị trường và dữ liệu cấu trúc")
-    try:
-        _macro_brief = build_macro_analysis()
-        st.caption(f"Regime vĩ mô tham chiếu: {_macro_brief.get('regime')} · {len(_macro_brief.get('market_proxy_20d',{}))} proxy theo dõi · {_macro_brief.get('latest_factor_count')} chuỗi có dữ liệu mới nhất")
-        _oil_gold = _macro_brief.get("oil_gold_ratio", {})
-        if _oil_gold:
-            st.markdown("**Tỷ lệ giá dầu/vàng (Brent USD/thùng ÷ Gold USD/oz)**")
-            st.json(_oil_gold)
-        _macro_rel = _macro_brief.get("cross_market_relationships", [])
-        if _macro_rel: show_configurable_table(pd.DataFrame(_macro_rel), "macro_cross_market_relationships")
-        _theory = _macro_brief.get("economic_framework_coverage", {})
-        if _theory:
-            st.markdown(f"**Độ phủ học thuyết kinh tế:** {_theory.get('covered', 0)}/{_theory.get('total', 0)} lăng kính có biến đầu vào nhận diện được")
-            with st.expander("Ma trận học thuyết – biến số – giới hạn"):
-                show_configurable_table(pd.DataFrame(_theory.get("frameworks", [])), "economic_framework_coverage")
-                st.caption(_theory.get("note", "Coverage không đồng nghĩa mô hình đã kiểm định."))
-        _macro_risks = _macro_brief.get("risk_evidence", [])
-        _macro_supports = _macro_brief.get("supporting_evidence", [])
-        if _macro_supports: st.markdown("**Điểm hỗ trợ:** " + "; ".join(_macro_supports[:4]))
-        if _macro_risks: st.markdown("**Áp lực/rủi ro:** " + "; ".join(_macro_risks[:4]))
-        with st.expander("Khoảng trống dữ liệu và giới hạn diễn giải"):
-            for _gap in _macro_brief.get("data_gaps", [])[:12]: st.write("• " + _gap)
-            for _limit in _macro_brief.get("model_limits", []): st.caption(_limit)
-        if _macro_brief.get("sector_context"):
-            st.markdown("**Độ phủ biến số theo ngành**")
-            show_configurable_table(pd.DataFrame(_macro_brief["sector_context"]), "macro_sector_context")
-    except Exception as _macro_analysis_error:
-        st.warning(f"Chưa xây dựng được phân tích macro: {type(_macro_analysis_error).__name__}")
-    macro_history = query("""SELECT m.factor, m.value, m.change_pct, m.unit, m.source, m.ts, m.source_type, m.frequency, m.geography
-        FROM macro_snapshots m JOIN (SELECT factor, MAX(id) AS max_id FROM macro_snapshots GROUP BY factor) x
-        ON x.max_id=m.id ORDER BY m.factor""")
-    if not macro_history.empty:
-        macro_history = macro_history.rename(columns={"factor":"Yếu tố", "value":"Giá trị", "change_pct":"Thay đổi (%)", "unit":"Đơn vị", "source":"Nguồn", "ts":"Ngày quan sát", "source_type":"Loại dữ liệu", "frequency":"Tần suất", "geography":"Địa lý"})
-        show_configurable_table(macro_history, "macro_proxy_history")
-        st.caption("Dữ liệu được gắn loại nguồn: proxy thị trường, Treasury chính thức, hoặc thống kê World Bank tần suất thấp. World Bank annual không đại diện cho M2/tín dụng tháng của NHNN; mọi quan hệ liên thị trường chỉ là giả thuyết cần backtest.")
-    else:
-        st.info("Chưa có lịch sử vĩ mô. Chạy Macro job thủ công hoặc worker macro để thu thập và lưu chuỗi.")
+                st.warning("Một số nguồn hoặc quota chưa hoàn tất; xem nhật ký kỹ thuật.")
+            st.rerun()
 
 with tabs[3]:
     audit_tab, governance_tab = st.tabs(["📊 Hiệu năng Audit", "🛡️ Quản trị mô hình / Phê duyệt"])
