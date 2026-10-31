@@ -1509,7 +1509,7 @@ def compute_quant(symbols, index_quote, now: datetime):
                         'causal': True, 'future_data_used': False,
                     }
                     r['smf_v2_vsa'] = {
-                        'engine': 'vsa_volume_v2', 'engine_version': '2.1.0',
+                        'engine': 'vsa_volume_v2', 'engine_version': '3.0.0',
                         'status': 'ERROR', 'reason': type(structure_error).__name__,
                         'causal': True, 'future_data_used': False,
                     }
