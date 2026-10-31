@@ -71,3 +71,11 @@ The comparison is descriptive, not a declaration that one provider is ground tru
 - `match_type` Buy/Sell is an aggressor-side classification, not investor identity.
 - A 5,000-trade sample must not be presented as complete-session flow or used as full-session VWAP without a completeness guarantee.
 - Cross-source divergence can be caused by corporate-action adjustment, different trade/odd-lot coverage, negotiated transactions, or feed timing. Review each material outlier.
+
+
+### 4. SMF P3 Order Flow sample diagnostics
+
+- The SMF sidecar consumes the already-QC'd `trade_sample_report` and computes Buy share, sample imbalance, sample window, source-match and freshness gates.
+- A directional label is shown only when source metadata matches, latest sample age is at most 300 seconds, at least 30 trades are valid, and classified Buy/Sell volume is at least 60%.
+- The result remains `PARTIAL` and `sample_only`; it never votes in consensus or changes legacy score/forecast/decision paths. Even a Buy-dominant sample is not proof of full-session demand, investor identity or institutional accumulation.
+- Missing, stale, low-coverage or source-mismatched samples are displayed as unavailable/diagnostic-only rather than being filled with estimated flow.
