@@ -1,3 +1,0 @@
-SUPERSEDED — DO NOT USE FOR NEW DEPLOYMENTS
-
-This V16.7 deployment note is retained only for release history. Use DEPLOY_DB_BOOTSTRAP_ADMIN_V168_20261031.txt for the current V16.8 release.
